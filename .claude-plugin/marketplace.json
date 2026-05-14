@@ -1,0 +1,20 @@
+{
+  "name": "donggu-skills",
+  "owner": {
+    "name": "강동현 (donggu)",
+    "url": "https://github.com/donggu1105"
+  },
+  "metadata": {
+    "description": "Personal Claude Code skill collection — domain-organized monorepo by donggu",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "donggu-obsidian",
+      "source": "./donggu-obsidian",
+      "description": "Obsidian PKM vault operations — health audits, journal-to-CORE extraction rituals, duplicate detection. For LYT / PARA / Zettelkasten vaults.",
+      "version": "1.0.0",
+      "strict": false
+    }
+  ]
+}
