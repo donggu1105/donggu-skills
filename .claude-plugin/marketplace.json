@@ -22,6 +22,13 @@
       "description": "Document & deck authoring — tightened HTML slide decks (22 locked layouts + 4 themes + validator) for lectures, seminars, workshops, and launch talks.",
       "version": "1.0.0",
       "strict": false
+    },
+    {
+      "name": "donggu-sns",
+      "source": "./donggu-sns",
+      "description": "SNS content authoring — Blog master + LinkedIn/Threads/X/Instagram/YouTube variants with Socratic retrieve from Obsidian vault. Preserves 회고형 1인칭 voice.",
+      "version": "1.0.0",
+      "strict": false
     }
   ]
 }
