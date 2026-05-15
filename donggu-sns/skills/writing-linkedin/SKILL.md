@@ -26,13 +26,13 @@ LinkedIn 채널 글 작성. **기존 발행 글의 voice·tone 학습** + 한국
 
 ### 자동 retrieve
 
-1. **VOICE** — `obsidian:read 1_SNS/LinkedIn/01_VOICE - LinkedIn.md`
+1. **VOICE** — `obsidian:read 1_SNS/LinkedIn/_anchors/VOICE - LinkedIn.md`
    → 정중 존댓말·첫 3줄 후크·단문 호흡
 
-2. **CHANNEL_GUIDE** — `obsidian:read 1_SNS/LinkedIn/00_CHANNEL_GUIDE - LinkedIn.md`
+2. **CHANNEL_GUIDE** — `obsidian:read 1_SNS/LinkedIn/_anchors/CHANNEL_GUIDE - LinkedIn.md`
    → 분량 1,200~1,400자, 외부 링크 페널티, 발행 시간
 
-3. **WINNING_PATTERNS** — `obsidian:read 1_SNS/LinkedIn/02_WINNING_PATTERNS - LinkedIn.md`
+3. **WINNING_PATTERNS** — `obsidian:read 1_SNS/LinkedIn/_anchors/WINNING_PATTERNS - LinkedIn.md`
    → 회고×BLUF / 인사이트×PAS / 튜토리얼×Listicle Top 3 combo
 
 4. **기존 발행 글 샘플** (voice 학습):

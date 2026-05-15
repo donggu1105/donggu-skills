@@ -26,12 +26,12 @@ Blog 채널 글 작성. **기존 발행 글의 voice·tone을 자동 학습**해
 
 ### 자동 retrieve (사용자 입력 없음)
 
-1. **VOICE** — `obsidian:read Personal Branding/50_Channel_Packs/1_SNS/Blog/01_VOICE - Blog.md`
+1. **VOICE** — `obsidian:read Personal Branding/50_Channel_Packs/1_SNS/Blog/_anchors/VOICE - Blog.md`
    → 톤·종결·호흡·시그니처·회피 룰
 
 2. **(Blog는 CHANNEL_GUIDE 없음** — 마스터)
 
-3. **WINNING_PATTERNS** — `obsidian:read 1_SNS/Blog/02_WINNING_PATTERNS - Blog.md`
+3. **WINNING_PATTERNS** — `obsidian:read 1_SNS/Blog/_anchors/WINNING_PATTERNS - Blog.md`
    → Top 3 combo + Winning Voice + 케이스
 
 4. **기존 발행 글 샘플 retrieve (voice 학습용)**:

@@ -26,13 +26,13 @@ YouTube 채널 글 작성. **Shorts와 롱폼 거의 다른 채널**. 기존 발
 
 ### 자동 retrieve
 
-1. **VOICE** — `obsidian:read 1_SNS/YouTube/01_VOICE - YouTube.md`
+1. **VOICE** — `obsidian:read 1_SNS/YouTube/_anchors/VOICE - YouTube.md`
    → Shorts/롱폼 분리 voice 룰
 
-2. **CHANNEL_GUIDE** — `obsidian:read 1_SNS/YouTube/00_CHANNEL_GUIDE - YouTube.md`
+2. **CHANNEL_GUIDE** — `obsidian:read 1_SNS/YouTube/_anchors/CHANNEL_GUIDE - YouTube.md`
    → 외부 링크 정책, 썸네일·제목 공식, 발행 시간
 
-3. **WINNING_PATTERNS** — `obsidian:read 1_SNS/YouTube/02_WINNING_PATTERNS - YouTube.md`
+3. **WINNING_PATTERNS** — `obsidian:read 1_SNS/YouTube/_anchors/WINNING_PATTERNS - YouTube.md`
    → Shorts(회고×BLUF) / 롱폼 튜토리얼·인터뷰 Top 3
 
 4. **기존 발행 글 샘플**:

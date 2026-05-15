@@ -26,13 +26,13 @@ Instagram 채널 글 작성. **블로그 마스터 → 인사이트 카드 5장 
 
 ### 자동 retrieve
 
-1. **VOICE** — `obsidian:read 1_SNS/Instagram/01_VOICE - Instagram.md`
+1. **VOICE** — `obsidian:read 1_SNS/Instagram/_anchors/VOICE - Instagram.md`
    → 친근 정중, 캡션 첫 1~3줄이 전부, 카드 25~40자
 
-2. **CHANNEL_GUIDE** — `obsidian:read 1_SNS/Instagram/00_CHANNEL_GUIDE - Instagram.md`
+2. **CHANNEL_GUIDE** — `obsidian:read 1_SNS/Instagram/_anchors/CHANNEL_GUIDE - Instagram.md`
    → 캐러셀 1080x1350, 해시태그 5개 하드 캡, bio 5개 링크
 
-3. **WINNING_PATTERNS** — `obsidian:read 1_SNS/Instagram/02_WINNING_PATTERNS - Instagram.md`
+3. **WINNING_PATTERNS** — `obsidian:read 1_SNS/Instagram/_anchors/WINNING_PATTERNS - Instagram.md`
    → 튜토리얼×Listicle / 회고×양괄식 / 공지×BLUF Top 3
 
 4. **기존 발행 글 샘플**:
