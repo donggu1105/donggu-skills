@@ -1,0 +1,24 @@
+{
+  "name": "donggu-docs",
+  "version": "1.0.0",
+  "description": "Document & deck authoring skills — make tightened HTML slide decks (locked 22-layout system + 4 themes + validator) from lecture, seminar, or workshop content",
+  "author": {
+    "name": "강동현 (donggu)",
+    "url": "https://github.com/donggu1105"
+  },
+  "repository": "https://github.com/donggu1105/donggu-skills",
+  "license": "MIT",
+  "keywords": [
+    "slides",
+    "ppt",
+    "deck",
+    "html-slides",
+    "presentation",
+    "lecture",
+    "seminar",
+    "workshop",
+    "tightened-slide",
+    "locked-layouts",
+    "design-system"
+  ]
+}

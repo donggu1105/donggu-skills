@@ -15,6 +15,13 @@
       "description": "Obsidian PKM vault operations — health audits, journal-to-CORE extraction rituals, duplicate detection. For LYT / PARA / Zettelkasten vaults.",
       "version": "1.0.0",
       "strict": false
+    },
+    {
+      "name": "donggu-docs",
+      "source": "./donggu-docs",
+      "description": "Document & deck authoring — tightened HTML slide decks (22 locked layouts + 4 themes + validator) for lectures, seminars, workshops, and launch talks.",
+      "version": "1.0.0",
+      "strict": false
     }
   ]
 }

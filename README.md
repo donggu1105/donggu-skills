@@ -4,8 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin%20Marketplace-8B5CF6)](https://claude.com/claude-code)
-[![Plugins](https://img.shields.io/badge/plugins-1-blue)](#-plugins)
-[![Skills](https://img.shields.io/badge/skills-3-green)](#-plugins)
+[![Plugins](https://img.shields.io/badge/plugins-2-blue)](#-plugins)
+[![Skills](https://img.shields.io/badge/skills-4-green)](#-plugins)
 
 Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되어 `donggu-<domain>:<skill>` 형식으로 호출.
 
@@ -44,9 +44,25 @@ checking-vault-health  ──┬──→  finding-duplicate-notes  (absorbed ca
                          └──→  extract-core             (extracted_to: [] 5+건)
 
 extract-core  ──→  finding-duplicate-notes  (채택 시 기존 CORE 중복 검사)
+              └──→  donggu-docs:make-ppt-slide  (CORE 입력 → 강의 덱 빌드)
 ```
 
 각 skill의 `## 관련 Skill` 섹션이 자동 chain 권장.
+
+---
+
+### 🎬 `donggu-docs` — Document & deck authoring
+
+강의·세미나·워크샵·런칭 발표용 **단일 HTML 덱** 빌드 시스템. 22개 잠긴 레이아웃(S01~S22) + 4개 컬러 테마 + 정규식 검증기 기반으로 매번 같은 톤이 자동 보장. 원본은 [bytonylee/future-slide-skill](https://github.com/bytonylee/future-slide-skill)의 `tightened-slide`, 본 plugin은 강의 톤으로 재작성한 donggu 버전 (Apache-2.0 → MIT derivative).
+
+| Skill | 호출 | 용도 | Time budget |
+|---|---|---|---|
+| `make-ppt-slide` | `donggu-docs:make-ppt-slide` | 강의·세미나·워크샵 단일 HTML 덱 빌드 (`index.html` + `images/`) | 30-90분 |
+
+**자연어 트리거 예시**:
+- "강의 덱 만들어줘"
+- "세미나용 8페이지 한국어 발표 자료 만들어줘"
+- "PPT 대신 HTML 슬라이드로 빌드해줘"
 
 ---
 
@@ -122,6 +138,16 @@ donggu-skills/                       ← marketplace repo
 │   │   └── finding-duplicate-notes/
 │   │       └── SKILL.md
 │   └── README.md
+├── donggu-docs/                     ← plugin (namespace: donggu-docs:)
+│   ├── .claude-plugin/
+│   │   └── plugin.json
+│   ├── skills/
+│   │   └── make-ppt-slide/
+│   │       ├── SKILL.md
+│   │       ├── assets/              ← template.html, motion.min.js
+│   │       ├── references/          ← layouts, layout-lock, themes, checklist, image-prompts, map-component
+│   │       └── scripts/             ← validate-deck.mjs
+│   └── README.md
 ├── README.md                        ← 본 파일
 └── LICENSE
 ```
@@ -152,6 +178,7 @@ donggu-skills/                       ← marketplace repo
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
 | **donggu-obsidian** | ✅ `v1.0.0` | 3 | Obsidian PKM vault operations |
+| **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |
 | 🔲 donggu-ax | planned | — | AI 도입·AX 컨설팅·임원 자료 |
