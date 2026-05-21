@@ -67,7 +67,7 @@ title: <deck title>
 When generating on the `.md`-driven path:
 
 1. **Tokens → `:root`.** Every colour / spacing / radius the DESIGN.md names becomes a CSS variable. Never inline a hex the design gives a token for.
-2. **Type → font stacks + utility classes.** Resolve each typeface to a loadable web font, map to a `--font-*` variable. Honour weights, letter-spacing, and uppercase/case rules exactly.
+2. **Type → font stacks + utility classes.** Resolve each typeface to a loadable web font, map to a `--font-*` variable. Honour weights, letter-spacing, and uppercase/case rules exactly. A `DESIGN.md`'s px sizes are *web-page* scale — **scale them up for the deck**: keep the design's type hierarchy and ratios, but raise absolute sizes to the presentation scale (SKILL.md → *Typography Scale*).
 3. **Components → CSS.** Build buttons, cards, inputs, etc. per the DESIGN.md component specs.
 4. **Do's / Don'ts are hard constraints.** "No bold", "no gradients", "0px radius except buttons" are not suggestions — violating one fails the deck.
 5. **Viewport fitting still wins.** Wrap the design's fixed px values in `clamp()`; every slide still fits 100vh with no scroll. The design system never overrides make-ppt's non-negotiables.

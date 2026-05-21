@@ -63,6 +63,19 @@ These invariants apply to EVERY slide in EVERY presentation:
 
 **Content exceeds limits? Split into multiple slides. Never cram, never scroll.**
 
+### Typography Scale (presentation, not web)
+
+A deck is read from across a room — not from a laptop at arm's length. Size type for the room:
+
+- **On-slide body / card / list text:** `clamp()` floor **≥ 1rem**, ceiling **~1.5–1.95rem**. Never web-article scale (0.75–1rem).
+- **Lead / intro paragraphs:** roughly `clamp(1.2rem, 2.4vw, 1.95rem)`.
+- **Section headlines:** large and confident — `clamp(1.9rem, 4.7vw, 3.9rem)` or above.
+- **Uppercase meta labels** (eyebrows, card labels): floor **≥ 0.8rem**.
+- Only fixed chrome — slide counter, footnote captions — may sit below 1rem.
+- The headline-to-body gap must never make body text read as fine print. When unsure, size **up**.
+
+`viewport-base.css` ships this scale in `--body-size` / `--small-size`. After sizing up, re-verify every slide still fits 100vh with no scroll.
+
 ---
 
 ## The .md-Driven Path

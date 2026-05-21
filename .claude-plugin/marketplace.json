@@ -20,7 +20,7 @@
       "name": "donggu-docs",
       "source": "./donggu-docs",
       "description": "Document & deck authoring — zero-dependency animation-rich single-HTML slide decks for lectures, seminars, workshops, and launch talks. Style driven by a designs/ DESIGN.md library or visual discovery.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "strict": false
     },
     {
