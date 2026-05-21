@@ -7,7 +7,7 @@ description: Use when building an HTML presentation, slide deck, or talk slides 
 
 Create zero-dependency, animation-rich HTML presentations that run entirely in the browser.
 
-> **donggu 버전 — `frontend-slides` 스킬 기반.** frontend-slides를 그대로 베이스로 두고, **프로젝트 `designs/` 폴더의 `DESIGN.md`로 룩을 구동하는 `.md`-driven 경로**를 추가했다. frontend-slides의 기존 흐름(무드 프리뷰·프리셋)은 손대지 않고 그대로 유지 — `.md`-driven은 *추가된 선택지*다. 형식은 `designs-md-guide.md` 참조.
+> **donggu version — based on the `frontend-slides` skill.** Keeps frontend-slides as the base and adds a **`.md`-driven path that takes the look from a `DESIGN.md` in the project's `designs/` folder**. frontend-slides' original flow (mood previews, presets) is left fully intact — the `.md`-driven path is an *added option*. See `designs-md-guide.md` for the format.
 
 ## Core Principles
 
@@ -75,13 +75,13 @@ make-ppt decides a deck's look in one of TWO ways:
 make-ppt accepts the `DESIGN.md` in either place — it checks `./DESIGN.md` first, then `./designs/*/DESIGN.md`:
 
 ```
-./DESIGN.md                  한 디자인 — getdesign CLI(`npx getdesign add`)의 기본 위치
+./DESIGN.md                  one design — getdesign CLI (`npx getdesign add`) default location
 
-designs/                     디자인 여러 개를 둘 때 — 디자인당 하위 폴더 1개
+designs/                     for several designs — one subfolder per design
   <name>/
-    DESIGN.md      디자인 시스템 (룩의 기준)
-    fonts.md       (선택) 폰트 매핑 + 웹폰트 <link>
-    <deck>.md      (선택) 덱 콘텐츠
+    DESIGN.md      design system (the source of the look)
+    fonts.md       (optional) font mapping + web-font <link>
+    <deck>.md      (optional) deck content
 ```
 
 On the `.md`-driven path: `DESIGN.md` replaces Phase 2's mood/preview discovery, and a content `.md` (if present) feeds Phase 1. Everything else — viewport-fitting rules, single-HTML output, every phase — is unchanged.

@@ -14,12 +14,12 @@ make-ppt accepts a `DESIGN.md` in either place — it checks `./DESIGN.md` first
 
 ```
 designs/
-  README.md            (선택) 라이브러리 안내
+  README.md            (optional) library readme
   <name>/
-    DESIGN.md           디자인 시스템 스펙 (필수)
-    fonts.md            (선택) 폰트 매핑 + 웹폰트 <link>
-    <deck>.md           (선택) 덱 콘텐츠
-    <deck>.html         생성된 덱 (단일 HTML)
+    DESIGN.md           design system spec (required)
+    fonts.md            (optional) font mapping + web-font <link>
+    <deck>.md           (optional) deck content
+    <deck>.html         generated deck (single HTML)
 ```
 
 If neither exists, obtain a `DESIGN.md` first (see below). The generated deck is written next to its `DESIGN.md` by default — unless the project keeps decks elsewhere.
@@ -46,17 +46,17 @@ Optional. Holds the deck's content so the whole deck is `.md`-specified.
 
 ```
 ---
-design: <designs/ 폴더 이름 — 루트 DESIGN.md면 생략>
-title: <덱 제목>
+design: <designs/ folder name — omit if using a root DESIGN.md>
+title: <deck title>
 ---
 
-# 슬라이드 제목
+# Slide title
 <!-- layout: title | content | ... -->
 
-(마크다운 본문)
+(markdown body)
 
 ---
-(다음 슬라이드)
+(next slide)
 ```
 
 - `---` separates slides · the first `#` is the slide title · `<!-- layout: ... -->` hints the slide type · the rest is plain markdown.
