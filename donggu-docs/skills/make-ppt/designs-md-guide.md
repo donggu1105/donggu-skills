@@ -1,36 +1,44 @@
 # designs-md-guide — the .md-driven path
 
-How make-ppt turns a project's `designs/` library into a deck. The `.md` files are the **standard**: `DESIGN.md` decides the look, a content `.md` decides what's on the slides, and make-ppt synthesizes them into a single self-contained HTML deck.
+How make-ppt turns a project's `DESIGN.md` into a deck. The `.md` files are the **standard**: a `DESIGN.md` decides the look, a content `.md` decides what's on the slides, and make-ppt synthesizes them into a single self-contained HTML deck.
 
 This path is **additive** — it does not change frontend-slides' mood/preview discovery. Use it when a design system already exists or the user wants a specific brand/aesthetic.
 
-## The designs/ folder
+## Where the DESIGN.md lives
 
-A project keeps its design systems in `./designs/`. One design = one subfolder.
+make-ppt accepts a `DESIGN.md` in either place — it checks `./DESIGN.md` first, then `./designs/*/DESIGN.md`:
+
+**Single design — root `./DESIGN.md`.** The getdesign CLI's default location (`npx getdesign add <name>` writes `./DESIGN.md`). Simplest; one design per project.
+
+**Several designs — a `./designs/` library.** One subfolder per design:
 
 ```
 designs/
   README.md            (선택) 라이브러리 안내
   <name>/
-    DESIGN.md           필수 — 디자인 시스템 스펙
-    fonts.md            필수 — 폰트 매핑 + 웹폰트 <link>
-    <deck>.md           덱 콘텐츠 (덱마다 하나, 여러 개 가능)
+    DESIGN.md           디자인 시스템 스펙 (필수)
+    fonts.md            (선택) 폰트 매핑 + 웹폰트 <link>
+    <deck>.md           (선택) 덱 콘텐츠
     <deck>.html         생성된 덱 (단일 HTML)
 ```
 
-If a project has no `designs/` yet, make-ppt can create one: author a `DESIGN.md`, add a `fonts.md`, done.
-
-The generated deck (`<deck>.html`) is written next to its content `.md` inside `designs/<name>/` by default — unless the project keeps decks elsewhere, in which case follow that convention.
+If neither exists, obtain a `DESIGN.md` first (see below). The generated deck is written next to its `DESIGN.md` by default — unless the project keeps decks elsewhere.
 
 ## DESIGN.md — the look
 
-A `DESIGN.md` is a prose + table spec of a design system: colours (hex), typography (family, size, weight, letter-spacing), spacing scale, border radius, components, and **Do's / Don'ts**. It is the same kind of artifact as a `STYLE_PRESETS.md` preset — just richer, and per-project.
+A `DESIGN.md` specs a design system: colours (hex), typography (family, size, weight, letter-spacing), spacing scale, border radius, components, and **Do's / Don'ts**. It is the same kind of artifact as a `STYLE_PRESETS.md` preset — just richer, and per-project. No fixed schema; it must just be specific enough that every colour, font, and rule reads straight off it.
 
-It does not need a fixed schema. It must be specific enough that every colour, font, and rule can be read straight off it. Sites like getdesign.md publish ready-made `DESIGN.md` files for real brands; brand guides and hand-written specs work equally well.
+**To obtain one:**
+- `npx getdesign@latest add <name>` — run from the project root; fetches a canonical `DESIGN.md` (one file, exact) from getdesign.md's 70+ brand catalog.
+- Or hand-author one, or paste a spec (brand guide, etc.).
 
-## fonts.md — the fonts
+make-ppt is **source-agnostic** — it only needs a `DESIGN.md` to exist; it does not care how it got there. The CLI is just a convenient, exact fetcher, not a dependency make-ppt relies on.
 
-Maps the design's typefaces to loadable web fonts (Google Fonts / Fontshare) and gives the `<link>` to drop into the deck `<head>`. If the real fonts are licensed or unavailable, it documents open-source substitutes — keeping the **role split** the design defines (e.g. display / body / mono) matters more than an exact typeface match.
+## Fonts
+
+A `DESIGN.md` already names its typefaces in the typography section — resolve those to loadable web fonts (Google Fonts / Fontshare) at generation time. Keep the design's **role split** (e.g. display / body / mono); if the real fonts are licensed, use open-source substitutes — the split matters more than an exact match.
+
+A separate `fonts.md` is **optional** — use it only to pin chosen substitutes + the exact `<link>` for a design you reuse often.
 
 ## content .md — what's on the slides
 
@@ -38,7 +46,7 @@ Optional. Holds the deck's content so the whole deck is `.md`-specified.
 
 ```
 ---
-design: <designs/ 폴더 이름>
+design: <designs/ 폴더 이름 — 루트 DESIGN.md면 생략>
 title: <덱 제목>
 ---
 
@@ -59,11 +67,11 @@ title: <덱 제목>
 When generating on the `.md`-driven path:
 
 1. **Tokens → `:root`.** Every colour / spacing / radius the DESIGN.md names becomes a CSS variable. Never inline a hex the design gives a token for.
-2. **Type → font stacks + utility classes.** Map each typeface (via `fonts.md`) to a `--font-*` variable. Honour weights, letter-spacing, and uppercase/case rules exactly.
+2. **Type → font stacks + utility classes.** Resolve each typeface to a loadable web font, map to a `--font-*` variable. Honour weights, letter-spacing, and uppercase/case rules exactly.
 3. **Components → CSS.** Build buttons, cards, inputs, etc. per the DESIGN.md component specs.
 4. **Do's / Don'ts are hard constraints.** "No bold", "no gradients", "0px radius except buttons" are not suggestions — violating one fails the deck.
 5. **Viewport fitting still wins.** Wrap the design's fixed px values in `clamp()`; every slide still fits 100vh with no scroll. The design system never overrides make-ppt's non-negotiables.
-6. **Single HTML.** The deck inlines everything; `designs/` is a source library, not a runtime dependency.
+6. **Single HTML.** The deck inlines everything; the `DESIGN.md` is a source spec, not a runtime dependency.
 
 The result: a deck whose every visual choice traces to one `DESIGN.md` line — repeatable, inspectable, consistent across decks that share a design.
 
@@ -73,5 +81,5 @@ A `.md`-driven deck is done only when it:
 
 - [ ] renders the `DESIGN.md` faithfully — every token, every Do/Don't honoured
 - [ ] fits every slide in exactly 100vh, no scroll (checked at 1280×720)
-- [ ] loads the fonts named in `fonts.md`
+- [ ] loads the fonts the DESIGN.md names
 - [ ] is a single self-contained HTML file

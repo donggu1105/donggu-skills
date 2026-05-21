@@ -65,21 +65,23 @@ These invariants apply to EVERY slide in EVERY presentation:
 
 ---
 
-## The .md-Driven Path (designs/ library)
+## The .md-Driven Path
 
 make-ppt decides a deck's look in one of TWO ways:
 
 1. **Visual discovery** — mood → 3 previews → pick. The frontend-slides default, used when there is no design system yet. Unchanged below.
-2. **`.md`-driven** — the look comes from a `DESIGN.md` in the project's `./designs/` folder. Use when a design system already exists, or the user wants a specific brand/aesthetic.
+2. **`.md`-driven** — the look comes from a `DESIGN.md` the project already has. Use when a design system exists, or the user wants a specific brand/aesthetic.
 
-A project's design library:
+make-ppt accepts the `DESIGN.md` in either place — it checks `./DESIGN.md` first, then `./designs/*/DESIGN.md`:
 
 ```
-designs/
+./DESIGN.md                  한 디자인 — getdesign CLI(`npx getdesign add`)의 기본 위치
+
+designs/                     디자인 여러 개를 둘 때 — 디자인당 하위 폴더 1개
   <name>/
-    DESIGN.md      디자인 시스템 — 색·폰트·간격·컴포넌트·규칙 (룩의 기준)
-    fonts.md       폰트 매핑 + 웹폰트 <link>
-    <deck>.md      (선택) 덱 콘텐츠 — 슬라이드별 내용
+    DESIGN.md      디자인 시스템 (룩의 기준)
+    fonts.md       (선택) 폰트 매핑 + 웹폰트 <link>
+    <deck>.md      (선택) 덱 콘텐츠
 ```
 
 On the `.md`-driven path: `DESIGN.md` replaces Phase 2's mood/preview discovery, and a content `.md` (if present) feeds Phase 1. Everything else — viewport-fitting rules, single-HTML output, every phase — is unchanged.
@@ -98,7 +100,7 @@ Determine what the user wants:
 - **Mode B: PPT Conversion** — Convert a .pptx file. Go to Phase 4.
 - **Mode C: Enhancement** — Improve an existing HTML presentation. Read it, understand it, enhance. **Follow Mode C modification rules below.**
 
-**Also check for a design library** — if the project has a `./designs/` folder (or the user names a `DESIGN.md` / a design system), note it: Phase 2 will offer the `.md`-driven path.
+**Also check for a design** — if the project has a `./DESIGN.md` at the root or a `./designs/` folder (or the user names a design system), note it: Phase 2 will offer the `.md`-driven path.
 
 ### Mode C: Modification Rules
 
@@ -163,13 +165,13 @@ If user provides an image folder:
 
 Ask how they want to choose (header: "Style"):
 
-- "Use a DESIGN.md" (.md-driven) — Take the look from a `DESIGN.md` in `./designs/`
+- "Use a DESIGN.md" (.md-driven) — Take the look from a `DESIGN.md` (root `./DESIGN.md`, or one under `./designs/`)
 - "Show me options" — Generate 3 previews based on mood
 - "I know what I want" — Pick from preset list directly
 
-**If a `./designs/` folder exists, lead with the ".md-driven" option** and list the available designs. If the user already named a design, skip the question entirely.
+**If a `./DESIGN.md` or `./designs/` folder exists, lead with the ".md-driven" option** and list the available design(s). If the user already named a design — or the project has exactly one `DESIGN.md` available — skip the question entirely and take the `.md`-driven path.
 
-**If ".md-driven":** Pick one folder under `./designs/` — its `DESIGN.md` IS the style. Skip Steps 2.1–2.3 (mood, previews) entirely and go to Phase 3. If no existing design fits, author a new `designs/<name>/DESIGN.md` first (from getdesign.md, a brand guide, or by hand) — see [designs-md-guide.md](designs-md-guide.md).
+**If ".md-driven":** Use the `DESIGN.md` — root `./DESIGN.md`, or pick one folder under `./designs/`. That document IS the style. Skip Steps 2.1–2.3 (mood, previews) entirely and go to Phase 3. If there is no design yet, obtain one first — `npx getdesign@latest add <name>` pulls a canonical `DESIGN.md` from getdesign.md's catalog, or author one by hand. See [designs-md-guide.md](designs-md-guide.md).
 
 **If direct selection:** Show preset picker and skip to Phase 3. Available presets are defined in [STYLE_PRESETS.md](STYLE_PRESETS.md).
 
