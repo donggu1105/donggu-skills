@@ -8,7 +8,8 @@ Two placements: **full-bleed background** (photo fills the card, text sits on to
 
 1. **User-provided** — screenshot, product shot, or photo the user attaches. Least "AI-looking", always most relevant. Ask once if the content is product/tutorial/news.
 2. **Keyword stock** (free, no decorative filler):
-   - **Pexels** `pexels.com/search/<kw>/` — generous, supports Korean keywords. First choice for local/Korean scenes.
+   - **Pexels API** — best automated path. Use `pexels_fetch.py "<keyword>" <out.jpg> [orientation] [index]` with `PEXELS_API_KEY` in env. It searches, picks a portrait rendition, downloads, and prints the photographer/url. **Then Read the saved file and confirm the subject matches** — keyword search is imperfect (e.g. "ui design" returned a ChatGPT screen; bump `index` or change keywords and retry). Free tier: 200/hr, 20k/mo. ⚠️ the default Python-urllib UA is 403-blocked → the helper sends a browser UA.
+   - **Pexels** (manual) `pexels.com/search/<kw>/` — supports Korean keywords. First choice for local/Korean scenes.
    - **Unsplash** `unsplash.com/s/photos/<kw>` — strong for lifestyle/atmosphere; English keywords. ⚠️ license requires hotlink + attribution — but for PNG export you must **download** the file, so prefer Pexels/Pixabay/Flickr-CC for downloadable use, or credit Unsplash in a caption.
    - **Pixabay** / **Flickr CC** (`flickr.com/search/?text=<kw>&license=2,3,4,5,6,9`) — downloadable, attribution-friendly.
 3. **AI-generated** — only when no real photo fits; keep it free of embedded text/logos/fake UI. (Local mflux or a cloud image API.)
