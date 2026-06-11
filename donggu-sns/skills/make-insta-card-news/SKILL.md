@@ -56,3 +56,4 @@ Read the rendered PNGs: Korean font applied? overflow / footer collision? DESIGN
 - `image-handling.md` — photos inside cards: stock-vs-real sourcing, text legibility, placement, Playwright loading
 - `pexels_fetch.py` — fetch a topic-relevant stock photo from Pexels (generic concepts)
 - `commons_fetch.py` — fetch a real image of a named subject from Wikimedia Commons (specific real things)
+- `supabase_upload.py` — upload a rendered card set to Supabase Storage at a dated/ordered path (`<channel>/<YYYY>/<MM-DD>/<slug>-<HHMMSS>/<NN>.png`), returns public URLs in carousel order (for Instagram Graph API hand-off). Needs `SUPABASE_URL` + `SUPABASE_SERVICE_KEY`.
