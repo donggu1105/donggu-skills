@@ -54,6 +54,26 @@ body { font-family:var(--font-body); -webkit-font-smoothing:antialiased; }
 }
 .card-pad { position:relative; z-index:2; width:100%; height:100%; padding:var(--pad); }
 
+/* ---------- images: full-bleed background + scrim (image-handling.md) ---------- */
+/* photo z0 → scrim z1 → content z2. Text never sits on a raw photo. */
+.bg { position:absolute; inset:0; z-index:0; }
+.bg img { width:100%; height:100%; object-fit:cover; display:block; /* set object-position inline per image */ }
+.scrim { position:absolute; inset:0; z-index:1; pointer-events:none; }
+.scrim-bottom { background:linear-gradient(to top, rgba(0,0,0,.82) 0%, rgba(0,0,0,.55) 32%, rgba(0,0,0,.12) 60%, rgba(0,0,0,0) 100%); }
+.scrim-top    { background:linear-gradient(to bottom, rgba(0,0,0,.80) 0%, rgba(0,0,0,.40) 36%, rgba(0,0,0,0) 70%); }
+.scrim-full   { background:rgba(0,0,0,.52); }
+/* light-mode (dark text on photo): invert */
+.scrim-bottom-light { background:linear-gradient(to top, rgba(255,255,255,.85) 0%, rgba(255,255,255,.5) 34%, rgba(255,255,255,0) 70%); }
+.has-bg .card-pad { justify-content:flex-end; }   /* default: text rides the bottom scrim */
+
+/* ---------- images: framed image well (photo as content, no scrim needed) ---------- */
+.img-well { position:relative; overflow:hidden; border-radius:var(--radius); background:var(--surface); }
+.img-well img { width:100%; height:100%; object-fit:cover; display:block; }
+.img-well.r-16x9 { aspect-ratio:16/9; }
+.img-well.r-4x5  { aspect-ratio:4/5; }
+.img-well.r-1x1  { aspect-ratio:1/1; }
+.img-well.r-3x2  { aspect-ratio:3/2; }
+
 /* ---------- layout primitives ---------- */
 .stack { display:flex; flex-direction:column; }
 .between { justify-content:space-between; height:100%; }

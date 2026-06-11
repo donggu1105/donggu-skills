@@ -1,52 +1,56 @@
 ---
 name: make-insta-card-news
-description: Use when the user asks for 카드뉴스, Instagram carousel images, 인스타 캐러셀, SNS 카드 이미지, or converting a post/article into card images — especially when a DESIGN.md (getdesign.md format) or designs/ folder should drive the look. Also use for blog hero/대표이미지 in the same brand look.
+description: Use when the user asks for 카드뉴스, an Instagram carousel, 인스타 캐러셀, SNS card images, or turning a post/article into card images — especially when a DESIGN.md (getdesign.md format) or a designs/ folder should drive the look, or when cards need background/inset photos. Also use for a blog hero/대표이미지 in the same brand look.
 ---
 
 # make-insta-card-news
 
-글(블로그 마스터·인스타 팩·아무 .md)을 **DESIGN.md가 정의한 브랜드 룩**의 인스타 카드뉴스 PNG 세트(1080×1350, 4:5)로 변환한다. 렌더는 HTML 템플릿 + Playwright 스크린샷 — 텍스트를 이미지 모델로 "그리지" 않는다(한글 오타 0%가 목표).
+Turn a post (.md / Obsidian Instagram pack / any text) into an Instagram card-news PNG set (1080×1350, 4:5) in a **brand look defined by a DESIGN.md**. Render = HTML template + Playwright screenshot. Text is never "drawn" by an image model — Korean stays typeset (zero typos is the goal).
 
-**핵심 분리: 워크플로(이 스킬, 불변) vs 룩(DESIGN.md, 교체 가능).** 취향이 바뀌면 DESIGN.md만 바꾼다. 스킬은 건드리지 않는다.
+**Core split: workflow (this skill, fixed) vs look (DESIGN.md, swappable).** When taste changes, swap the DESIGN.md only — never touch the skill.
 
 ## Workflow
 
 ### 1. Intake
-- **콘텐츠**: 원문 .md (Obsidian 인스타 팩이면 카드 분배가 이미 있을 수 있음 — 그대로 존중).
-- **DESIGN.md**: `./DESIGN.md` → `./designs/*/DESIGN.md` 순으로 탐색. 없으면 사용자에게 묻는다: getdesign 카탈로그(`npx getdesign@latest add <name>`) / 직접 붙여넣기 / 기본 한국 정석 스타일(kr-card-principles.md만으로 진행).
-- **장수**: 기본 표지 + 본문 3~5 + CTA. 사용자가 지정하면 그대로.
+- **Content**: source .md. An Obsidian Instagram pack may already define the card breakdown — honor it.
+- **DESIGN.md**: look for `./DESIGN.md` → `./designs/*/DESIGN.md`. If absent, ask the user: getdesign catalog (`npx getdesign@latest add <name>`) / paste a brand spec / default Korean card style (proceed on kr-card-principles.md alone).
+- **Count**: default cover + 3–5 body + CTA, unless specified.
+- **Images?** If the content is product/tutorial/news, or the DESIGN.md is photography-forward, ask once whether the user has photos/screenshots. See **Images** below.
 
-### 2. Page Plan
-표지 = 훅 한 방. 본문 카드 = **1카드 1아이디어**. 마지막 = CTA(프로필 링크·블로그). 각 카드에 layout-recipes.md의 골격 하나를 배정해 내부 플랜을 만든다. 사용자가 검토를 원하면 플랜을 먼저 보여준다.
+### 2. Page plan
+Cover = one hook. Body card = **one idea per card**. Last = CTA (profile link/blog). Assign one skeleton from layout-recipes.md per card. Show the plan first if the user wants review.
 
-### 3. DESIGN.md → 카드 CSS (hard rules)
-- **토큰 → `:root` 변수.** DESIGN.md가 토큰화한 hex를 인라인으로 쓰지 않는다.
-- **타이포 스케일 업**: DESIGN.md의 px는 웹 스케일. 카드(1080px가 폰에서 ~400px로 보임)에선 **위계와 비율은 유지, 절대값은 ×1.4~2** (display 80→112~160px, body 16→28~36px). 본문 28px 미만 금지.
-- **Do's/Don'ts는 제약 조건이다.** "그라디언트 금지", "radius 0" 같은 조항을 어기면 실패. 표지부터 CTA까지 전부 적용.
-- **한글 보정 필수**: kr-card-principles.md를 함께 적용 (폰트 대체·`word-break: keep-all`·UPPERCASE는 라틴 라벨에만).
-- 사진이 핵심인 시스템(full-bleed photography 등)인데 사진이 없으면 — 시스템의 **타이포·표면·헤어라인 문법**으로 대체하고, 그 갭을 사용자에게 한 줄로 알린다. 웹에서 임의 이미지를 긁어오지 않는다.
+### 3. DESIGN.md → card CSS (hard rules)
+- **Tokens → `:root` variables.** Never inline a hex the DESIGN.md tokenizes.
+- **Scale type up**: DESIGN.md px are web-scale. On a card (1080px reads ~400px on a phone) keep the hierarchy/ratios but raise absolute sizes ×1.4–2 (display 80→112–160px, body 16→28–36px). Body never below 28px.
+- **Do's/Don'ts are constraints, not suggestions.** "No gradient", "radius 0" — violating one fails the deck. Apply cover→CTA.
+- **Korean correction required**: apply kr-card-principles.md (font substitution, `word-break: keep-all`, UPPERCASE only on Latin labels).
+- If a photography-driven system has no photo, fall back to its typographic/surface/hairline grammar and tell the user the gap in one line. Don't scrape arbitrary web images.
 
-### 4. Build
-`card-template.html`을 작업 폴더(`<프로젝트>/cardnews-<slug>/` 또는 /tmp)에 복사 → `:root` 토큰 채우기 → `<!-- CARDS_HERE -->`에 카드 `<section class="card" id="card-N">` 추가. 템플릿의 클래스 골격을 벗어나는 커스텀 CSS는 태스크 블록 하나에 모은다.
+### 4. Images (optional) — REQUIRED READ when adding photos
+Read image-handling.md. Three non-negotiables: the image is **relevant to the topic** (keyword-sourced, never random/decorative), text on it stays **legible** (scrim overlay + subject-safe placement + thumbnail test), and it's a **local downloaded file** in `assets/` (not a remote hotlink). Full-bleed background vs framed image well per the DESIGN.md mood.
 
-### 5. Render
+### 5. Build
+Copy `card-template.html` into the task folder (`<project>/cardnews-<slug>/` or /tmp) → fill `:root` tokens → add `<section class="card" id="card-N">` per card in `<!-- CARDS_HERE -->`. Custom CSS beyond the template's classes goes in one task block.
+
+### 6. Render
 ```bash
-cd <작업폴더> && python3 -m http.server 8765 &
+cd <task> && python3 -m http.server 8765 &
 ```
-Playwright로 `http://localhost:8765/index.html` 열고 **카드 노드별 element screenshot** (`#card-N` → `card-N.png`). 뷰포트 크기 무관 — 노드가 1080×1350이면 PNG도 정확히 그 크기. 끝나면 서버 종료.
+Open `http://localhost:8765/index.html` with Playwright. If cards use images, wait for load (`waitForLoadState('networkidle')` + short timeout) before shooting. **Element screenshot per card** (`#card-N` → `card-N.png`) — viewport size is irrelevant; a 1080×1350 node exports at exactly that. Stop the server when done.
 
-### 6. QA & Deliver
-- 렌더된 PNG를 Read로 직접 확인: 한글 폰트 적용? 오버플로/푸터 충돌? DESIGN.md Don'ts 위반?
-- 360px로 줄여도 표지 타이틀이 읽히는가(썸네일 테스트).
-- 결과물 경로 + 적용한 DESIGN.md + 의도적으로 어긴 것 없음(또는 갭)을 보고. 디스코드 전송 요청이 있으면 봇 토큰으로 첨부 업로드.
+### 7. QA & deliver
+Read the rendered PNGs: Korean font applied? overflow / footer collision? DESIGN.md Don'ts respected? For photo cards, run the 360px thumbnail legibility test. Report: output path + which DESIGN.md + any deliberate gap. Upload to Discord with the bot token on request.
 
 ## Hard Rules
-- 텍스트가 들어가는 모든 요소에 `word-break: keep-all`.
-- 카드 푸터는 flex column + `margin-top: auto`로 고정 — absolute 금지(내용과 충돌).
-- 이모지·픽토그램은 DESIGN.md가 장식을 허용할 때만 포인트로. 장식 금지 시스템(BMW류)에선 안 쓴다.
-- 시드 템플릿 없이 빈 HTML에서 시작하지 않는다.
+- `word-break: keep-all` on every text container.
+- Footer pinned with flex column + `margin-top: auto` — never absolute (collides with growing content).
+- Emoji/pictograms only as accents, and only if the DESIGN.md allows decoration (a no-decoration system like BMW uses none).
+- Text never sits on a raw photo — scrim or image well (image-handling.md).
+- Never start from a blank HTML; copy the seed template.
 
 ## Files
-- `card-template.html` — 검증된 시드 (토큰 슬롯 + 카드 보드 + 푸터 패턴)
-- `kr-card-principles.md` — 한국어/한국 카드뉴스 보정 규칙 (폰트 대체표·크기 위계·정석 팁)
-- `layout-recipes.md` — 카드 골격 5종 (cover / numbered / rows / quote / cta)
+- `card-template.html` — verified seed (token slots + card boards + footer pattern + `.bg`/`.scrim`/`.img-well` classes)
+- `kr-card-principles.md` — Korean / Korean-card-news corrections (font table, size hierarchy, conventions)
+- `layout-recipes.md` — 5 card skeletons (cover / numbered / rows / quote / cta)
+- `image-handling.md` — photos inside cards: relevance sourcing, text legibility, placement, Playwright loading
