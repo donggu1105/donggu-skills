@@ -53,4 +53,6 @@ Read the rendered PNGs: Korean font applied? overflow / footer collision? DESIGN
 - `card-template.html` — verified seed (token slots + card boards + footer pattern + `.bg`/`.scrim`/`.img-well` classes)
 - `kr-card-principles.md` — Korean / Korean-card-news corrections (font table, size hierarchy, conventions)
 - `layout-recipes.md` — 5 card skeletons (cover / numbered / rows / quote / cta)
-- `image-handling.md` — photos inside cards: relevance sourcing, text legibility, placement, Playwright loading
+- `image-handling.md` — photos inside cards: stock-vs-real sourcing, text legibility, placement, Playwright loading
+- `pexels_fetch.py` — fetch a topic-relevant stock photo from Pexels (generic concepts)
+- `commons_fetch.py` — fetch a real image of a named subject from Wikimedia Commons (specific real things)

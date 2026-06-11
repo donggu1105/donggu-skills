@@ -4,7 +4,16 @@ Two placements: **full-bleed background** (photo fills the card, text sits on to
 
 ## 1. Relevance first (sourcing)
 
-**The image must relate to the post's topic. Never random/decorative stock.** Derive 2-4 search keywords from the content, then source — in this order of preference:
+**The image must relate to the post's topic. Never random/decorative stock.** First decide **stock vs real-web** by what the card needs:
+
+- **Generic / atmospheric concept** (developer coding, marketing, planning, AI) → **Pexels stock** (section "Keyword stock" below). A representative photo is enough.
+- **A specific, named real thing** (a real place like 한강/Han River, a product, a person, a brand, a landmark, a specific app's UI, a logo, a meme, a news event) → **real web image**. A generic stock photo of "a river" is wrong when the post is about the Han River. Use:
+  1. **Wikimedia Commons** — `commons_fetch.py "<subject>" <out.jpg> [width] [index]`. Free-licensed real images of named places/products/people/landmarks/logos, no key. Prints license + descriptionurl. Best first try for real subjects.
+  2. **Agent web search fallback** — if Commons has nothing usable, use your own `WebSearch` for the subject, `WebFetch` a promising page to extract a direct image URL (`.jpg/.png/.webp`), then download it with `curl`/urllib (browser UA). ⚠️ web images have **unverified copyright** — surface the source URL to the user and let them decide on use/attribution, exactly like the stock-provenance step below. Prefer official press/brand pages or Wikipedia over random blogs.
+
+Derive search terms from the topic. For real subjects, name the thing precisely ("Han River Seoul night", not "river"). **Always Read the downloaded file and confirm it's the right subject** — both Commons and web search return wrong hits (maps, diagrams, look-alikes); bump `index` / refine the query / try the other source and retry.
+
+For generic concepts, source — in this order of preference:
 
 1. **User-provided** — screenshot, product shot, or photo the user attaches. Least "AI-looking", always most relevant. Ask once if the content is product/tutorial/news.
 2. **Keyword stock** (free, no decorative filler):
