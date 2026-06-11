@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Card News · 카드뉴스</title>
+<!-- 한글 폰트: DESIGN.md 폰트가 한글 미지원이면 Pretendard/Noto Serif KR로 대체 (kr-card-principles.md) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<!-- 라틴 라벨/숫자용 DESIGN.md 원본 폰트 <link>는 여기 추가 -->
+<style>
+/* =========================================================
+   make-insta-card-news — Seed Template
+   토큰을 DESIGN.md에서 채운다. hex 인라인 금지.
+   카드 보드: 1080×1350 (IG 4:5)
+   ========================================================= */
+
+/* ---------- TOKENS (DESIGN.md → 여기) ---------- */
+:root {
+  /* 색 — DESIGN.md colors 그대로 */
+  --canvas:   #ffffff;   /* 배경 */
+  --ink:      #111111;   /* 기본 텍스트 */
+  --body:     #555555;   /* 본문/서브 */
+  --muted:    #999999;   /* 메타/페이지번호 */
+  --accent:   #ff5c38;   /* 포인트 1 */
+  --accent-2: #ff5c38;   /* 포인트 2 (없으면 accent와 동일) */
+  --surface:  #f3f0e8;   /* 카드/셀 표면 */
+  --hairline: rgba(0,0,0,.14);
+  --accent-on:#ffffff;   /* accent 위 텍스트 */
+
+  /* 폰트 — DESIGN.md typography. 한글은 대체 폰트, 라틴은 원본 */
+  --font-display: "Pretendard", "Apple SD Gothic Neo", sans-serif;
+  --font-body:    "Pretendard", "Apple SD Gothic Neo", sans-serif;
+  --font-latin:   "Inter", -apple-system, sans-serif;  /* 라벨·숫자 */
+
+  /* 형태 — DESIGN.md rounded */
+  --radius: 0px;
+
+  /* 간격 */
+  --pad: 90px;
+}
+
+/* ---------- reset / sheet ---------- */
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+html,body { background:#1a1a1a; }
+body { font-family:var(--font-body); -webkit-font-smoothing:antialiased; }
+.sheet { display:flex; flex-direction:column; align-items:center; gap:48px; padding:48px; }
+
+/* ---------- card board (fixed export size) ---------- */
+.card {
+  position:relative;
+  width:1080px; height:1350px;
+  background:var(--canvas); color:var(--ink);
+  border-radius:var(--radius);
+  overflow:hidden; isolation:isolate;
+}
+.card-pad { position:relative; z-index:2; width:100%; height:100%; padding:var(--pad); }
+
+/* ---------- layout primitives ---------- */
+.stack { display:flex; flex-direction:column; }
+.between { justify-content:space-between; height:100%; }
+.g-sm { gap:24px; } .g-md { gap:40px; } .g-lg { gap:64px; }
+.grow { flex:1; }
+.row-x { display:flex; flex-direction:row; }
+.foot {
+  margin-top:auto;
+  display:flex; justify-content:space-between; align-items:flex-end;
+  font-family:var(--font-latin); font-size:28px; font-weight:600;
+  color:var(--muted); padding-top:24px;
+}
+
+/* ---------- type roles (크기는 한국 카드 스케일) ---------- */
+.eyebrow {
+  font-family:var(--font-latin); font-size:26px; font-weight:700;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--accent);
+}
+.t-display { font-family:var(--font-display); font-weight:800; font-size:104px;
+  line-height:1.22; letter-spacing:-.02em; color:var(--ink); word-break:keep-all; }
+.t-display em { font-style:normal; color:var(--accent); }
+.t-title   { font-family:var(--font-display); font-weight:700; font-size:68px;
+  line-height:1.3; letter-spacing:-.01em; word-break:keep-all; }
+.t-title em { font-style:normal; color:var(--accent); }
+.t-sub     { font-family:var(--font-body); font-weight:500; font-size:38px;
+  line-height:1.5; color:var(--body); word-break:keep-all; }
+.t-body    { font-family:var(--font-body); font-weight:400; font-size:34px;
+  line-height:1.6; color:var(--body); word-break:keep-all; }
+.t-body strong { color:var(--ink); font-weight:700; }
+.t-quote   { font-family:var(--font-display); font-weight:800; font-size:72px;
+  line-height:1.34; letter-spacing:-.01em; color:var(--ink); word-break:keep-all; }
+.t-quote em { font-style:normal; color:var(--accent); }
+.meta      { font-family:var(--font-latin); font-size:26px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--muted); }
+
+/* ---------- rules ---------- */
+.hairline { height:1px; background:var(--hairline); border:0; margin:0; }
+.rule-accent { width:120px; height:10px; background:var(--accent); border:0; }
+
+/* ---------- R2 numbered ---------- */
+.num-row { display:grid; grid-template-columns:120px 1fr; gap:36px; align-items:baseline;
+  padding:44px 0; border-bottom:1px solid var(--hairline); }
+.num-row:last-child { border-bottom:0; }
+.num-row .n { font-family:var(--font-latin); font-weight:200; font-size:96px;
+  line-height:1; color:var(--accent); }
+.num-row .nt { font-family:var(--font-display); font-weight:700; font-size:48px;
+  line-height:1.3; color:var(--ink); word-break:keep-all; }
+.num-row .nd { font-family:var(--font-body); font-weight:400; font-size:30px;
+  line-height:1.5; color:var(--body); margin-top:12px; word-break:keep-all; }
+
+/* ---------- R3 rows ---------- */
+.row { display:grid; grid-template-columns:120px 1fr; gap:36px; align-items:baseline;
+  padding:40px 0; }
+.row .rmark { font-family:var(--font-latin); font-weight:200; font-size:88px;
+  line-height:1; color:var(--accent); }
+.row .rt { font-family:var(--font-display); font-weight:600; font-size:46px;
+  line-height:1.3; color:var(--ink); word-break:keep-all; }
+.row .rd { font-family:var(--font-body); font-weight:400; font-size:30px;
+  line-height:1.5; color:var(--body); margin-top:10px; word-break:keep-all; }
+
+/* ---------- R5 cta ---------- */
+.cta-block { background:var(--accent); color:var(--accent-on); border-radius:var(--radius);
+  padding:56px; }
+.cta-block .cl { font-family:var(--font-latin); font-size:26px; font-weight:700;
+  letter-spacing:.1em; text-transform:uppercase; opacity:.85; }
+.cta-block .ct { font-family:var(--font-display); font-weight:700; font-size:48px;
+  line-height:1.35; margin-top:16px; word-break:keep-all; }
+
+/* ---------- surface card (R2/R3 grouping if needed) ---------- */
+.surface { background:var(--surface); border-radius:var(--radius); padding:48px; }
+</style>
+</head>
+<body>
+<main class="sheet">
+<!-- CARDS_HERE -->
+<!--
+  카드를 여기 채운다. 각 카드 = <section class="card" id="card-N"> + layout-recipes.md 골격.
+  토큰은 위 :root 에서 DESIGN.md 값으로 이미 치환됨.
+-->
+<section class="card" id="card-1">
+  <div class="card-pad stack between">
+    <div class="stack g-sm">
+      <span class="eyebrow">CATEGORY</span>
+      <h1 class="t-display">제목 <em>강조</em><br>두 번째 줄</h1>
+      <p class="t-sub">한 줄 서브헤드</p>
+    </div>
+    <div class="foot"><span>@handle</span><span>1 / N</span></div>
+  </div>
+</section>
+</main>
+</body>
+</html>
