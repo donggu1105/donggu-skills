@@ -12,10 +12,10 @@ Turn a YouTube video into a **reference SOURCE note** in the Obsidian vault: sum
 ## Save location (fixed)
 
 ```
-Inbox/SOURCE - <라벨>.md
+Personal Branding/00_Inbox/SOURCE - <라벨>.md
 ```
 
-- **Top-level `/Inbox/`** (vault root, outermost) is the single capture inbox — every capture lands here first, then gets filed later. **NOT `10_Sources/`** (high-level curated box) and **NOT** buried deep in a channel pack. Create the `Inbox/` folder if it doesn't exist (appending to the path makes it).
+- **`Personal Branding/00_Inbox/`** is the single capture inbox (the `00` slot of the 00~80 numbering scheme) — every capture lands here first, then gets filed later. **NOT vault-root `Inbox/`** (doesn't exist — don't create it), **NOT `10_Sources/`** (curated 1:1-indexed box, things get *promoted* there later), and **NOT** buried deep in a channel pack.
 - **Filename**: `SOURCE - <짧은 한글 라벨>.md`, **no date suffix**. Token order: `<시리즈 epNN> <채널/출처> <게스트> <토픽>` → e.g. `SOURCE - 잡소리 ep43 원티드 정기수 AX`.
 
 ## Procedure
@@ -101,7 +101,7 @@ created: <today YYYY-MM-DD>
 ## Common mistakes (from baseline)
 | Mistake | Fix |
 |---|---|
-| Saved to `10_Sources/` or buried in a channel pack | All captures → top-level `/Inbox/` (file later) |
+| Saved to vault-root `Inbox/`, `10_Sources/`, or buried in a channel pack | All captures → `Personal Branding/00_Inbox/` (file later) |
 | Used get-youtube-scripts' default parser | It flattens away timestamps; use the timestamp-keeping parse above |
 | Plain `[mm:ss]` text | Make them clickable `[mm:ss](https://youtu.be/ID?t=<sec>)` |
 | Quoted auto-captions verbatim as fact | Flag 자동생성 → spot-check before publishing |
@@ -111,4 +111,4 @@ created: <today YYYY-MM-DD>
 | Made a note for a caption-less video (empty/ASR) | No captions → STOP, tell the user; caption-less videos are out of scope |
 
 ## Real-world check
-잡소리 ep.43 (원티드 정기수 AX, 27:32) → `Inbox/SOURCE - 잡소리 ep43 원티드 정기수 AX.md`, summary + ~25 jump-links. Verified 2026-06-12.
+잡소리 ep.43 (원티드 정기수 AX, 27:32) → `Personal Branding/00_Inbox/SOURCE - 잡소리 ep43 원티드 정기수 AX.md`, summary + ~25 jump-links. Verified 2026-06-12. (애초 vault-root `Inbox/`에 저장했다가 2026-06-12 `00_Inbox`로 교정)
