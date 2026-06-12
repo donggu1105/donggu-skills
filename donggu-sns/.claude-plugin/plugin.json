@@ -1,7 +1,7 @@
 {
   "name": "donggu-sns",
-  "version": "1.1.0",
-  "description": "SNS content authoring — Blog master + LinkedIn/Threads/X/Instagram/YouTube variants with Socratic retrieve from Obsidian vault, plus make-insta-card-news (DESIGN.md-driven Instagram card images with Pexels/Commons image sourcing). Preserves user voice (회고형 1인칭, 미괄식).",
+  "version": "1.2.0",
+  "description": "SNS content authoring — Blog master + LinkedIn/Threads/X/Instagram/YouTube variants with Socratic retrieve from Obsidian vault, plus make-insta-card-news (DESIGN.md-driven Instagram card images with Pexels/Commons sourcing + headless api render path). Preserves user voice (회고형 1인칭, 미괄식).",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"

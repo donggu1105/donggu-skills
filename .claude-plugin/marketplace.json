@@ -26,8 +26,8 @@
     {
       "name": "donggu-sns",
       "source": "./donggu-sns",
-      "description": "SNS content authoring — Blog master + LinkedIn/Threads/X/Instagram/YouTube variants with Socratic retrieve from Obsidian vault, plus make-insta-card-news (DESIGN.md-driven card images, Pexels/Commons sourcing). Preserves 회고형 1인칭 voice.",
-      "version": "1.1.0",
+      "description": "SNS content authoring — Blog master + LinkedIn/Threads/X/Instagram/YouTube variants with Socratic retrieve from Obsidian vault, plus make-insta-card-news (DESIGN.md-driven card images, Pexels/Commons sourcing + headless api render path). Preserves 회고형 1인칭 voice.",
+      "version": "1.2.0",
       "strict": false
     },
     {

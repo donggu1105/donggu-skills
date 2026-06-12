@@ -33,11 +33,25 @@ Read image-handling.md. Three non-negotiables: the image is **relevant to the to
 ### 5. Build
 Copy `card-template.html` into the task folder (`<project>/cardnews-<slug>/` or /tmp) → fill `:root` tokens → add `<section class="card" id="card-N">` per card in `<!-- CARDS_HERE -->`. Custom CSS beyond the template's classes goes in one task block.
 
-### 6. Render
+### 6. Render — two modes, pick by environment
+
+**Mode A — interactive (Claude Code with a Playwright MCP/browser).** Serve the task folder so `assets/` resolves, then screenshot each card locally:
 ```bash
 cd <task> && python3 -m http.server 8765 &
 ```
-Open `http://localhost:8765/index.html` with Playwright. If cards use images, wait for load (`waitForLoadState('networkidle')` + short timeout) before shooting. **Element screenshot per card** (`#card-N` → `card-N.png`) — viewport size is irrelevant; a 1080×1350 node exports at exactly that. Stop the server when done.
+Open `http://localhost:8765/index.html` with Playwright. If cards use images, wait for load (`waitForLoadState('networkidle')` + short timeout) before shooting. **Element screenshot per card** (`.card` / `#card-N` → `card-N.png`). Stop the server when done. Then upload with `supabase_upload.py` (step 8 path).
+
+**Mode B — headless / automated (OpenClaw, n8n, any claude-cli without a browser MCP).** Don't render locally — hand the HTML to the api card-news renderer, which screenshots + uploads in one call and returns the public URLs:
+```bash
+curl -s -X POST https://n8n.donggu.site/...  # (n8n) OR inside the docker network:
+curl -s -X POST http://api:8000/cardnews-sync/instagram \
+  -H "X-API-Token: $API_TOKEN" -H "Content-Type: application/json" \
+  -d '{"html": "<self-contained html>", "slug": "<topic-slug>", "channel": "instagram"}'
+# → {"success":true,"image_urls":[...],"folder":"...","count":N}
+```
+The api runs headless chromium (`.card` elements → 2160×2700 PNG, `device_scale_factor=2`), uploads to the `sns-cards` bucket at the dated path, and returns `image_urls` in carousel order — ready to POST to `sns-pub-instagram`.
+
+⚠️ **Mode B requires a self-contained HTML with ABSOLUTE URLs.** `set_content`'s base is `about:blank`, so relative `assets/…` paths do NOT resolve. Embed images as absolute URLs (Pexels/Commons CDN URLs directly, or a pre-uploaded bucket URL) and fonts from a CDN (`jsDelivr` Pretendard). Mode A tolerates local `assets/`; Mode B does not.
 
 ### 7. QA & deliver
 Read the rendered PNGs: Korean font applied? overflow / footer collision? DESIGN.md Don'ts respected? For photo cards, run the 360px thumbnail legibility test. Report: output path + which DESIGN.md + any deliberate gap. Upload to Discord with the bot token on request.
@@ -56,4 +70,7 @@ Read the rendered PNGs: Korean font applied? overflow / footer collision? DESIGN
 - `image-handling.md` — photos inside cards: stock-vs-real sourcing, text legibility, placement, Playwright loading
 - `pexels_fetch.py` — fetch a topic-relevant stock photo from Pexels (generic concepts)
 - `commons_fetch.py` — fetch a real image of a named subject from Wikimedia Commons (specific real things)
-- `supabase_upload.py` — upload a rendered card set to Supabase Storage at a dated/ordered path (`<channel>/<YYYY>/<MM-DD>/<slug>-<HHMMSS>/<NN>.png`), returns public URLs in carousel order (for Instagram Graph API hand-off). Needs `SUPABASE_URL` + `SUPABASE_SERVICE_KEY`.
+- `supabase_upload.py` — **Mode A only**: upload locally-rendered PNGs to Supabase Storage at a dated/ordered path (`<channel>/<YYYY>/<MM-DD>/<slug>-<HHMMSS>/<NN>.png`), returns public URLs in carousel order. Needs `SUPABASE_URL` + `SUPABASE_SERVICE_KEY`. (Mode B's `cardnews-sync` api endpoint renders **and** uploads, so no separate upload step there.)
+
+## Publish (Instagram)
+The rendered/uploaded `image_urls` go to the n8n webhook `sns-pub-instagram` (`{image_urls, caption}`, header `X-SNS-Token`) which publishes the carousel via the Instagram Graph API. 1 image = single post, 2–10 = carousel. See the n8n SNS pipeline docs for the ledger step. Always preview + get explicit user approval before publishing (public post).
