@@ -21,7 +21,11 @@ Inbox/SOURCE - <라벨>.md
 ## Procedure
 
 ### 1. Fetch transcript WITH timestamps
-Run **get-youtube-scripts** steps 0–3 to get `$WORK/cap.$TRACK.json3` and the metadata. Then parse **keeping timestamps** (get-youtube-scripts' default parser strips them):
+Run **get-youtube-scripts** steps 0–3 to get `$WORK/cap.$TRACK.json3` and the metadata.
+
+**No-caption guard — STOP here if there are no captions.** If get-youtube-scripts reports `자막 없음` (no manual *and* no auto caption track), **do NOT create a note.** Tell the user plainly, e.g. *"이 영상은 자막이 없어 소스 노트로 만들 수 없어요 (자막 없는 영상은 미지원)."* — optionally suggest checking whether another upload of the same video has captions. Caption-less videos are **out of scope by design** (no audio→text / Whisper). Don't fabricate a note from nothing.
+
+Otherwise, parse **keeping timestamps** (get-youtube-scripts' default parser strips them):
 
 ```bash
 python3 - "$WORK/cap.$TRACK.json3" <<'PY'
@@ -104,6 +108,7 @@ created: <today YYYY-MM-DD>
 | Guessed `[[CORE - …]]`/`[[MOC - …]]` titles to look thorough | Only link what you've verified exists; otherwise leave the section thin |
 | Embedded the 15k-char raw transcript | Don't — summary + jump-links are the artifact; re-fetch if needed |
 | Invented frontmatter fields per note | Use the fixed schema above (no volatile fields like view count) |
+| Made a note for a caption-less video (empty/ASR) | No captions → STOP, tell the user; caption-less videos are out of scope |
 
 ## Real-world check
 잡소리 ep.43 (원티드 정기수 AX, 27:32) → `Inbox/SOURCE - 잡소리 ep43 원티드 정기수 AX.md`, summary + ~25 jump-links. Verified 2026-06-12.
