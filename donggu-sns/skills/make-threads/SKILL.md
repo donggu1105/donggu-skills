@@ -98,3 +98,4 @@ frontmatter:
 
 - voice·후크·구조: `donggu-sns:writing-threads`
 - 다른 채널 형식: `make-maily`, `make-insta-card-news`
+- **노트가 완성되면 발행은 `publish-sns`** — webhook contract, preview→approval gate, ledger

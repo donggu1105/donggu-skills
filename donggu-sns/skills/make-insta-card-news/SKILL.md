@@ -73,4 +73,4 @@ Read the rendered PNGs: Korean font applied? overflow / footer collision? DESIGN
 - `supabase_upload.py` — **Mode A only**: upload locally-rendered PNGs to Supabase Storage at a dated/ordered path (`<channel>/<YYYY>/<MM-DD>/<slug>-<HHMMSS>/<NN>.png`), returns public URLs in carousel order. Needs `SUPABASE_URL` + `SUPABASE_SERVICE_KEY`. (Mode B's `cardnews-sync` api endpoint renders **and** uploads, so no separate upload step there.)
 
 ## Publish (Instagram)
-The rendered/uploaded `image_urls` go to the n8n webhook `sns-pub-instagram` (`{image_urls, caption}`, header `X-SNS-Token`) which publishes the carousel via the Instagram Graph API. 1 image = single post, 2–10 = carousel. See the n8n SNS pipeline docs for the ledger step. Always preview + get explicit user approval before publishing (public post).
+Hand the rendered/uploaded `image_urls` + caption to the **`publish-sns` skill** — it owns the webhook contract (`sns-pub-instagram`), the mandatory preview→approval gate, and the `published_posts` ledger step. 1 image = single post, 2–10 = carousel.
