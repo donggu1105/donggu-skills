@@ -1,7 +1,7 @@
 {
   "name": "donggu-sns",
-  "version": "1.4.0",
-  "description": "SNS content authoring — Blog master + LinkedIn/Threads/X/Instagram/YouTube variants with Socratic retrieve from Obsidian vault, plus make-threads/make-maily publish-format specs, make-insta-card-news, and publish-sns (webhook publishing with preview-approval gate, ledger, and draft-fallback to make-* skills) (DESIGN.md-driven Instagram card images with Pexels/Commons sourcing + headless api render path). Preserves user voice (회고형 1인칭, 미괄식).",
+  "version": "1.5.0",
+  "description": "SNS content authoring — Blog master + LinkedIn/Threads/X/Instagram/YouTube variants with Socratic retrieve from Obsidian vault, plus make-threads/make-maily publish-format specs, make-insta-card-news, publish-sns, and make-shorts (news→CapCut 9:16 draft) (webhook publishing with preview-approval gate, ledger, and draft-fallback to make-* skills) (DESIGN.md-driven Instagram card images with Pexels/Commons sourcing + headless api render path). Preserves user voice (회고형 1인칭, 미괄식)",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"
