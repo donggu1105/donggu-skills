@@ -33,6 +33,10 @@ Content *formats* are NOT defined here — each channel's note structure is owne
                            strategy/notes/checklist sections must not leak into a post.
   3. PREVIEW + APPROVAL GATE (mandatory): show title + body (or structure + first paragraphs
      + char count) and ask. Proceed ONLY on an explicit "올려"-class approval.
+     State whether the post will include images. For threads/instagram, if the `## 발행`
+     section has no `![[image]]` embeds the post goes out TEXT-ONLY — say so and confirm
+     that's intended (offer to source/render images) before firing. Never silently drop
+     images a showcase/proof post needs.
      maily = irreversible email send → confirm once more right before firing.
   4. POST channel webhook(s) (reference below). Header `X-SNS-Token: $SNS_WEBHOOK_TOKEN`.
      Synchronous, 30–60s → timeout ~200s. Channels are independent — one failure doesn't
@@ -53,6 +57,7 @@ Content *formats* are NOT defined here — each channel's note structure is owne
 
 ### Images (threads · instagram — unified pipeline)
 
+- **Image gate (ask first)**: threads/instagram images come only from `## 발행` `![[embeds]]`. No embeds → text-only. Before posting, confirm with the user whether images are wanted; if yes and the note has none, get them (user screenshot or a fresh render) BEFORE firing — never post text-only and backfill later.
 - **New cards**: build self-contained HTML (absolute URLs only — `make-insta-card-news` Mode B) → POST render webhook (`sns-render-instagram` / `sns-render-threads`, body `{html, slug}`) → api renders 4:5 + uploads to `sns-cards/<channel>/<YYYY>/<MM-DD>/<slug>-<HHMMSS>/<NN>.png` → returns `image_urls` in carousel order.
 - **User-provided screenshots**: upload the vault file directly to the same dated path: `curl -X POST "https://fvfayignxybdyyravorg.supabase.co/storage/v1/object/sns-cards/<channel>/<dated-path>/<NN>.png" -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" -H "Content-Type: image/png" --data-binary @<file>` (409 = already there, reuse the public URL).
 
@@ -97,9 +102,11 @@ Delete flow: ledger SELECT → show the user *which* post (topic + url) and conf
 - No note found and you're about to ask the user for a filename → STOP, offer to create the draft via the matching writing-*/make-* skill instead.
 - post_id from conversation memory → STOP, SELECT from the ledger.
 - maily without a subtitle line, or real-send without the second confirmation → STOP.
+- About to send a threads/instagram post text-only (no `image_urls`) when it's a showcase/proof post or its `## 발행` has no embeds → STOP, confirm images with the user first.
 
 | Excuse | Reality |
 |---|---|
 | "User said 올려줘, that IS the approval" | They approved the *intent*, not the *body*. Preview, then approval. |
 | "Note doesn't exist, user must tell me where it is" | Creating it is your job — offer the make-* path. |
 | "I remember the post_id from earlier" | Sessions die. The ledger doesn't. |
+| "User said 올려/다시 올려, so text-only is fine" | Re-posting ≠ an image decision. Confirm whether images should ride along first. |
