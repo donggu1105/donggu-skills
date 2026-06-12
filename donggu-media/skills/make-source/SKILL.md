@@ -1,6 +1,6 @@
 ---
 name: make-source
-description: Use when the user wants to capture / save / 노트화 a YouTube video into their Obsidian vault as a reference "source" note (남의 영상 스와이프·레퍼런스) — with a summary on top and jump-to timestamps. donggu's Personal Branding vault. Not for the user's own video builds.
+description: Use when the user wants to capture / save / 노트화 / 아카이브 a YouTube video as a reference source note in their Obsidian vault (남의 영상 스와이프·레퍼런스) — i.e. they want it SAVED, not just read. Trigger phrases like 옵시디언에 저장·소스로 남겨·노트로 박아·스와이프 자료로 남겨둬. If they only want the transcript or a chat summary (nothing saved), use get-youtube-scripts instead. Not for writing the user's own video scripts.
 ---
 
 # make-source
