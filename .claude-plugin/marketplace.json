@@ -33,8 +33,8 @@
     {
       "name": "donggu-media",
       "source": "./donggu-media",
-      "description": "Media ingest — pull transcripts/captions and clean text out of YouTube (자막/스크립트) via yt-dlp for summarizing, translating, quoting, or analysis. Captions-only, no audio transcription.",
-      "version": "1.0.0",
+      "description": "Media ingest — pull YouTube 자막/스크립트 via yt-dlp (get-youtube-scripts) + capture videos as Obsidian reference SOURCE notes with summary·timestamps (make-source). Captions-only, no audio transcription.",
+      "version": "1.1.0",
       "strict": false
     }
   ]

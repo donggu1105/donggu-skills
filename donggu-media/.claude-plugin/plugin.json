@@ -1,7 +1,7 @@
 {
   "name": "donggu-media",
-  "version": "1.0.0",
-  "description": "Media ingest — pull transcripts/captions and clean text out of YouTube and other sources for summarizing, translating, quoting, or analysis. Captions-only via yt-dlp (no audio transcription).",
+  "version": "1.1.0",
+  "description": "Media ingest — pull YouTube transcripts/captions via yt-dlp (get-youtube-scripts) and capture videos as Obsidian reference SOURCE notes with summary + jump-to timestamps (make-source). Captions-only, no audio transcription.",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"
