@@ -1,0 +1,22 @@
+{
+  "name": "donggu-media",
+  "version": "1.0.0",
+  "description": "Media ingest — pull transcripts/captions and clean text out of YouTube and other sources for summarizing, translating, quoting, or analysis. Captions-only via yt-dlp (no audio transcription).",
+  "author": {
+    "name": "강동현 (donggu)",
+    "url": "https://github.com/donggu1105"
+  },
+  "repository": "https://github.com/donggu1105/donggu-skills",
+  "license": "MIT",
+  "keywords": [
+    "youtube",
+    "transcript",
+    "captions",
+    "subtitles",
+    "자막",
+    "스크립트",
+    "yt-dlp",
+    "video",
+    "ingest"
+  ]
+}

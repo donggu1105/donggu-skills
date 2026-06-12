@@ -29,6 +29,13 @@
       "description": "SNS content authoring — Blog master + LinkedIn/Threads/X/Instagram/YouTube variants with Socratic retrieve from Obsidian vault, plus make-insta-card-news (DESIGN.md-driven card images, Pexels/Commons sourcing). Preserves 회고형 1인칭 voice.",
       "version": "1.1.0",
       "strict": false
+    },
+    {
+      "name": "donggu-media",
+      "source": "./donggu-media",
+      "description": "Media ingest — pull transcripts/captions and clean text out of YouTube (자막/스크립트) via yt-dlp for summarizing, translating, quoting, or analysis. Captions-only, no audio transcription.",
+      "version": "1.0.0",
+      "strict": false
     }
   ]
 }
