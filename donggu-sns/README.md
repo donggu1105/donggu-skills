@@ -3,92 +3,68 @@
 > SNS content authoring skill collection — part of [`donggu-skills`](../) marketplace.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
-[![Skills](https://img.shields.io/badge/skills-6-green)](#-skills)
+[![Skills](https://img.shields.io/badge/skills-4-green)](#-skills)
 [![Compatible](https://img.shields.io/badge/Obsidian-PKM-purple)](#-vault-가정)
 
-옵시디언 vault 기반 SNS 발행 의례 자동화. **채널별 6개 스킬**. 각 스킬은 그 채널의 *기존 발행 글 voice를 자동 학습*해서 일관 적용.
+옵시디언 vault 기반 SNS 작성·발행. **텍스트는 voice-learning 한 스킬**로, **아티팩트(카드·영상)와 발행은 전용 스킬**로 분리.
 
 ---
+
+## 🧭 경계 — 말 / 물건 / 발행
+
+```
+writing-social-content   = 말 (보이스 대본)   — 글자만 쓴다
+make-*                   = 물건 (카드·영상)   — 대본을 쓰지 않는다
+publish-sns              = 발행               — 만들지도 쓰지도 않는다
+```
 
 ## 📚 Skills
 
 | Skill | 호출 | 사용 시점 | Output |
 |---|---|---|---|
-| **writing-blog** | `donggu-sns:writing-blog` | 블로그 마스터 글 작성 | `Blog - <title>.md` (2,000~2,500자) |
-| **writing-linkedin** | `donggu-sns:writing-linkedin` | LinkedIn 한국 IT/PE 타겟 | `LinkedIn - <title>.md` (1,200~1,400자) |
-| **writing-threads** | `donggu-sns:writing-threads` | Threads 친근 반말 | `Threads - <title>.md` (500자 단일 / 5타래) |
-| **writing-x** | `donggu-sns:writing-x` | X 한국어 또는 영어 indie hacker | `X - <title>.md` |
-| **writing-instagram** | `donggu-sns:writing-instagram` | Instagram 캐러셀 7~10장 | `Instagram - <title>.md` |
-| **writing-youtube** | `donggu-sns:writing-youtube` | YouTube Shorts 60초 / 롱폼 8~12분 | `YouTube - <title>.md` |
+| **writing-social-content** | `donggu-sns:writing-social-content` | 텍스트 채널 글 작성 — Blog 마스터·LinkedIn·X·Threads·Maily (voice-learning + 발행 형식) | `<채널> - <title>.md` |
+| **make-insta-card-news** | `donggu-sns:make-insta-card-news` | Instagram 카드뉴스 이미지 (DESIGN.md 기반) | 1080×1350 PNG 세트 |
+| **make-shorts** | `donggu-sns:make-shorts` | 세로 숏폼 영상 (뉴스→CapCut 9:16) | CapCut 드래프트 |
+| **publish-sns** | `donggu-sns:publish-sns` | tistory·maily·threads·linkedin·instagram 발행/삭제 | 발행 + Supabase 레저 |
 
 ---
 
 ## 🔁 사용 흐름
 
 ```
-[새 이벤트 발생]
+[새 이벤트]
     │
     ▼
-┌──────────────────────────────┐
-│  writing-blog                │  Blog 마스터 (2,250자)
-└──────────┬───────────────────┘
-           │
-           ▼
-[Blog 발행 + 1~7일 대기]
-           │
-           ▼
-┌──────────────────────────────┐
-│  writing-<채널> × 5          │  채널별 변형
-│   writing-linkedin           │
-│   writing-threads            │
-│   writing-x                  │
-│   writing-instagram          │
-│   writing-youtube            │
-└──────────────────────────────┘
-```
+┌────────────────────────────────────┐
+│  writing-social-content            │  Blog 마스터(2,250자)
+│  └ 채널 매트릭스로 변형             │  → LinkedIn · X · Threads · Maily
+└──────────────┬─────────────────────┘     (같은 스킬, 채널만 바꿈)
+               │  발행 형식(`## 발행`/`## Draft`)으로 저장
+               ▼
+┌────────────────────────────────────┐
+│  publish-sns                       │  채널 발행 + 레저 기록
+└────────────────────────────────────┘
 
-각 스킬은 *그 채널의 기존 발행 글 1~3개*를 retrieve해서 voice 일관 유지.
+이미지가 필요하면 → make-insta-card-news (카드)
+영상이 필요하면   → make-shorts (세로 숏폼)
+```
 
 ---
 
-## 🧬 공통 패턴 (Socratic retrieve)
+## 🎤 Voice 시스템 (writing-social-content)
 
-각 채널 스킬 동일 구조:
-
-### 자동 retrieve (사용자 입력 X)
-1. **VOICE** — `1_SNS/<channel>/VOICE - <channel>.md`
-2. **CHANNEL_GUIDE** — `1_SNS/<channel>/CHANNEL_GUIDE - <channel>.md` (Blog는 없음)
-3. **WINNING_PATTERNS** — `1_SNS/<channel>/WINNING_PATTERNS - <channel>.md`
-4. **기존 발행 글 샘플** — `<channel> - *.md` 1~3개 (사용자 선택 또는 최근 자동)
-
-### 대화형 (AskUserQuestion 한 결정씩)
-5. 글 정보 입력
-6. GENRE 선택 (8개 중)
-7. STRUCTURE 선택 (8개 중)
-8. PROJECT 연결 ❓
-9. CORE 인용 ❓
-10. SNIPPET ❓
-
-### 생성 + 저장
-11. voice 일관 (기존 글 종결 어미·시그니처 표현 모방)
-12. WINNING_PATTERNS 체크리스트 통과
-13. 옵시디언 새 파일 저장
-
----
-
-## 🎤 Voice 시스템
-
-각 채널마다 *고유 voice 자산 3종*:
+채널마다 *고유 voice 자산 3종*을 학습해 일관 유지 — 같은 채널엔 같은 톤, 쓸수록 voice 정착:
 
 ```
-1_SNS/<channel>/
-├── CHANNEL_GUIDE - <channel>.md      📜 룰 (분량·후크·알고리즘)
-├── VOICE - <channel>.md              🎤 톤·종결·호흡·시그니처
-├── WINNING_PATTERNS - <channel>.md   🎯 실전 combo + 케이스
-└── <channel> - <title>.md            📝 발행 글
+Personal Branding/50_Channel_Packs/1_SNS/<channel>/
+├── _anchors/
+│   ├── CHANNEL_GUIDE - <channel>.md     📜 룰 (분량·후크·알고리즘; Blog는 없음)
+│   ├── VOICE - <channel>.md             🎤 톤·종결·호흡·시그니처
+│   └── WINNING_PATTERNS - <channel>.md  🎯 실전 combo + 케이스
+└── <channel> - <title>.md               📝 발행 글
 ```
 
-같은 채널엔 같은 톤. 발행하면서 시그니처 표현 누적되면 voice 정착.
+채널별 분량·톤 차이는 writing-social-content의 **채널 매트릭스** 한 표로 관리.
 
 ---
 
@@ -98,9 +74,8 @@
 Personal Branding/
 ├── 50_Channel_Packs/1_SNS/
 │   ├── INDEX - SNS.md           도메인 매뉴얼
-│   ├── Blog/                    (VOICE + WINNING_PATTERNS + 발행 글)
-│   ├── LinkedIn/                (CHANNEL_GUIDE + VOICE + WINNING_PATTERNS + 발행 글)
-│   ├── Threads/, X/, Instagram/, YouTube/
+│   ├── Blog/ LinkedIn/ X/ Threads/ Maily/   (각 _anchors/ + 발행 글)
+│   └── Instagram/               (make-insta-card-news 카드)
 ├── 20_Core/                     atomic claims (CORE 인용 시)
 ├── 40_Snippets/                 후크·교훈·격언 (옵션)
 └── 70_Projects/                 프로젝트 메타 (옵션)
@@ -114,6 +89,7 @@ Personal Branding/
 
 - 옵시디언 REST API + MCP (vault retrieve용)
 - Claude Code (AskUserQuestion + 글 생성)
+- make-shorts: `edge-tts`, `pyCapCut` / make-insta-card-news: Playwright 또는 headless render api
 
 ---
 

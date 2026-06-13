@@ -12,7 +12,7 @@ Turn a post (.md / Obsidian Instagram pack / any text) into an Instagram card-ne
 ## Workflow
 
 ### 1. Intake
-- **Content**: source .md. An Obsidian Instagram pack may already define the card breakdown — honor it.
+- **Content**: source .md. A `writing-social-content` draft or any source .md may already define the card breakdown — honor it.
 - **DESIGN.md**: look for `./DESIGN.md` → `./designs/*/DESIGN.md`. If absent, ask the user: getdesign catalog (`npx getdesign@latest add <name>`) / paste a brand spec / default Korean card style (proceed on kr-card-principles.md alone).
 - **Count**: default cover + 3–5 body + CTA, unless specified.
 - **Images?** If the content is product/tutorial/news, or the DESIGN.md is photography-forward, ask once whether the user has photos/screenshots. See **Images** below.

@@ -13,7 +13,7 @@ Publish channel notes from the Obsidian vault to live SNS channels through n8n w
 1. **Never publish or delete without an explicit user approval AFTER showing a preview.** Channel agreement is not approval. Body shown ≠ body changed later — re-preview after any edit.
 2. **The ledger is the only memory.** post_id/url live in `published_posts`, never in conversation memory.
 
-Content *formats* are NOT defined here — each channel's note structure is owned by its make-* skill (single source). This skill owns the *publishing* contract only.
+Content *formats* are NOT defined here — each channel's note structure is owned by its authoring skill (text channels = `writing-social-content`, cards = `make-insta-card-news`). This skill owns the *publishing* contract only.
 
 ## Flow
 
@@ -24,8 +24,8 @@ Content *formats* are NOT defined here — each channel's note structure is owne
      │
      ├─ note MISSING ──► DO NOT stop and ask for a filename.
      │     Offer to CREATE it first: draft with the matching skill
-     │     (voice/draft = writing-<channel>, publish format = make-threads / make-maily /
-     │      make-insta-card-news; blog/linkedin follow vault templates), save the note
+     │     (text channels = writing-social-content, cards = make-insta-card-news,
+     │      video = make-shorts), save the note
      │     (`status: draft`), then continue at step 2 with the new note.
      │
      └─ note EXISTS ──► 2. Extract body per channel (see table) — `## 발행` section is the
@@ -50,9 +50,9 @@ Content *formats* are NOT defined here — each channel's note structure is owne
 | Channel | Body source in note | Payload notes | Format canon |
 |---|---|---|---|
 | tistory | first line = title, markdown body as-is | `category`? (default 프로덕트 엔지니어), `tags` array | vault `TEMPLATE - Blog 발행 틀` |
-| maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is | `tags` array; `"dry_run": true` = draft only (no email) | **make-maily** |
-| threads | `## 발행` text = `content` verbatim; `![[image]]` embeds → `image_urls` in order | ≤500 chars (warn if over), 1 hashtag max | **make-threads** |
-| linkedin | `## Draft` final version | `content` only | writing-linkedin |
+| maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
+| threads | `## 발행` text = `content` verbatim; `![[image]]` embeds → `image_urls` in order | ≤500 chars (warn if over), 1 hashtag max | **writing-social-content** |
+| linkedin | `## Draft` final version | `content` only | writing-social-content |
 | instagram | card texts in note → self-contained HTML → render webhook → `image_urls` + `caption` | 1 img=single, 2–10=carousel | **make-insta-card-news** (Mode B) |
 
 ### Images (threads · instagram — unified pipeline)
@@ -99,7 +99,7 @@ Delete flow: ledger SELECT → show the user *which* post (topic + url) and conf
 
 - About to POST a pub webhook without having shown a preview *and* received explicit approval in this conversation → STOP, preview first. "The note already says status:draft and user said 올려줘 by topic" is NOT approval of the body.
 - Extracted body = whole note after frontmatter → STOP, use the channel's section (`## 발행` / `## Draft`).
-- No note found and you're about to ask the user for a filename → STOP, offer to create the draft via the matching writing-*/make-* skill instead.
+- No note found and you're about to ask the user for a filename → STOP, offer to create the draft via the matching writing-social-content / make-* skill instead.
 - post_id from conversation memory → STOP, SELECT from the ledger.
 - maily without a subtitle line, or real-send without the second confirmation → STOP.
 - About to send a threads/instagram post text-only (no `image_urls`) when it's a showcase/proof post or its `## 발행` has no embeds → STOP, confirm images with the user first.

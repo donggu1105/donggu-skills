@@ -1,7 +1,7 @@
 {
   "name": "donggu-sns",
-  "version": "1.5.0",
-  "description": "SNS content authoring — Blog master + LinkedIn/Threads/X/Instagram/YouTube variants with Socratic retrieve from Obsidian vault, plus make-threads/make-maily publish-format specs, make-insta-card-news, publish-sns, and make-shorts (news→CapCut 9:16 draft) (webhook publishing with preview-approval gate, ledger, and draft-fallback to make-* skills) (DESIGN.md-driven Instagram card images with Pexels/Commons sourcing + headless api render path). Preserves user voice (회고형 1인칭, 미괄식)",
+  "version": "2.0.0",
+  "description": "SNS content authoring — writing-social-content (Blog master + LinkedIn/X/Threads/Maily variants in one skill, Socratic voice-learning from the Obsidian vault, including the threads/maily publish-note formats), make-insta-card-news (DESIGN.md-driven Instagram card images with Pexels/Commons sourcing + headless render), make-shorts (news→CapCut 9:16 draft), and publish-sns (webhook publishing with preview-approval gate + ledger). Boundary: writing = words, make = artifacts, publish = ship. Preserves the user's learned voice (회고형 1인칭, 미괄식)",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"
@@ -15,11 +15,12 @@
     "twitter",
     "x",
     "instagram",
-    "youtube",
+    "maily",
+    "newsletter",
     "blog",
     "card-news",
     "카드뉴스",
-    "instagram-carousel",
+    "shorts",
     "content-writing",
     "obsidian",
     "voice-anchor",
