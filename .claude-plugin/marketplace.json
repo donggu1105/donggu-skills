@@ -36,6 +36,13 @@
       "description": "YouTube transcript fetch — grabs ONLY a video's 자막/스크립트 text (~tens of KB over HTTP; never downloads the video or audio). get-youtube-scripts = transcript text; make-source = Obsidian reference note (summary + jump-timestamps). Captions-only.",
       "version": "1.1.5",
       "strict": false
+    },
+    {
+      "name": "donggu-apply",
+      "source": "./donggu-apply",
+      "description": "Freelance proposal auto-apply — capture login session, crawl a project brief + client pre-questions, draft a proposal from the portfolio Supabase DB (SSOT), autofill the apply form, and gate submission behind a Discord HITL button. apply-wishket skill (Wishket); DRY-RUN preview unless explicitly submitted; structured to add more platforms.",
+      "version": "1.0.0",
+      "strict": false
     }
   ]
 }

@@ -1,0 +1,14 @@
+{
+  "_note": "apply-wishket 답변 스키마. budget/term은 사람이 최종 확정. 모든 주장은 portfolio DB(projects) 또는 이력서에 근거해야 하며 과장 금지.",
+  "budget": "2500000",
+  "term": "3",
+  "term_type": "month",
+  "start_immediate": true,
+  "pre_question_answers": [
+    "<클라이언트 사전질문 1에 대한 답변 — URL 질문이면 portfolio DB의 실제 런칭 링크>",
+    "<사전질문 2 — 경험 질문이면 관련 projects 행 + 구체 지표>",
+    "<사전질문 3 — 성공 제안 + 단계별 일정/예상 기간>"
+  ],
+  "body": "<지원 내용 본문: 인사 → 스택 일치 → 적합 이유 2~3개(portfolio 매핑) → 포트폴리오 링크 → 마무리>",
+  "related_employment": "none"
+}

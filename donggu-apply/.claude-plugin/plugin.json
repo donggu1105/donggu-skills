@@ -1,0 +1,22 @@
+{
+  "name": "donggu-apply",
+  "version": "1.0.0",
+  "description": "Freelance proposal auto-apply — capture login session, crawl a project's brief + client pre-questions, draft a proposal from the portfolio Supabase DB, autofill the apply form, and gate submission behind a Discord HITL button. Currently Wishket (apply-wishket skill); structured to add more platforms.",
+  "author": {
+    "name": "강동현 (donggu)",
+    "url": "https://github.com/donggu1105"
+  },
+  "repository": "https://github.com/donggu1105/donggu-skills",
+  "license": "MIT",
+  "keywords": [
+    "wishket",
+    "freelance",
+    "proposal",
+    "auto-apply",
+    "playwright",
+    "portfolio",
+    "supabase",
+    "automation",
+    "hitl"
+  ]
+}
