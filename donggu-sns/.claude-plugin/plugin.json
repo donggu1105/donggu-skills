@@ -1,7 +1,7 @@
 {
   "name": "donggu-sns",
-  "version": "2.0.0",
-  "description": "SNS content authoring — writing-social-content (Blog master + LinkedIn/X/Threads/Maily variants in one skill, Socratic voice-learning from the Obsidian vault, including the threads/maily publish-note formats), make-insta-card-news (DESIGN.md-driven Instagram card images with Pexels/Commons sourcing + headless render), make-shorts (news→CapCut 9:16 draft), and publish-sns (webhook publishing with preview-approval gate + ledger). Boundary: writing = words, make = artifacts, publish = ship. Preserves the user's learned voice (회고형 1인칭, 미괄식)",
+  "version": "2.1.0",
+  "description": "SNS content authoring — writing-social-content (Blog master + LinkedIn/X/Threads/Maily variants in one skill, Socratic voice-learning from the Obsidian vault, including the threads/maily publish-note formats), make-insta-card-news (DESIGN.md-driven Instagram card images with Pexels/Commons sourcing + headless render), make-shorts (news→CapCut 9:16 draft), and publish-sns (webhook publishing with preview-approval gate + ledger), plus get-stock-image (keyword→free stock image auto-routing across Unsplash·Pexels·Pixabay·Wikimedia Commons·Openverse with kind-based fallback). Boundary: writing = words, make = artifacts, publish = ship. Preserves the user's learned voice (회고형 1인칭, 미괄식)",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"
@@ -24,6 +24,11 @@
     "content-writing",
     "obsidian",
     "voice-anchor",
-    "build-in-public"
+    "build-in-public",
+    "stock-image",
+    "unsplash",
+    "pexels",
+    "pixabay",
+    "free-image"
   ]
 }
