@@ -49,11 +49,23 @@ Content *formats* are NOT defined here — each channel's note structure is owne
 
 | Channel | Body source in note | Payload notes | Format canon |
 |---|---|---|---|
-| tistory | first line = title, markdown body as-is | `category`? (default 프로덕트 엔지니어), `tags` array | vault `TEMPLATE - Blog 발행 틀` |
-| maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
+| tistory | first line = title, markdown body as-is — **but run blog-image prep first** (see below) | `category`? (default 프로덕트 엔지니어), `tags` array | vault `TEMPLATE - Blog 발행 틀` |
+| maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is — **blog-image prep first if it has `![[embeds]]`** | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
 | threads | `## 발행` text = `content` verbatim; `![[image]]` embeds → `image_urls` in order | ≤500 chars (warn if over), 1 hashtag max | **writing-social-content** |
 | linkedin | `## Draft` final version | `content` only | writing-social-content |
 | instagram | card texts in note → self-contained HTML → render webhook → `image_urls` + `caption` | 1 img=single, 2–10=carousel | **make-insta-card-news** (Mode B) |
+
+### Images (blog: tistory · maily — inline body images)
+
+Blog bodies carry images as Obsidian wikilink embeds (`![[geudwi-hero.jpg]]`) — vault-local refs that **break when sent to tistory/maily as-is** (the webhook ships the markdown verbatim; the reader can't see vault files). So **before** building the tistory/maily payload, convert them:
+
+```
+python3 <skill>/prepare_blog_images.py "<note.md>" --out /tmp/<slug>.pub.md
+#   ![[local.jpg]] 추출 → sns-media 버킷에 upsert 업로드 → ![](공개URL) 치환
+#   → /tmp/<slug>.pub.md 가 발행용 본문. 키는 n8n .env 자동 로드.
+```
+
+Then extract title (first line) + body **from the converted file** and send that as `content` to `sns-pub-tistory` / `sns-pub-maily`. The script is idempotent (upsert) — re-running reuses the same URLs. Storage path: `sns-media/blog/<YYYY>/<MM-DD>/<slug>/<file>` (public). If it exits non-zero (`unresolved` image), STOP — a wikilink points at a file not in the vault; fix the embed before publishing, never ship a broken `![[...]]`.
 
 ### Images (threads · instagram — unified pipeline)
 
@@ -103,6 +115,7 @@ Delete flow: ledger SELECT → show the user *which* post (topic + url) and conf
 - post_id from conversation memory → STOP, SELECT from the ledger.
 - maily without a subtitle line, or real-send without the second confirmation → STOP.
 - About to send a threads/instagram post text-only (no `image_urls`) when it's a showcase/proof post or its `## 발행` has no embeds → STOP, confirm images with the user first.
+- About to POST tistory/maily content that still contains `![[…]]` wikilinks → STOP, you skipped `prepare_blog_images.py`; the images will break in the published post.
 
 | Excuse | Reality |
 |---|---|
@@ -110,3 +123,4 @@ Delete flow: ledger SELECT → show the user *which* post (topic + url) and conf
 | "Note doesn't exist, user must tell me where it is" | Creating it is your job — offer the make-* path. |
 | "I remember the post_id from earlier" | Sessions die. The ledger doesn't. |
 | "User said 올려/다시 올려, so text-only is fine" | Re-posting ≠ an image decision. Confirm whether images should ride along first. |
+| "Body has `![[…]]`, tistory will render it" | It won't. Vault wikilinks are local. Run `prepare_blog_images.py` → `![](url)` first. |
