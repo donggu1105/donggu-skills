@@ -143,21 +143,30 @@ def main():
         sys.exit(2)
 
     out = content
-    for name, fp in resolved.items():
+    cover_url = None
+    for idx, (name, fp) in enumerate(resolved.items()):
         base = os.path.basename(fp)
         key_path = f"blog/{yyyy}/{mmdd}/{slug}/{base}"
         url = upload(fp, key_path, a.bucket, base_url, service_key)
+        if idx == 0:  # 첫 이미지(hero) = 대표이미지(cover) 후보
+            cover_url = url
         # ![[name]] 및 ![[name|alt]] 모두 치환
         pat = re.compile(r"!\[\[" + re.escape(name) + r"(?:\|[^\]]*)?\]\]")
         out = pat.sub(f"![]({url})", out)
         log({"uploaded": base, "url": url})
 
+    # cover(hero) URL을 사이드카로 — 발행 시 tistory cover_image로 전달
+    if cover_url and a.out:
+        with open(a.out + ".cover", "w", encoding="utf-8") as cf:
+            cf.write(cover_url)
+    log({"cover_image": cover_url})
+
     if a.out:
         open(a.out, "w", encoding="utf-8").write(out)
-        log({"done": True, "out": a.out, "count": len(resolved)})
+        log({"done": True, "out": a.out, "count": len(resolved), "cover": cover_url})
     else:
         sys.stdout.write(out)
-        log({"done": True, "count": len(resolved)})
+        log({"done": True, "count": len(resolved), "cover": cover_url})
 
 
 if __name__ == "__main__":
