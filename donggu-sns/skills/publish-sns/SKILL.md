@@ -80,6 +80,7 @@ Public endpoints (Cloudflare Tunnel). All require header `X-SNS-Token: $SNS_WEBH
 | Purpose | POST `https://n8n.donggu.site/webhook/…` | Body | Response |
 |---|---|---|---|
 | tistory pub | `sns-pub-tistory` | `{title, content, category?, tags?}` | `{success, url, post_id, error}` |
+| tistory **update** | `sns-update-tistory` | `{post_id, title, content, category?, tags?, dry_run?}` | `{success, url, error}` |
 | maily pub | `sns-pub-maily` | `{title, content, subtitle?, tags?, dry_run?}` | `{success, url, error}` (no post_id) |
 | threads pub | `sns-pub-threads` | `{content, image_urls?}` | `{success, url, post_id, error}` |
 | linkedin pub | `sns-pub-linkedin` | `{content}` | `{success, url, post_id, error}` |
@@ -88,6 +89,8 @@ Public endpoints (Cloudflare Tunnel). All require header `X-SNS-Token: $SNS_WEBH
 | delete | `sns-del-tistory` / `sns-del-threads` | `{post_id}` | `{success, error}` |
 
 Delete exists only for tistory·threads. maily emails can't be recalled; linkedin = manual delete.
+
+**tistory edit-in-place**: `sns-update-tistory` updates the live post by `post_id` — **same URL preserved**, no delete+repost. Use it to backfill/fix a published post (e.g. add blog images you missed): run `prepare_blog_images.py` on the note → SELECT the `post_id` from the ledger → POST `{post_id, title, content}`. Preview + approval gate still applies (it mutates a live post). No ledger row changes (same url/post_id); just report the result.
 
 ## Ledger (Supabase `fvfayignxybdyyravorg` · table `published_posts`)
 
