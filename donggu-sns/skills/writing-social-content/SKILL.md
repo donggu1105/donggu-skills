@@ -90,6 +90,8 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 
 > 업로드는 신경 안 써도 된다 — `publish-sns`(발행 주체)가 `![[…]]`를 Supabase Storage(`sns-media`)에 올리고 공개 URL로 치환한다. 작성자는 **vault에 파일 저장 + 위치에 임베드**까지만.
 
+> **대표이미지(썸네일/OG) = 리드 이미지(첫 임베드).** 티스토리 발행 시 발행기가 이 hero를 글의 대표이미지로도 업로드한다(목록·SNS 공유 카드에 뜨는 썸네일). hero는 섹션 사진보다 더 신경 써서 **글 전체를 대표할 한 장**으로 고를 것. 등록·수정 동일.
+
 ## Common Mistakes
 | 실수 | 수정 |
 |---|---|
