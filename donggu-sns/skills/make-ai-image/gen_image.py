@@ -34,7 +34,12 @@ import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_COMFY = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")
+
+
+def comfy_base():
+    """ComfyUI 서버 주소 — env COMFYUI_URL(.env 자동로드), 기본 호스트 127.0.0.1:8188.
+    컨테이너에서 부르면 compose가 host.docker.internal 로 주입한다."""
+    return os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188").rstrip("/")
 
 
 def log(o):
@@ -42,7 +47,7 @@ def log(o):
 
 
 def load_env():
-    need = ("CF_ACCOUNT_ID", "CF_API_TOKEN", "FAL_KEY", "GEN_IMAGE_BACKEND")
+    need = ("CF_ACCOUNT_ID", "CF_API_TOKEN", "FAL_KEY", "GEN_IMAGE_BACKEND", "COMFYUI_URL")
     if all(os.environ.get(k) for k in need):
         return
     for c in (os.environ.get("GEN_IMAGE_ENV"),
@@ -83,7 +88,7 @@ def _post_json(url, payload, headers=None, timeout=180):
 
 def comfy_reachable():
     try:
-        _get(DEFAULT_COMFY + "/system_stats", timeout=2)
+        _get(comfy_base() + "/system_stats", timeout=2)
         return True
     except Exception:
         return False
@@ -160,14 +165,14 @@ def gen_comfyui(prompt, out, model, w, h, seed):
            .replace("{WIDTH}", str(w)).replace("{HEIGHT}", str(h))
            .replace("{SEED}", str(seed if seed is not None else 0))
     )
-    resp = json.loads(_post_json(DEFAULT_COMFY + "/prompt", {"prompt": graph}, timeout=30))
+    resp = json.loads(_post_json(comfy_base() + "/prompt", {"prompt": graph}, timeout=30))
     pid = resp.get("prompt_id")
     if not pid:
         raise RuntimeError(f"comfy_enqueue_failed: {str(resp)[:160]}")
     # /history 폴링 → 결과 이미지 파일명
     for _ in range(180):  # ~3분
         time.sleep(1)
-        hist = json.loads(_get(f"{DEFAULT_COMFY}/history/{pid}", timeout=10) or b"{}")
+        hist = json.loads(_get(f"{comfy_base()}/history/{pid}", timeout=10) or b"{}")
         if pid in hist:
             outs = hist[pid].get("outputs", {})
             for node in outs.values():
@@ -175,7 +180,7 @@ def gen_comfyui(prompt, out, model, w, h, seed):
                     fn = urllib.parse.urlencode(
                         {"filename": im["filename"], "subfolder": im.get("subfolder", ""),
                          "type": im.get("type", "output")})
-                    _save(_get(f"{DEFAULT_COMFY}/view?{fn}", timeout=30), out)
+                    _save(_get(f"{comfy_base()}/view?{fn}", timeout=30), out)
                     return {"backend": "comfyui", "model": model}
             raise RuntimeError("comfy_no_image_in_history")
     raise RuntimeError("comfy_timeout")
