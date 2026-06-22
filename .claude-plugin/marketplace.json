@@ -33,7 +33,7 @@
     {
       "name": "donggu-media",
       "source": "./donggu-media",
-      "description": "YouTube transcript fetch — grabs ONLY a video's 자막/스크립트 text (~tens of KB over HTTP; never downloads the video or audio). get-youtube-scripts = transcript text; make-source = Obsidian reference note (summary + jump-timestamps). Captions-only.",
+      "description": "YouTube transcript fetch — grabs ONLY a video's 자막/스크립트 text (~tens of KB over HTTP; never downloads the video or audio). get-youtube-scripts = transcript text; save-youtube-source = Obsidian reference note (summary + jump-timestamps). Captions-only.",
       "version": "1.1.5",
       "strict": false
     },

@@ -1,6 +1,6 @@
 ---
 name: get-youtube-scripts
-description: Use when given a YouTube URL (watch, youtu.be, shorts, live) and you need the video's transcript / captions / 자막 / 스크립트 as clean text to summarize (요약), translate, quote, or analyze — returned to the conversation, nothing saved. To save the video as a note in the Obsidian vault, use make-source instead. Captions-only, no audio transcription.
+description: Use when given a YouTube URL (watch, youtu.be, shorts, live) and you need the video's transcript / captions / 자막 / 스크립트 as clean text to summarize (요약), translate, quote, or analyze — returned to the conversation, nothing saved. To save the video as a note in the Obsidian vault, use save-youtube-source instead. Captions-only, no audio transcription.
 ---
 
 # get-youtube-scripts
