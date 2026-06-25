@@ -1,19 +1,19 @@
 ---
 name: writing-social-content
-description: Use when writing a text post for the user's Obsidian-vault SNS channels — Blog (master long-form), LinkedIn, X/Twitter, Threads, or Maily newsletter — in the user's learned voice, including drafting, adapting a master post to a channel, or formatting a note for publishing. Not for Instagram card images or short-form video.
+description: Use when writing a text post for the user's Obsidian-vault SNS channels — Blog, LinkedIn, X/Twitter, Threads, or Maily newsletter — in the user's learned voice, including drafting a fresh post for a channel, writing the same topic for another channel, or formatting a note for publishing. Not for Instagram card images or short-form video.
 ---
 
 # Writing Social Content
 
 ## Overview
 
-사용자의 **텍스트 SNS 채널 전부**(Blog 마스터 + LinkedIn·X·Threads 변형 + Maily 뉴스레터)를 한 스킬로 작성한다. 핵심은 **voice-learning** — 그 채널의 기존 발행 글에서 톤·종결·시그니처를 학습해 일관 유지. 채널 차이는 [채널 매트릭스]로 흡수하고, 작성 절차(retrieve→대화형→생성→저장)는 공통이다.
+사용자의 **텍스트 SNS 채널 전부**(Blog·LinkedIn·X·Threads·Maily)를 한 스킬로 작성한다. **각 채널은 독립적이다** — 마스터/변형 위계가 없다. 어느 채널도 다른 채널의 원천이 아니고, 모든 글은 주제 브리프 + 그 채널 VOICE에서 **새로** 쓴다. 핵심은 **voice-learning** — 그 채널의 기존 발행 글에서 톤·종결·시그니처를 학습해 일관 유지. 채널 차이는 [채널 매트릭스]로 흡수하고, 작성 절차(retrieve→대화형→생성→저장)는 공통이다.
 
 **Core**: Socratic retrieve. 자동 자산(VOICE·CHANNEL_GUIDE·WINNING_PATTERNS·기존 글)은 강제, 선택 자산(GENRE·STRUCTURE·PROJECT·CORE)은 한 결정씩 물어본다.
 
 ## When to Use
-- 텍스트 채널(blog·linkedin·x·threads·maily) 중 하나에 새 글/변형 작성
-- Blog 마스터 → 다른 채널 압축 변형
+- 텍스트 채널(blog·linkedin·x·threads·maily) 중 하나에 새 글 작성
+- 같은 주제를 다른 채널용으로 새로 작성 (각 채널 독립 — 마스터 없음)
 - 기존 노트를 발행 가능한 형식(`## 발행`/`## Draft`)으로 정형화
 
 ## When NOT to Use
@@ -25,7 +25,7 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 
 | 채널 | VOICE 앵커 | 분량 | 톤 | 핵심 규칙 | 저장 / 발행 형식 |
 |---|---|---|---|---|---|
-| **blog** (마스터) | `VOICE - Blog` (CHANNEL_GUIDE 없음) | 2,000~2,500자 | voice 학습 | GENRE×STRUCTURE, 다른 채널의 원천 | `Blog/Blog - <t>.md` · tistory 발행 = 본문 그대로(첫 줄=제목) |
+| **blog** | `VOICE - Blog` (CHANNEL_GUIDE 없음) | 2,000~2,500자 | voice 학습 | GENRE×STRUCTURE, 롱폼 | `Blog/Blog - <t>.md` · tistory 발행 = 본문 그대로(첫 줄=제목) |
 | **linkedin** | `VOICE - LinkedIn` | 1,200~1,400자 | 정중 존댓말 | 첫 3줄 후크(모바일 ~210자), 단문+줄바꿈, 끝 댓글유도, 링크는 첫 댓글 | `LinkedIn/...` · 발행 = `## Draft` 확정본 |
 | **x (ko)** | `VOICE - X` 한국어 풀 | 140자 / 스레드 | 명사형 건조 빌더 | "~함/~됨" 종결, Thread "1/N", 링크 첫 댓글 | `X/...` (`language: korean`) |
 | **x (en)** | `VOICE - X` 영어 풀 | 280자 / 스레드 | indie hacker | "I shipped X.", `#buildinpublic`, 스크린샷·데이터, "🧵" | `X/...` (`language: english`) |
@@ -53,7 +53,7 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 
 ### 4. 저장
 - Path: `1_SNS/<채널>/<채널> - <title>.md`
-- frontmatter: `type: content` · `channel: <ch>` · `project:` · `status: draft` · (변형이면) `blog_version: "[[Blog - <t>]]"` · (x) `language:`
+- frontmatter: `type: content` · `channel: <ch>` · `project:` · `status: draft` · (같은 주제의 다른 채널 글이 있으면) `related: "[[<채널> - <t>]]"` (대등 링크 — 마스터 참조 아님) · (x) `language:`
 - **발행 채널이면 발행 형식 섹션까지** (아래)
 
 ## 발행 형식 (구 make-note 흡수 — 발행기가 읽는 정본)
