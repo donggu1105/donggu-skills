@@ -26,8 +26,8 @@
     {
       "name": "donggu-sns",
       "source": "./donggu-sns",
-      "description": "SNS content authoring — Blog master + LinkedIn/Threads/X/Instagram/YouTube variants with Socratic retrieve from Obsidian vault, plus publish-sns (publish/delete with HITL gate + ledger) and make-insta-card-news (DESIGN.md-driven card images, Pexels/Commons sourcing + headless api render path). Preserves 회고형 1인칭 voice + make-shorts (news→CapCut 9:16 draft).",
-      "version": "1.5.0",
+      "description": "SNS content authoring — writing-social-content (Blog master + LinkedIn/X/Threads/Maily variants, Socratic voice-learning from the Obsidian vault), make-insta-card-news (DESIGN.md-driven Instagram cards, Pexels/Commons sourcing + headless render), make-shorts (news→CapCut 9:16 draft), and publish-sns (webhook publishing with preview-approval gate + ledger), plus get-stock-image / get-ai-image as swappable blog-image sources. Preserves 회고형 1인칭 voice.",
+      "version": "2.2.0",
       "strict": false
     },
     {
