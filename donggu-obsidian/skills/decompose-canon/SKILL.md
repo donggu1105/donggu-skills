@@ -30,17 +30,27 @@ One proven post → a FEW reusable atoms (CORE + 40_Snippets parts) + back-links
    - `20_Core/` — does a CORE already say this? → prefer **LINK/merge over new**
    - `40_Snippets/` — does a snippet already exist? → reuse
    - `60_MOCs/` — which existing hub does this attach to? (do NOT spawn a new MOC)
-3. **Propose atoms — recommend, don't create:**
+3. **Form candidate atoms (draft only — don't create yet):**
    - **CORE candidates** — score with `extract-core`'s 5 criteria. "X는 Y다" form, 동구 voice. **Healthy yield 1-2 per post.** If existing CORE covers it, recommend linking, not a new note.
    - **부품 candidates** — typed HOOK / ONE / PROOF / LESSON. Each is the **actual line from the post (near-verbatim)**, not a reworded essay. Score 4 pts: 재사용성·자족성·동구 목소리·중복 없음. Adopt 3+/4.
-4. **STOP — get explicit adoption** ("CORE 1, 부품 2·5 채택" 식). No auto-create.
+4. **조화 평가 — 동구 컨펌 게이트 (필수 STOP).** 만들기 전에, 각 후보가 **기존 볼트 원자와 어떻게 조화를 이룰지**를 한 표로 보여주고 명시적 채택을 받는다. 채점·문장만 나열하면 안 됨 — 반드시 *기존 원자와의 관계*를 보여준다:
+   - 후보별 판정: **중복→LINK**(기존 노트명 명시) · **보완→NEW**(붙을 기존 MOC 명시) · **머지→MERGE**(어느 노트에 합칠지) · **충돌→FLAG**(어느 기존 원자와 모순되는지).
+   - 전체 그림 한 줄: 이 분해가 atom bank를 어떻게 바꾸나 — 「CORE +N · 부품 +N · 링크 N · 머지 N」, 새 CORE가 강화하는 MOC 군집.
+   - 그런 다음 **STOP.** "CORE 1, 부품 2·5 채택 / 3은 기존 링크" 식 명시 응답을 기다린다. **자동 생성 금지.**
+
+   ```
+   | 후보 (실제 문장) | 유형 | 판정 | 기존 원자와의 관계 | 권고 |
+   |---|---|---|---|---|
+   | "…동구 한 줄…" | ONE | 보완(NEW) | [[ONE - …]]와 다른 각도 | 신설 → [[MOC - …]] |
+   | "…동구 한 줄…" | CORE | 중복(LINK) | [[CORE - …]]가 이미 말함 | 링크만 |
+   ```
 5. **Create adopted atoms, exact vault conventions:**
    - CORE → `20_Core/CORE - <문장>.md` (frontmatter per `TPL - Core`)
    - 부품 → `40_Snippets/<타입폴더>/<TYPE> - <slug>.md` (폴더: Hooks·One-liners·Proof·Lessons·CTA). frontmatter는 `TPL - Snippet` 규약: `snippet_type:` 소문자(hook|one-liner|proof|lesson|cta), `topics·channels·tone·status·created`. 본문: `## 문장`(인용)·`## 사용 맥락`·`## 변형 버전`·`## 출처/근거`(출처 역링크)
 6. **Wire bidirectionally:**
    - **Post**: fill `## 부품` table with real wikilinks (replace placeholders); frontmatter `canon: true`, `core_principle: "[[CORE - …]]"`, `decomposed_to: [...]`; ensure post is in its `VOICE - <ch>` `canon:` list.
    - **Each atom**: `## 연결` back-link to the source post; CORE → attach to the existing MOC.
-7. **Report**: N proposed · scored · adopted · linked. Flag if you wanted >2 new CORE (scoring too loose).
+7. **Report**: N proposed · scored · adopted · linked · 머지/링크로 흡수된 수. Flag if you wanted >2 new CORE (scoring too loose).
 
 ## 부품 atom shape (stay atomic)
 
@@ -88,3 +98,4 @@ The body is the 동구 line + ONE line of "왜 재사용되나". Not a memo.
 - `source` 위키링크가 실제 파일명과 다름 → 발행 글 정확한 제목 확인
 - 새 MOC를 만들고 있음 → 기존 MOC 먼저 찾았나?
 - 영어로 쓰고 있음 → 볼트는 한글, 동구 목소리
+- 조화 평가표 없이 바로 원자 생성 → STOP. 각 후보의 기존 원자 관계(중복/보완/머지/충돌)를 먼저 보여주고 컨펌받았나?
