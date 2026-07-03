@@ -95,6 +95,7 @@ P priority:
 | Reading the same frontmatter key 50 times | Use metadata batch retrieval or search |
 | Searching directly for common frontmatter values | Searches like `simple_search "status: draft"` blow up to 100k+ token results. **Constrain by enum value + folder** (e.g. `obsidian_list_files_in_dir "20_Core"` then sample with batch_get_file_contents) |
 | Report exceeds 5000 chars | 5 lines max per P, one-line summary is literally 1 line |
+| Bulk status remediation right after the audit | Before flipping any status (e.g. drafting→published), read each note's **first callout** — 기록용/리프레시 구버전은 `archived`가 맞지 `published`가 아니다 (2026-07-03 사고: 리프레시 페어 구버전에 가짜 발행 기록이 찍힘) |
 
 ## Red Flags — STOP and Restart
 

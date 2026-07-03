@@ -112,12 +112,14 @@ Date: YYYY-MM-DD · Checked all 5 patterns
 | Judging subtle snippet differences as duplicates | Hook variants are intentional per channel / audience. Same opening 5 words ≠ duplicate |
 | Bulk-archiving absorbed notes | The body may still hold alias / citation value. Confirm via callout first |
 | Searching common frontmatter values | `simple_search "status: archived"` blows up tokens. Bypass with folder + sampling |
+| Bulk status changes without opening each note | A duplicate pair's old note often self-declares "리프레시 버전 있음 · 비교·기록용" in its **first callout** — bulk-marking it `published` fabricates a publish record. Read the first callout before ANY status flip: 기록용·리프레시 구버전 → `archived`, never `published` (2026-07-03 실제 사고: 카지노 딜러 리프레시 페어 양쪽이 published로 찍혔다가 교정) |
 
 ## Red Flags — STOP
 
 - "Recommend merge for every finding" → ignoring the possibility of intentional variation
 - "Recommend bulk-deleting all snippet twins" → ignoring audience / channel variation
 - "Auto-archive absorbed notes" → ignoring the user's callout intent
+- "Flip statuses in bulk during cleanup" → refresh pairs hide in first callouts; open each note first
 - Tool uses passed 100+ and the report is unfinished → stop immediately and submit a partial report
 
 ## Example: Semantic Duplicate (atomicity violation)
