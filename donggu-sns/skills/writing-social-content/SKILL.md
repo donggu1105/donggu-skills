@@ -11,6 +11,8 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 
 **Core**: Socratic retrieve. 자동 자산(VOICE·CHANNEL_GUIDE·정전 글)은 강제, 선택 자산(GENRE·STRUCTURE·PROJECT·CORE)은 한 결정씩 물어본다.
 
+> **canon에서 배우는 건 보이스(톤·종결·시그니처·후크)지 내용·결론(CORE)이 아니다.** 새 소재는 기본 **채굴 모드** — 그 소재만의 새 앵글을 판다(기존 CORE로 수렴 금지, "얼마 전에 나는 ~썼다"式 자기 인용 금지). **수렴 모드**(기존 CORE 강화·연결)는 사용자가 명시할 때만. 매번 같은 코어로 수렴시키면 글이 다 똑같아지고 새 코어가 안 쌓인다 — 지금은 코어를 넓히는 단계라 채굴이 기본.
+
 ## When to Use
 - 텍스트 채널(blog·linkedin·x·threads·maily) 중 하나에 새 글 작성
 - 같은 주제를 다른 채널용으로 새로 작성 (각 채널 독립 — 마스터 없음)
@@ -42,13 +44,13 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 - **정전(canon) 글 우선 + 기존 발행 글 1~3개**: VOICE의 `canon:`을 먼저 읽고, 없으면 `<채널> - *.md`에서 최근/대표 글 → 종결 어미 비율·시그니처·후크를 학습. *이게 voice-learning의 핵심 — 추상 규칙만 보면 평균값으로 homogenize된다. 실제 글이 보이스의 기준.*
 
 ### 2. 대화형 (AskUserQuestion, 한 결정씩)
-채널 → 글 정보 → GENRE(회고/튜토리얼/인사이트/공지…) → STRUCTURE(BLUF/미괄식/PAS/Listicle…) → PROJECT 연결❓ → CORE 인용❓
+채널 → 글 정보 → GENRE(회고/튜토리얼/인사이트/공지…) → STRUCTURE(BLUF/미괄식/PAS/Listicle…) → PROJECT 연결❓ → **CORE 모드❓ (매번 필수로 묻는다): 채굴(기본 — 기존 CORE 안 엮고 새 앵글) / 수렴(어떤 CORE를 엮을지 골라 강화). "어떤 코어를 쓸지, 아니면 안 쓸지"를 항상 확인한다.**
 (x = 언어 선택 / threads·x = 단일 vs 스레드)
 
 ### 3. 생성
 - 매트릭스의 채널 규칙(분량·톤·핵심) 적용
 - **voice 일관성 강제**: 정전 글의 종결 어미 비율 모방, 시그니처 표현 재사용, 회피 단어(과장 형용사·AI 클리셰) 제거
-- 정전(canon) 글의 후크·구조·종결을 따른다 (추상 combo·템플릿 아님 — 실제 글이 기준)
+- 정전(canon) 글의 후크·구조·종결을 따른다 (추상 combo·템플릿 아님 — 실제 글이 기준). **단 canon에서 가져오는 건 보이스지 내용·결론(CORE)이 아니다 — 내용은 위 CORE 모드 결정을 따른다(채굴이면 기존 코어 재사용·자기 인용 금지).**
 - **blog: 본문 확정 후 이미지 배치**(아래 [블로그 이미지 배치]) — 동구님이 찍은 캡처가 없을 때만
 
 ### 4. 저장
