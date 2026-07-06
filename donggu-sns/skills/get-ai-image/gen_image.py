@@ -20,7 +20,7 @@ get-stock-image와 같은 계약(프롬프트→파일 저장 + JSON 1줄)이라
 ComfyUI는 workflows/<model>.json 템플릿을 써서 그래프를 구성(모델 교체가 쉬움).
 
 환경변수: GEN_IMAGE_BACKEND, COMFYUI_URL(기본 127.0.0.1:8188),
-          CF_ACCOUNT_ID, CF_API_TOKEN, FAL_KEY (없으면 n8n .env 자동 로드).
+          CF_ACCOUNT_ID, CF_API_TOKEN, FAL_KEY, GEMINI_API_KEY (없으면 n8n .env 자동 로드).
 출력(stdout): {"backend","model","saved","prompt","seed"} JSON 1줄.
 종료코드: 0 성공 / 2 실패(백엔드 불가·생성 실패).
 """
@@ -47,7 +47,7 @@ def log(o):
 
 
 def load_env():
-    need = ("CF_ACCOUNT_ID", "CF_API_TOKEN", "FAL_KEY", "GEN_IMAGE_BACKEND", "COMFYUI_URL")
+    need = ("CF_ACCOUNT_ID", "CF_API_TOKEN", "FAL_KEY", "GEMINI_API_KEY", "GEN_IMAGE_BACKEND", "COMFYUI_URL")
     if all(os.environ.get(k) for k in need):
         return
     for c in (os.environ.get("GEN_IMAGE_ENV"),
@@ -155,6 +155,36 @@ def gen_fal(prompt, out, model, w, h, seed):
     return {"backend": "fal", "model": fal_model}
 
 
+def gen_gemini(prompt, out, model, w, h, seed):
+    """Google Gemini API 이미지 생성 (nano-banana = gemini-2.5-flash-image).
+    구독과 무관 — AI Studio API 키(GEMINI_API_KEY). 무료 티어(하루 제한)/유료 ~$0.04/장.
+    정확한 픽셀 크기 대신 종횡비만 지원 → 요청 크기에 가장 가까운 비율로 매핑."""
+    import base64
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("gemini_key_missing")
+    gem_model = model if str(model).startswith("gemini") else "gemini-2.5-flash-image"
+    ratios = {"1:1": 1.0, "2:3": 2/3, "3:2": 3/2, "3:4": 3/4, "4:3": 4/3,
+              "4:5": 4/5, "5:4": 5/4, "9:16": 9/16, "16:9": 16/9, "21:9": 21/9}
+    ar = min(ratios, key=lambda k: abs(ratios[k] - (w / h)))
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"],
+                             "imageConfig": {"aspectRatio": ar}},
+    }
+    raw = _post_json(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{gem_model}:generateContent",
+        body, headers={"x-goog-api-key": key}, timeout=180)
+    j = json.loads(raw)
+    for cand in j.get("candidates", []):
+        for part in cand.get("content", {}).get("parts", []):
+            data = (part.get("inlineData") or part.get("inline_data") or {}).get("data")
+            if data:
+                _save(base64.b64decode(data), out)
+                return {"backend": "gemini", "model": gem_model, "aspect_ratio": ar}
+    raise RuntimeError(f"gemini_no_image: {str(j)[:200]}")
+
+
 def gen_comfyui(prompt, out, model, w, h, seed):
     tpl_path = os.path.join(HERE, "workflows", f"{model}.json")
     if not os.path.isfile(tpl_path):
@@ -187,7 +217,7 @@ def gen_comfyui(prompt, out, model, w, h, seed):
 
 
 BACKENDS = {"comfyui": gen_comfyui, "pollinations": gen_pollinations,
-            "cf": gen_cf, "fal": gen_fal}
+            "cf": gen_cf, "fal": gen_fal, "gemini": gen_gemini}
 
 
 def choose_backend(explicit):
