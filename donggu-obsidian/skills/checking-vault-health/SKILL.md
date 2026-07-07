@@ -11,7 +11,7 @@ A periodic checkup that identifies **where the content pipeline of a PKM vault i
 
 ## When to Use
 
-- Right before a weekend extraction ritual — surface stale journals and uncited SOURCE notes
+- Right before a weekend extraction ritual — surface stale captures and uncited SOURCE notes
 - Monthly system retrospectives — find stalled layers
 - Before adding a new content domain — verify vault coherence
 - Periodic checks once a vault exceeds 100+ notes (sampling becomes mandatory past 300+)
@@ -35,13 +35,13 @@ Capture · Source      → CORE · Pattern (both directions)  → Channel Pack  
 
 What you measure is whether each layer *flows* into the next. Stagnation between stages is the biggest signal that the system is broken.
 
-**Refinement flows both ways.** Forward: journal → CORE promotion, recorded in the journal's `extracted_to:`. Reverse: a post written first → parts extracted back into canon, recorded in the pack's `decomposed_to:`. Both count as healthy refinement. A published pack with NEITHER a CORE citation NOR `decomposed_to` entries is an **orphan post** — that is the defect, not "the post was written before its parts."
+**Refinement flows both ways.** Forward: capture note → CORE promotion, recorded in the capture's `extracted_to:`. Reverse: a post written first → parts extracted back into canon, recorded in the pack's `decomposed_to:`. Both count as healthy refinement. A published pack with NEITHER a CORE citation NOR `decomposed_to` entries is an **orphan post** — that is the defect, not "the post was written before its parts."
 
 ## Workflow (9 steps, sample as conditions allow)
 
 1. **List vault structure** — `list_files_in_vault` + `list_files_in_dir` on 4-5 key folders
-2. **Entry check (capture-based)** — journals are OPTIONAL (2026-07-07 필수 해제): a missing `journal/` folder is NOT a finding. Entry is healthy when ANY first-person capture exists in the last 7 days — notes created in the inbox folder (e.g. `00_Inbox/`: 글감, 생각, 뉴스 브리핑, drafts) or in a `journal/` folder if the user keeps one. Flag P0 only when inbox AND journals both show zero new capture for 7+ days
-3. **Refinement check (both directions)** — Forward: `simple_search` for `"extracted_to: \[\]"` to list journals that were never extracted; identify SOURCEs with 0 citations for 1+ weeks. Reverse: posts written first must extract parts back — check `decomposed_to:` on recent packs (see step 7)
+2. **Entry check (capture-based)** — Build Journals were RETIRED (2026-07-07): do NOT look for `journal/` folders or mention them in findings. Entry is healthy when the inbox folder (e.g. `00_Inbox/`) contains notes created in the last 7 days (글감, 생각, 뉴스 브리핑, drafts). Flag P0 only when the inbox shows zero new capture for 7+ days
+3. **Refinement check (both directions)** — Forward: `simple_search` for `"extracted_to: \[\]"` to list capture notes never extracted (if the vault stamps `extracted_to`); identify SOURCEs with 0 citations for 1+ weeks. Reverse: posts written first must extract parts back — check `decomposed_to:` on recent packs (see step 7)
 4. **Guide violations** — frontmatter `type` enum violations, anti-patterns (e.g. a published Channel Pack left with neither cited parts nor `decomposed_to` backfill)
 5. **Link integrity** — broken wikilinks, especially comma/whitespace typo patterns (e.g. `[[CORE - X 판단은 사람]]` vs `[[CORE - X, 판단은 사람]]`)
 6. **Stub backlog** — `status: draft` or `status: stub` + `created < (today - 2 weeks)`
@@ -72,7 +72,7 @@ Date: YYYY-MM-DD · Scope: N folders, M notes sampled
 ```
 
 P priority:
-- **P0**: System entry severed (0 capture of ANY kind — inbox note, 글감, draft, journal — for 7+ days; a missing journal folder alone is NOT P0)
+- **P0**: System entry severed (0 inbox capture for 7+ days)
 - **P1**: Pipeline stalled (no extraction / citation for 1+ weeks, orphan published posts) + guide anti-pattern violations
 - **P2**: broken wikilinks (many found)
 - **P3**: stub backlog + MOC threshold reached
@@ -93,7 +93,7 @@ P priority:
 | Mistake | Fix |
 |---|---|
 | Report has only *findings* and no *actions* | Every P must include "Action: concrete command" |
-| Skipping entry (journal / capture) and only checking exit (broken links) | Enforce the 4-layer mapping rule — at least 1 item per layer |
+| Skipping entry (capture) and only checking exit (broken links) | Enforce the 4-layer mapping rule — at least 1 item per layer |
 | Only negative findings, no balance | Force the "Positive signals" section with 1-3 items |
 | Reading the whole vault | Sampling rule violated. Sampling is mandatory at 100+ |
 | Reading the same frontmatter key 50 times | Use metadata batch retrieval or search |
@@ -102,7 +102,7 @@ P priority:
 | Bulk status remediation right after the audit | Before flipping any status (e.g. drafting→published), read each note's **first callout** — 기록용/리프레시 구버전은 `archived`가 맞지 `published`가 아니다 (2026-07-03 사고: 리프레시 페어 구버전에 가짜 발행 기록이 찍힘) |
 | Flagging "post written before its parts" as a violation | The reverse flow is legitimate: write the post first, then extract parts into `decomposed_to:`. Only flag packs with NEITHER citations NOR `decomposed_to` |
 | Recommending engagement-metric backfill (views/likes/comments/saves/shares) | Deliberately removed 2026-07-07 as overengineering. CASE selection is manual judgment — never resurrect these fields |
-| Flagging a missing journal folder as P0 | Journals are optional (2026-07-07). Entry health = any capture (inbox note, 글감, draft, journal) within the last 7 days |
+| Looking for journal folders at all | Build Journals were retired (2026-07-07). Entry health = inbox capture within the last 7 days; never recommend restarting a journal ritual |
 | Auto-promoting inbox notes during remediation | `00_Inbox` is the user's decision queue. List candidates with a one-line recommendation each and get per-item approval. A blanket "다 처리해봐 / fix everything" does NOT cover inbox moves, merges, or deletions |
 
 ## Red Flags — STOP and Restart
@@ -118,7 +118,7 @@ P priority:
 ```
 ## P0 — Entry severed: no capture in 12 days
 
-**Finding**: Newest note in `00_Inbox/` is 12 days old; no journal folders in use (journals are optional, so that alone is fine — the zero-capture streak is the problem).
+**Finding**: Newest note in `00_Inbox/` is 12 days old — a 12-day zero-capture streak.
 **Impact**: No first-person material entering the pipeline — nothing for the weekend extraction to promote, nothing feeding forward-only posts.
 **Action**: Capture one thought/글감 into `00_Inbox/` today. Format-free — one raw line is enough.
 ```
@@ -126,11 +126,11 @@ P priority:
 ## Example: Refinement stalled (P1)
 
 ```
-## P1 — Refinement stalled: 5 unextracted journals
+## P1 — Refinement stalled: 5 unextracted capture notes
 
 **Finding**: `simple_search "extracted_to: []"` returned 5 results (all 1+ weeks old).
-**Impact**: Atomic insights in journals are not being promoted to CORE → 0 new teaching assets accumulated.
-**Action**: Run the weekend extraction ritual. Skim only the "💎 추출 후보" section of each journal → 1-3 new CORE notes. Use the /extract-core skill.
+**Impact**: Atomic insights in captures are not being promoted to CORE → 0 new teaching assets accumulated.
+**Action**: Run the weekend extraction ritual. Skim the week's inbox captures → 1-3 new CORE notes. Use the /extract-core skill.
 ```
 
 ## Example: Orphan output (P1)
@@ -161,7 +161,7 @@ When the vault health check surfaces the following signals, **immediately chain 
 | Signal found | Chain target | Reason |
 |---|---|---|
 | Semantic duplicates, naming twins, or absorbed-not-merged callouts | **`finding-duplicate-notes`** | Atomicity audit is its own area. Full audit of the 5 duplicate patterns. |
-| 5+ journals with `extracted_to: []`, no extraction for 1+ weeks | **`extract-core`** | Weekend extraction ritual. Trigger the journal → CORE promotion ritual. |
+| 5+ capture notes with `extracted_to: []`, no extraction for 1+ weeks | **`extract-core`** | Weekend extraction ritual. Trigger the capture → CORE promotion ritual. |
 | 5+ notes on the same topic but no MOC | (user does this directly) | MOC creation is hand-curation, not a skill domain. |
 
 **Chain rules**:
