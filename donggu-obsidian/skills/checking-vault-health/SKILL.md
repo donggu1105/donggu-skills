@@ -102,6 +102,7 @@ P priority:
 | Bulk status remediation right after the audit | Before flipping any status (e.g. drafting→published), read each note's **first callout** — 기록용/리프레시 구버전은 `archived`가 맞지 `published`가 아니다 (2026-07-03 사고: 리프레시 페어 구버전에 가짜 발행 기록이 찍힘) |
 | Flagging "post written before its parts" as a violation | The reverse flow is legitimate: write the post first, then extract parts into `decomposed_to:`. Only flag packs with NEITHER citations NOR `decomposed_to` |
 | Recommending engagement-metric backfill (views/likes/comments/saves/shares) | Deliberately removed 2026-07-07 as overengineering. CASE selection is manual judgment — never resurrect these fields |
+| Auto-promoting inbox notes during remediation | `00_Inbox` is the user's decision queue. List candidates with a one-line recommendation each and get per-item approval. A blanket "다 처리해봐 / fix everything" does NOT cover inbox moves, merges, or deletions |
 
 ## Red Flags — STOP and Restart
 
@@ -166,6 +167,10 @@ When the vault health check surfaces the following signals, **immediately chain 
 - After noting the finding in the vault health report, explicitly state something like "Recommend expanding this finding with the `finding-duplicate-notes` skill"
 - Only chain after the user agrees (subagent or direct execution)
 - No blanket auto-chaining — keep the user's decision gate
+
+**Remediation gates**:
+- `00_Inbox` (or the vault's inbox folder) is the user's decision queue, not backlog to clear. When remediation touches inbox notes — moving to `10_Sources`, promoting, merging duplicates, deleting — STOP and present the candidate list (one-line recommendation per item), then act only on the user's per-item answer.
+- A blanket approval covers findings outside the inbox; inbox items always get their own ask.
 
 **Cross-reference rules (follows the writing-skills guide)**:
 - Do NOT use `**REQUIRED SUB-SKILL:**` — neither is strictly required
