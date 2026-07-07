@@ -29,7 +29,7 @@ View the vault through the **4-layer mapping**. A flat list of findings is not a
 
 ```
 Entry (Capture)       → Refinement (Extract / Promote)   → Exit (Assemble / Publish)  → Curation (MOC)
-Journal · Source      → CORE · Pattern (both directions)  → Channel Pack               → MOC + cross-link
+Capture · Source      → CORE · Pattern (both directions)  → Channel Pack               → MOC + cross-link
 0 new in 7 days?      → extracted_to 0? decomposed_to 0?  → Orphan posts? Violations?  → No MOC for 5+ topic?
 ```
 
@@ -40,7 +40,7 @@ What you measure is whether each layer *flows* into the next. Stagnation between
 ## Workflow (9 steps, sample as conditions allow)
 
 1. **List vault structure** — `list_files_in_vault` + `list_files_in_dir` on 4-5 key folders
-2. **Entry check** — **first check: verify the journal sub-folder actually exists** (use `list_files_in_dir` on paths like `70_Projects/<project>/journal/`). If the folder is missing, immediately flag P0 (`simple_search "type: journal"` alone misses this because template hits hide it). If the folder exists, count notes created in the last 7 days
+2. **Entry check (capture-based)** — journals are OPTIONAL (2026-07-07 필수 해제): a missing `journal/` folder is NOT a finding. Entry is healthy when ANY first-person capture exists in the last 7 days — notes created in the inbox folder (e.g. `00_Inbox/`: 글감, 생각, 뉴스 브리핑, drafts) or in a `journal/` folder if the user keeps one. Flag P0 only when inbox AND journals both show zero new capture for 7+ days
 3. **Refinement check (both directions)** — Forward: `simple_search` for `"extracted_to: \[\]"` to list journals that were never extracted; identify SOURCEs with 0 citations for 1+ weeks. Reverse: posts written first must extract parts back — check `decomposed_to:` on recent packs (see step 7)
 4. **Guide violations** — frontmatter `type` enum violations, anti-patterns (e.g. a published Channel Pack left with neither cited parts nor `decomposed_to` backfill)
 5. **Link integrity** — broken wikilinks, especially comma/whitespace typo patterns (e.g. `[[CORE - X 판단은 사람]]` vs `[[CORE - X, 판단은 사람]]`)
@@ -72,7 +72,7 @@ Date: YYYY-MM-DD · Scope: N folders, M notes sampled
 ```
 
 P priority:
-- **P0**: System entry severed (0 journal / capture entries for 7+ days)
+- **P0**: System entry severed (0 capture of ANY kind — inbox note, 글감, draft, journal — for 7+ days; a missing journal folder alone is NOT P0)
 - **P1**: Pipeline stalled (no extraction / citation for 1+ weeks, orphan published posts) + guide anti-pattern violations
 - **P2**: broken wikilinks (many found)
 - **P3**: stub backlog + MOC threshold reached
@@ -102,6 +102,7 @@ P priority:
 | Bulk status remediation right after the audit | Before flipping any status (e.g. drafting→published), read each note's **first callout** — 기록용/리프레시 구버전은 `archived`가 맞지 `published`가 아니다 (2026-07-03 사고: 리프레시 페어 구버전에 가짜 발행 기록이 찍힘) |
 | Flagging "post written before its parts" as a violation | The reverse flow is legitimate: write the post first, then extract parts into `decomposed_to:`. Only flag packs with NEITHER citations NOR `decomposed_to` |
 | Recommending engagement-metric backfill (views/likes/comments/saves/shares) | Deliberately removed 2026-07-07 as overengineering. CASE selection is manual judgment — never resurrect these fields |
+| Flagging a missing journal folder as P0 | Journals are optional (2026-07-07). Entry health = any capture (inbox note, 글감, draft, journal) within the last 7 days |
 | Auto-promoting inbox notes during remediation | `00_Inbox` is the user's decision queue. List candidates with a one-line recommendation each and get per-item approval. A blanket "다 처리해봐 / fix everything" does NOT cover inbox moves, merges, or deletions |
 
 ## Red Flags — STOP and Restart
@@ -115,11 +116,11 @@ P priority:
 ## Example: Entry severed (P0)
 
 ```
-## P0 — Entry severed: 0 Build Journal entries
+## P0 — Entry severed: no capture in 12 days
 
-**Finding**: Queried `70_Projects/*/journal/` → 0 results. 0 new journals in the last 7 days.
-**Impact**: The system entry is blocked; the pipeline feeding CORE promotion and LinkedIn daily material is not working.
-**Action**: Pick 1 active project and create `70_Projects/<project>/journal/YYYY-MM-DD.md`. Apply TPL - Build Journal. Start the nightly 5-15 min rule.
+**Finding**: Newest note in `00_Inbox/` is 12 days old; no journal folders in use (journals are optional, so that alone is fine — the zero-capture streak is the problem).
+**Impact**: No first-person material entering the pipeline — nothing for the weekend extraction to promote, nothing feeding forward-only posts.
+**Action**: Capture one thought/글감 into `00_Inbox/` today. Format-free — one raw line is enough.
 ```
 
 ## Example: Refinement stalled (P1)

@@ -1,6 +1,6 @@
 {
   "name": "donggu-obsidian",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Obsidian PKM vault operations — health audits, journal-to-CORE extraction rituals, duplicate detection for LYT / PARA / Zettelkasten vaults",
   "author": {
     "name": "강동현 (donggu)",
