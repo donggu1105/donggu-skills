@@ -9,18 +9,23 @@ get-stock-image와 같은 계약(프롬프트→파일 저장 + JSON 1줄)이라
                        [--size 1200x630] [--seed N]
 
 백엔드(--backend, 생략 시 자동):
-  comfyui      로컬 ComfyUI(127.0.0.1:8188) — 무료·무제한 (기본 우선)
-  pollinations 무료 API, 키 불필요 — 로컬 꺼졌을 때 폴백
+  openrouter   OpenRouter 종량 — OPENROUTER_API_KEY(헤르메스 키) 하나로 Gemini3/GPT 이미지 (기본 우선)
+  comfyui      로컬 ComfyUI(127.0.0.1:8188) — 무료·무제한, Flux/SDXL
+  pollinations 무료 API, 키 불필요 — 무키 최후 폴백
   cf           Cloudflare Workers AI 무료티어 — CF_ACCOUNT_ID·CF_API_TOKEN 필요
   fal          fal.ai 유료(nano-banana 등) — FAL_KEY 필요
-자동 규칙: --backend 없으면 env GEN_IMAGE_BACKEND → 그래도 없으면
-           ComfyUI 응답하면 comfyui, 아니면 pollinations.
+  gemini       Google Gemini(nano-banana) 직결 — GEMINI_API_KEY 필요
+자동 규칙: --backend 없으면 env GEN_IMAGE_BACKEND → 그래도 없으면 기본 openrouter,
+           폴백 체인 openrouter → comfyui(로컬 떠 있을 때) → pollinations.
 
-모델(--model): flux-schnell(빠름)·flux-dev(고품질)·sdxl. 백엔드별로 매핑된다.
+모델(--model): openrouter는 별칭 pro(기본, gemini-3-pro-image)·flash·flash-lite·
+  nano-banana·gpt-image·gpt-image-hi·auto, 또는 슬러그(예: google/gemini-3-pro-image) 통과.
+  그 외 백엔드는 flux-schnell·flux-dev·sdxl 등 백엔드별 매핑.
 ComfyUI는 workflows/<model>.json 템플릿을 써서 그래프를 구성(모델 교체가 쉬움).
 
-환경변수: GEN_IMAGE_BACKEND, COMFYUI_URL(기본 127.0.0.1:8188),
-          CF_ACCOUNT_ID, CF_API_TOKEN, FAL_KEY, GEMINI_API_KEY (없으면 n8n .env 자동 로드).
+환경변수: GEN_IMAGE_BACKEND, COMFYUI_URL(기본 127.0.0.1:8188), OPENROUTER_API_KEY,
+          CF_ACCOUNT_ID, CF_API_TOKEN, FAL_KEY, GEMINI_API_KEY
+          (없으면 ~/.hermes/.env → n8n .env → ~/.env 순으로 자동 로드).
 출력(stdout): {"backend","model","saved","prompt","seed"} JSON 1줄.
 종료코드: 0 성공 / 2 실패(백엔드 불가·생성 실패).
 """
@@ -47,10 +52,12 @@ def log(o):
 
 
 def load_env():
-    need = ("CF_ACCOUNT_ID", "CF_API_TOKEN", "FAL_KEY", "GEMINI_API_KEY", "GEN_IMAGE_BACKEND", "COMFYUI_URL")
+    need = ("OPENROUTER_API_KEY", "CF_ACCOUNT_ID", "CF_API_TOKEN", "FAL_KEY",
+            "GEMINI_API_KEY", "GEN_IMAGE_BACKEND", "COMFYUI_URL")
     if all(os.environ.get(k) for k in need):
         return
     for c in (os.environ.get("GEN_IMAGE_ENV"),
+              os.path.expanduser("~/.hermes/.env"),
               os.path.expanduser("~/workspace/projects/n8n/.env"),
               os.path.expanduser("~/.env")):
         if not c or not os.path.isfile(c):
@@ -216,8 +223,94 @@ def gen_comfyui(prompt, out, model, w, h, seed):
     raise RuntimeError("comfy_timeout")
 
 
-BACKENDS = {"comfyui": gen_comfyui, "pollinations": gen_pollinations,
-            "cf": gen_cf, "fal": gen_fal, "gemini": gen_gemini}
+# ---- OpenRouter (헤르메스 키 하나로 Gemini3/GPT 이미지) ----
+
+OPENROUTER_MODEL_MAP = {
+    "pro": "google/gemini-3-pro-image",
+    "flash": "google/gemini-3.1-flash-image",
+    "flash-lite": "google/gemini-3.1-flash-lite-image",
+    "nano-banana": "google/gemini-2.5-flash-image",
+    "gpt-image": "openai/gpt-5-image",
+    "gpt-image-hi": "openai/gpt-5.4-image-2",
+    "auto": "openrouter/auto",
+}
+OPENROUTER_DEFAULT_MODEL = "google/gemini-3-pro-image"  # 현재 기준 최고 성능
+
+_ASPECT_RATIOS = {"1:1": 1.0, "2:3": 2/3, "3:2": 3/2, "3:4": 3/4, "4:3": 4/3,
+                  "4:5": 4/5, "5:4": 5/4, "9:16": 9/16, "16:9": 16/9, "21:9": 21/9}
+
+
+def _openrouter_model(model):
+    """별칭 → 슬러그. 슬래시 포함이면 그대로 통과. 타 백엔드 기본값(flux-*)은 기본 모델로."""
+    if not model:
+        return OPENROUTER_DEFAULT_MODEL
+    if model in OPENROUTER_MODEL_MAP:
+        return OPENROUTER_MODEL_MAP[model]
+    if "/" in model:
+        return model
+    return OPENROUTER_DEFAULT_MODEL
+
+
+def _nearest_ratio(w, h):
+    return min(_ASPECT_RATIOS, key=lambda k: abs(_ASPECT_RATIOS[k] - (w / h)))
+
+
+def _decode_data_uri(u):
+    b64 = u.split(",", 1)[1] if "," in u else u
+    return base64.b64decode(b64)
+
+
+def _extract_openrouter_image(j):
+    """OpenRouter 챗-이미지 응답에서 data URI를 방어적으로 추출.
+    형태 편차 대비: message.images[].image_url.url / content parts의 image_url / inline_data."""
+    for ch in j.get("choices", []):
+        msg = ch.get("message", {}) or {}
+        for im in (msg.get("images") or []):
+            u = (im.get("image_url") or {}).get("url") or im.get("url")
+            if isinstance(u, str) and u.startswith("data:"):
+                return u
+        content = msg.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                u = (part.get("image_url") or {}).get("url")
+                if isinstance(u, str) and u.startswith("data:"):
+                    return u
+                inl = part.get("inlineData") or part.get("inline_data")
+                if inl and inl.get("data"):
+                    mt = inl.get("mimeType") or inl.get("mime_type") or "image/png"
+                    return f"data:{mt};base64,{inl['data']}"
+    return None
+
+
+def gen_openrouter(prompt, out, model, w, h, seed):
+    key = os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        raise RuntimeError("openrouter_key_missing")
+    slug = _openrouter_model(model)
+    ar = _nearest_ratio(w, h)
+    hint = (f"\n\n(Aspect ratio {ar}, wide landscape composition for a {w}x{h} blog hero image.)"
+            if w >= h else f"\n\n(Aspect ratio {ar}, portrait composition.)")
+    body = {"model": slug,
+            "messages": [{"role": "user", "content": prompt + hint}],
+            "modalities": ["image", "text"]}
+    raw = _post_json("https://openrouter.ai/api/v1/chat/completions", body,
+                     headers={"Authorization": f"Bearer {key}",
+                              "HTTP-Referer": "https://github.com/donggu1105/donggu-skills",
+                              "X-Title": "donggu-sns get-ai-image"}, timeout=180)
+    j = json.loads(raw)
+    uri = _extract_openrouter_image(j)
+    if not uri:
+        err = j.get("error") or {}
+        raise RuntimeError(f"openrouter_no_image: {err or str(j)[:200]}")
+    _save(_decode_data_uri(uri), out)
+    return {"backend": "openrouter", "model": slug, "aspect_ratio": ar}
+
+
+BACKENDS = {"openrouter": gen_openrouter, "comfyui": gen_comfyui,
+            "pollinations": gen_pollinations, "cf": gen_cf, "fal": gen_fal,
+            "gemini": gen_gemini}
 
 
 def choose_backend(explicit):
@@ -226,7 +319,7 @@ def choose_backend(explicit):
     env = os.environ.get("GEN_IMAGE_BACKEND")
     if env:
         return env
-    return "comfyui" if comfy_reachable() else "pollinations"
+    return "openrouter"
 
 
 def main():
@@ -243,10 +336,20 @@ def main():
     load_env()
     w, h = (int(x) for x in a.size.lower().split("x"))
 
+    explicit = a.backend or os.environ.get("GEN_IMAGE_BACKEND")
     backend = choose_backend(a.backend)
-    order = [backend]
-    if a.fallback and a.fallback != "none" and a.fallback != backend:
-        order.append(a.fallback)
+    if explicit:
+        order = [backend]
+        if a.fallback and a.fallback != "none" and a.fallback != backend:
+            order.append(a.fallback)
+    else:
+        # 자동 기본: openrouter 우선 → comfyui(로컬 떠 있을 때만) → pollinations(무키 최후 보루)
+        order = ["openrouter"]
+        if comfy_reachable():
+            order.append("comfyui")
+        order.append("pollinations")
+    seen = set()
+    order = [b for b in order if not (b in seen or seen.add(b))]
 
     last_err = None
     for b in order:

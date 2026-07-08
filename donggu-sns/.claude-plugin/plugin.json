@@ -1,7 +1,7 @@
 {
   "name": "donggu-sns",
-  "version": "2.2.0",
-  "description": "SNS content authoring — writing-social-content (Blog master + LinkedIn/X/Threads/Maily variants in one skill, Socratic voice-learning from the Obsidian vault, including the threads/maily publish-note formats), make-insta-card-news (DESIGN.md-driven Instagram card images with Pexels/Commons sourcing + headless render), make-shorts (news→CapCut 9:16 draft), and publish-sns (webhook publishing with preview-approval gate + ledger + tistory cover_image 대표이미지), plus get-stock-image (keyword→free stock image auto-routing) and get-ai-image (prompt→AI image via local ComfyUI/Pollinations/Cloudflare/fal, model-selectable flux·sdxl) as swappable blog-image sources. Boundary: writing = words, make = artifacts, publish = ship. Preserves the user's learned voice (회고형 1인칭, 미괄식)",
+  "version": "2.3.0",
+  "description": "SNS content authoring — writing-social-content (Blog master + LinkedIn/X/Threads/Maily variants in one skill, Socratic voice-learning from the Obsidian vault, including the threads/maily publish-note formats), make-insta-card-news (DESIGN.md-driven Instagram card images with Pexels/Commons sourcing + headless render), make-shorts (news→CapCut 9:16 draft), and publish-sns (webhook publishing with preview-approval gate + ledger + tistory cover_image 대표이미지), plus get-stock-image (keyword→free stock image auto-routing) and get-ai-image (prompt→AI image; default OpenRouter via one Hermes key for Gemini3/GPT image, plus local ComfyUI/Pollinations/Cloudflare/fal for Flux·SDXL, model-selectable) as swappable blog-image sources. Boundary: writing = words, make = artifacts, publish = ship. Preserves the user's learned voice (회고형 1인칭, 미괄식)",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"
