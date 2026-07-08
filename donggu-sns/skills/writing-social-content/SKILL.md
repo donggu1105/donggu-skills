@@ -88,9 +88,11 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 
 **절차**
 1. **섹션 분해** — 리드(대표이미지) + `##`/`###` 소제목별로 1블록. 소제목이 없으면 의미 문단 단위.
-2. **블록마다 영어 키워드 1개 + `--kind`** 뽑기. 대표이미지는 글 전체 주제, 섹션은 그 섹션의 핵심 논점에서. (예: "채용시장에 나와 보니" → `job interview office` /photo, "문제는 그 뒤에 있다" → `missing puzzle piece` /concept)
+2. **블록마다 프롬프트 뽑기** — 대표이미지는 글 전체 주제, 섹션은 그 섹션의 핵심 논점에서. 소스에 따라 밀도가 다르다:
+   - **stock**: 영어 키워드 1개 + `--kind` (예: "채용시장에 나와 보니" → `job interview office` /photo, "문제는 그 뒤에 있다" → `missing puzzle piece` /concept)
+   - **ai**: 키워드 1개론 약하다 → **서술형 영어 프롬프트**(장면 + 조명/무드 + 스타일). 섹션 논점을 한 장면으로 번역한다. (예: "문제는 그 뒤에 있다" → `a single missing puzzle piece on a wooden desk, soft directional light, editorial minimalism`). 글자(한글) 넣지 말 것.
 3. **소스 실행** → vault에 저장 (stock=`get-stock-image` 키워드 / ai=`get-ai-image` 프롬프트). 경로는 토픽 슬러그 폴더 하나에 모은다: `<채널폴더>/_img/<토픽슬러그>/hero.jpg`, `01-<섹션>.jpg` … (파일명은 vault 전역 유일하게). AI면 프롬프트는 영어로, 대표이미지=가로 1200x630.
-4. **저장 후 반드시 Read로 주제 적합성 확인** → 어긋나면 `--index` 올려 재시도(스킬 규칙).
+4. **저장 후 반드시 Read로 주제 적합성 확인** → 어긋나면 재시도: **stock**은 `--index` 올려 다음 후보, **ai**는 프롬프트를 더 구체화(장면·소재 명시)하거나 `--seed`를 바꿔 재생성.
 5. **본문에 임베드** — 대표이미지는 제목 바로 아래(리드 앞), 섹션 이미지는 그 `##` 소제목 바로 아래에 `![[hero.jpg]]` 형식. **임베드 위치 = 발행본에서 보일 위치.**
 6. commons/openverse(CC) 결과면 반환 JSON의 `license`·`credit` 확인 → 출처표기 필요 시 글 말미 `## 🔗 연결`/출처에 적는다.
 
