@@ -1,10 +1,6 @@
 ---
 name: get-ai-image
-description: Use when a blog/SNS post needs an AI-generated image (대표이미지·삽화)
-  instead of a stock photo — 프롬프트로 이미지를 만든다. Backends: OpenRouter(기본, 헤르메스 키 하나로
-  Gemini3/GPT 이미지·기본 gemini-3-pro-image), local ComfyUI(무료·무제한 Flux/SDXL), Pollinations(무료),
-  Cloudflare, Gemini 직결, fal.ai(유료). 모델 선택형. NOT for 카드뉴스(use make-insta-card-news) or
-  text-baked thumbnails(글자는 AI 약함 → 카드).
+description: "Use when a blog or SNS post needs an AI-generated image such as a representative image or illustration instead of a stock photo. Supports OpenRouter, local ComfyUI, Pollinations, Cloudflare, direct Gemini, and fal.ai with selectable models. Not for card news or text-heavy thumbnails."
 ---
 
 # get-ai-image
