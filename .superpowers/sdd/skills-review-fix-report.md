@@ -5,6 +5,7 @@
 DONE — 리뷰의 Critical/Important/Minor 1~7을 모두 재현하고 수정했다.
 
 - 검토 수정 구현 commit SHA: `c75cc9e6b06237073ccef2ded236998a7f8c3987`
+- 최종 NO-GO remediation commit SHA: `40657da65f44dc6fb6c4225653ea3998188f7416`
 - 기준 HEAD: `a6599222301f69b5b62618c482dd8e82c8122d31`
 - plugin version: 변경 없음 (`donggu-sns` 2.4.3, `donggu-obsidian` 1.5.1)
 
@@ -49,6 +50,14 @@ git diff --check
 ```
 
 정확한 automated test 수는 **57개(contracts 10 + helper 47)**이며 실패는 0개다. plugin validation은 별도 1회 통과했다.
+
+## Final NO-GO remediation
+
+- Inbox는 aggregate/recommendation-only, 후보·승인 요청·파일 변경 모두 0건으로 통일했다.
+- publish dry-run-only 결과는 ledger뿐 아니라 note `status: published` 변경에서도 제외했다.
+- duplicate 문서의 `explicit adoption` 표현을 exact CR candidate decision으로 교체했다.
+- reviewer adversarial probe 2개를 fixture에 고정하고, 승인·채택·동의 뒤 직접 mutation을 지시하는 조건형 문장을 semantic guard로 거부한다.
+- 재검증: contracts 10/10, helper 47/47, plugin validation 통과, `git diff --check` 통과.
 
 ## 범위
 
