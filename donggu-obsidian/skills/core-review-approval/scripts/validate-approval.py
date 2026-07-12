@@ -5,12 +5,12 @@ import json
 import re
 import sys
 
-PATTERN = re.compile(r"^\s*(CR-\d{8}-\d{6})\s+(승인|보류|거절)\s*$")
+PATTERN = re.compile(r"^[ \t]*(CR-\d{8}-\d{6})[ \t]+(승인|보류|거절)[ \t]*$")
 
 
 def main() -> int:
     text = sys.stdin.read()
-    if len(text) > 4096:
+    if len(text) > 4096 or "\n" in text or "\r" in text:
         print("invalid approval command", file=sys.stderr)
         return 2
     match = PATTERN.fullmatch(text)
