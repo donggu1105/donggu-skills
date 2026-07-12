@@ -1,209 +1,137 @@
 ---
 name: extract-core
-description: Use when running weekend extraction rituals on personal knowledge management vaults (Obsidian, PARA, LYT, Zettelkasten) — surfaces atomic claim candidates from build journals' "extracted candidate" sections, evaluates atomicity, scores top 3-5 for promotion to atomic permanent notes (CORE), and triggers automated extraction tracking via frontmatter linking
+description: Use when reviewing recent Obsidian capture notes and published content to propose atomic CORE candidates, score them against existing CORE notes, and place metadata-only proposals into a human-approved review queue without modifying the vault.
 ---
 
 # Extract Core
 
-## Overview
+## Core rule
 
-Surface "💎 추출 후보" sections from journals → evaluate atomicity → recommend CORE promotion candidates. **Promotion is not automated, only recommended.** Once the user decides to adopt, the skill creates the CORE note and auto-links the journal's `extracted_to:`.
+**탐지·평가·제안까지만 자동화하고, Vault 변경은 후보 한 건의 명시 승인 뒤에만 수행한다.**
 
-## When to Use
+`00_Inbox`는 사용자의 의사결정 큐다. 자동 이동·승격·병합·삭제·상태 변경을 하지 않는다. 이 스킬은 후보를 만들고 보고하며, 실제 적용은 `core-review-approval`의 단일 후보 계약을 따른다.
 
-- Weekly weekend extraction ritual (30-60 min)
-- After accumulating 5+ journals
-- When you're short on LinkedIn daily material — mine the accumulated backlog
-- When teaching assets are stacking up — identify CORE candidates that could evolve into Patterns
+## When to use
 
-## When NOT to Use
+- 최근 `00_Inbox`와 `10_Sources`에서 재사용 가능한 주장을 찾을 때
+- 발행 직후 콘텐츠에서 CORE 후보를 제안할 때
+- 매일 05:40 검토 큐에서 신규·중복·링크·분류 후보를 묶어 볼 때
+- 기존 CORE와 겹치거나 더 원자적으로 다듬어야 할 후보를 평가할 때
 
-- 0-2 journals — not enough data
-- Right before a publishing deadline — extraction is the refinement stage, not the publish stage
-- Reviewing atomicity of a suspect note — different skill domain
+## Scope
 
-## Core Principle
+기본 탐색 범위:
 
-**Extraction is evaluation + recommendation. No automatic adoption.** Only the human can verify their own voice and assess atomicity. The skill handles candidate refinement, scoring, and metadata automation.
+1. 최근 변경된 `00_Inbox/`
+2. 최근 변경된 `10_Sources/`
+3. 비교 대상인 `20_Core/`
+4. 발행 이벤트가 가리키는 source note
 
-## 5 Atomicity Criteria
+전체 Vault를 읽지 않는다. 최근 변경, 미처리 발행 이벤트, 실패 delivery retry만 대상으로 삼고, 본문은 필요한 노트만 제한적으로 읽는다.
 
-Score each candidate on 5 criteria → sum to a 10-point total:
+## Atomicity score
 
-| Criterion | Max | Check question |
-|---|---|---|
-| **1 idea = 1 note** | 2 | Are there 2+ ideas mixed inside the candidate? |
-| **"X는 Y다" sentence form** | 2 | Can it be expressed as a complete sentence? ("AI 어려움" no, "AI는 도구이지 판단자가 아니다" ✅) |
-| **Own voice** | 2 | Is this the user's opinion / interpretation, not just objective fact summarization? |
-| **No overlap with existing CORE** | 2 | Does a similar CORE already exist? (requires vault search) |
-| **No time anchor** | 2 | Free of moment-dependent phrasing like "이번 주 ..."? |
+각 후보를 10점으로 평가한다.
 
-**Total 8+ → recommend adoption / 5-7 → hold (revisit) / 4 or less → discard or convert to another form**
+| 기준 | 점수 | 질문 |
+|---|---:|---|
+| 한 주장 | 2 | 한 노트에 아이디어가 하나인가? |
+| 완전한 문장 | 2 | `X는 Y다` 형태의 독립 주장인가? |
+| 자기 목소리 | 2 | 외부 사실 요약이 아니라 사용자의 해석인가? |
+| 기존 CORE와 비중복 | 2 | 유사 CORE에 흡수할 편이 낫지 않은가? |
+| 시간 독립성 | 2 | 특정 시점 표현 없이 다시 쓸 수 있는가? |
+
+- 8~10: `new_core` 또는 기존 CORE 강화 후보
+- 5~7: `hold` 후보
+- 0~4: 제안하지 않거나 SOURCE로 유지
+
+점수는 자동 승격 권한이 아니다.
 
 ## Workflow
 
-1. **List journals** — `obsidian_list_files_in_dir "70_Projects/<project>/journal/"` (or sweep all projects)
-2. **Filter by date** — narrow by frontmatter `date` or filename YYYY-MM-DD (default: last 7 days)
-3. **Pull candidates** — for each journal, read only the "## 💎 추출 후보" section via `obsidian_get_file_contents`
-4. **Consolidate** — collect all candidates in one place (preserve source journal)
-5. **Atomicity scoring** — score each candidate against the 5 criteria
-6. **Check overlap with existing CORE** — `obsidian_simple_search "CORE - <keyword>"` to find duplicates
-7. **Classify recommendation** — adopt (8+) / hold (5-7) / discard (4 or less)
-8. **Ask the user to decide** — get explicit adoption ("adopt 1 and 3")
-9. **Auto-create CORE notes** — for each adopted candidate:
-   - `obsidian_append_content` filepath: `20_Core/CORE - <sentence>.md`
-   - frontmatter: `type: core`, `title`, `topics`, `audience`, `tone`, `status: draft`, `created`
-   - body: `## 💡 핵심 주장` callout + source link
-10. **Update the journal's `extracted_to:`** — automatically add `[[CORE - X]]` to the frontmatter of the source journal for each adopted candidate
+1. 최근 source path와 발행 이벤트를 읽기 전용으로 수집한다.
+2. path가 Vault root 아래의 안전한 상대 `.md`인지 확인한다. 절대경로, `..`, symlink 탈출, `.env*`, binary를 제외한다.
+3. source excerpt를 읽고 atomic claim을 추출한다. 장부에는 본문 저장 금지이며, metadata와 제한된 redacted excerpt만 전달한다.
+4. `20_Core` 제목·path metadata 전체와 관련 CORE excerpt를 비교해 중복 여부를 판정한다.
+5. 후보 하나에는 source 하나, action 하나만 둔다. 다른 정리 작업을 끼워 넣지 않는다.
+6. source path와 source SHA-256을 후보 생성 시점에 고정한다.
+7. 후보를 Supabase 장부에 `proposed`로 기록한다. 사용자에게 보이는 candidate code는 `CR-YYYYMMDD-NNNNNN` 형식이다.
+8. 신규·retry 후보를 합쳐 우선순위 상위 3~5건만 Discord 일일 보고로 보낸다.
+9. 사용자가 정확히 한 candidate code에 `승인`, `보류`, `거절` 중 하나를 붙여 답하도록 안내한다.
+10. 7일 동안 응답이 없으면 삭제하지 않고 `stale` 상태로 보류한다.
 
-## Report Format
+## Candidate contract
 
-```
-# Extraction ritual — <date range>
-N journals reviewed · M candidates identified
+후보는 다음을 충족해야 한다.
 
-## ⭐ Adoption recommended (score 8+)
-1. **"X는 Y다"** — score 9/10
-   - Source: [[2026-05-13]] candidate 1
-   - Evaluation: strong atomicity, own voice OK, no overlap with existing CORE
-   - On promotion → new `CORE - X는 Y다.md`
+- `candidate_code` 하나
+- 안전한 `source_note_path` 하나
+- 생성 시점의 `source_sha256` 하나
+- `candidate_type` 하나
+- `proposed_changes` action 하나
+- 1,800자 이하의 안전한 Discord 요약
+- 승인 명령 footer에 현재 candidate code 정확히 한 번
 
-2. ...
+허용 후보 유형은 `new_core`, `merge`, `fix_link`, `classification`, `status_cleanup`, `skill_drift`다. 이 스킬은 후보 유형을 제안할 수 있지만, 결정적으로 적용할 수 없는 action을 자연어로 보완하지 않는다.
 
-## 🟡 Hold (score 5-7)
-3. **"..."** — score 6/10
-   - Source: ...
-   - Gap: too broad (needs to specify "what Y exactly is")
-   - Recommendation: revisit next week or split
+## Human approval
 
-## ❌ Discard (score 4 or less)
-4. **"..."** — score 3/10
-   - Gap: not own voice, just summarizing external material (move to SOURCE)
+유효한 명령 형식:
 
-## 📊 Meta
-- Journals reviewed: N
-- Total candidates: M
-- Adoption recommended: K (healthy weekly rate is 2-3)
-- Average atomicity score: X/10
+```text
+CR-YYYYMMDD-NNNNNN 승인
+CR-YYYYMMDD-NNNNNN 보류
+CR-YYYYMMDD-NNNNNN 거절
 ```
 
-## Common Mistakes
+- 항목별 승인만 허용한다.
+- 쉼표 목록, 범위, `전체 승인`, `둘 다 승인`, 추가 설명이 붙은 문장은 실행하지 않는다.
+- `보류`는 DB·Vault를 변경하지 않는다.
+- `거절`은 해당 후보 하나만 reject한다.
+- `승인`은 claim 후 현재 path·SHA·action을 다시 검증한다.
+- source SHA가 달라졌으면 이전 승인을 재사용하지 않고 release 후 재평가한다.
+- source가 `00_Inbox`면 승인되어도 자동 수정하지 않고 `recommend_only`로 유지한다.
 
-| Mistake | Fix |
-|---|---|
-| Recommending 5+ adoptions per week | Atomicity should average out. 2-3 per week is healthy. If you keep recommending too many, re-examine scoring |
-| Skipping the overlap check with existing CORE | Vault search is mandatory before adoption — if a similar CORE exists, hold or merge instead |
-| Skipping the "Hold" category, treating it as adopt/discard binary | Hold = revisit next week. Preserves valuable but not-yet-atomic candidates |
-| Skipping own-voice verification | Check every candidate: "Is this their phrasing, or summarized external material?" |
-| Auto-adopting | Get explicit user adoption. No auto-promotion |
-| Forgetting to update the journal's `extracted_to:` | Update the source journal's frontmatter immediately after adoption — traceability is the whole point |
+실제 처리는 반드시 `core-review-approval` 스킬로 넘긴다.
 
-## Time Budget
+## Daily report
 
-| Journal count | Review time | Priority |
-|---|---|---|
-| 3-7 | 20-30 min | All "💎 추출 후보" sections across all journals |
-| 8-15 | 30-45 min | Prefer journals rich in candidates (those with 3+) |
-| 15+ | sampling required | Last 7 journals, or the projects the user names |
+```text
+# CORE 검토 — YYYY-MM-DD
+신규 N · 재시도 M · 7일 보류 S
 
-## Red Flags
-
-- "💎 추출 후보" sections are all empty → journal-writing rule violated (don't polish, keep raw tone). Notify user and stop extraction
-- All candidates score < 5 → the journal is a diary / chitchat, not build activity. Notify user
-- Recommending 5+ adoptions per week → scoring is too lenient. Re-examine
-- The same atomic claim appears in 2 journals → flag for consolidation, adopt only one
-
-## Example: Adoption recommended (score 9)
-
-```
-1. **"AI는 도구이지 판단자가 아니다"** — score 9/10
-   - Source: [[2026-05-13]] candidate 1 ("AI가 코드 95% 짜도 검증은 사람")
-   - Evaluation:
-     ✅ 1 idea (single contrast: tool vs judge)
-     ✅ "X는 Y다" complete form
-     ✅ Own voice (an assertion, not an external citation)
-     ⚠️ Overlap: [[CORE - AI는 도구, 판단은 사람]] already exists — same essence. **Downgrade to hold**
-     ✅ No time anchor
-   - Recommended action: absorb into the existing CORE, only update `extracted_to:` on the source journal
+1. CR-YYYYMMDD-NNNNNN · new_core · 9/10
+   주장: X는 Y다
+   판단: 자기 목소리, 기존 CORE와 비중복
+   영향: 새 CORE 제안 · Vault 변경 전
+   명령: CR-YYYYMMDD-NNNNNN 승인|보류|거절
 ```
 
-## Example: Discard (score 3)
+후보가 없고 retry도 없으면 알림하지 않는다. URL·URI·이메일·전화번호·시크릿·내부 사용자 ID를 보고에 넣지 않는다.
 
-```
-2. **"AI 협업 도구가 빠르게 발전 중"** — score 3/10
-   - Source: [[2026-05-12]] candidate 1
-   - Evaluation:
-     ❌ Objective fact (not own voice)
-     ❌ Weak "X는 Y다" form
-     ❌ Time anchor ("빠르게 발전 중" = anchored to the current moment)
-   - Recommendation: move to a SOURCE note or discard
-```
+## Failure handling
 
-## Auto-generated CORE frontmatter
+- 장부 적재 실패: source event를 처리 완료로 표시하지 않는다.
+- Discord 전송 실패: 후보를 재생성하지 않고 같은 candidate delivery만 재시도한다.
+- duplicate event: candidate와 메시지를 추가 생성하지 않는다.
+- malformed model output: 후보를 저장하지 않고 event를 queued로 남긴다.
+- source SHA drift: 적용하지 않고 `proposed`로 release한다.
+- skill drift: 재현·테스트·명시적 스킬 수정 전까지 보고만 한다.
 
-Frontmatter auto-generated for the CORE note on adoption (matches the `TPL - Core` convention):
+## Never
 
-```yaml
----
-type: core
-title: <complete Y sentence>
-topics:
-  - <inferred or user input>
-channels: [linkedin, blog, teaching]
-audience: [dev, pm, non-dev-product-builder]
-tone: direct
-status: draft
-created: YYYY-MM-DD (today)
-source_journal: "[[journal file]]"
----
+- `00_Inbox`를 자동으로 비우기
+- 후보 여러 건을 한 요청에서 승인하기
+- 승인 전에 CORE 생성·병합·이동·삭제·상태 변경하기
+- source hash 불일치를 강행하기
+- 장부에 Vault 본문이나 시크릿 저장하기
+- 실패 retry에서 새 후보를 만들기
+- 스킬을 자동 수정하기
+- 후보가 없는데 Discord 알림 보내기
 
-# CORE - <complete Y sentence>
+## Related skills
 
-## 💡 핵심 주장
-> **"<core sentence on a single line>"**
-
-(1-2 sentences of context extracted from the source journal)
-
-## 🤔 왜 이게 중요한가?
-- (user fills in)
-
-## 🎯 실제 적용 예시
-- (user fills in)
-
-## 📂 연결된 콘텐츠
-
-### 출처 저널
-- [[<journal file>]]
-
-### 관련 CORE
-- (auto-suggested or filled in by user)
-
-## 태그
-#core #<topic>
-```
-
-## Journal frontmatter update
-
-On CORE adoption, append `[[CORE - X]]` to the source journal's frontmatter `extracted_to:` array:
-
-```yaml
-# Before
-extracted_to: []
-
-# After
-extracted_to:
-  - "[[CORE - AI는 도구이지 판단자가 아니다]]"
-```
-
-This tracking enables later retrospectives like "which journal yielded the most CORE notes?"
-
-## Vault-Specific Context
-
-Conventions vary per vault. Confirm the journal path, CORE folder, and frontmatter keys against the vault's guide (e.g. `_GUIDES/CONTENT_PIPELINE.md`) before mapping:
-
-- **LYT (Linking Your Thinking)**: journal → promote to `Atlas/02-POV/`
-- **Personal Branding vault**: journal → `20_Core/CORE - X.md`
-- **PARA**: journal → `Resources/Permanent Notes/`
-- **Zettelkasten**: Fleeting Notes → Permanent Notes
-
-The CORE note title convention also differs per vault — decide on simply "the Y sentence" or "TYPE - sentence" format before proceeding.
+- `checking-vault-health`: 파이프라인 병목 탐지
+- `finding-duplicate-notes`: 기존 CORE 중복 심화 점검
+- `decompose-canon`: 완성 글에서 재사용 부품 역추출
+- `core-review-approval`: 단일 후보 승인·보류·거절 및 안전 적용
