@@ -13,7 +13,7 @@
       "name": "donggu-obsidian",
       "source": "./donggu-obsidian",
       "description": "Obsidian PKM vault operations — health audits, journal-to-CORE extraction rituals, duplicate detection. For LYT / PARA / Zettelkasten vaults.",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "strict": false
     },
     {
