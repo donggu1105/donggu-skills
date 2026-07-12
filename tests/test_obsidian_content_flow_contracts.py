@@ -142,6 +142,16 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             "vault-wide find-replace",
             "actions can be automated",
         )
+        approval_term = r"(?:approval|adoption|consent|adopted|user agrees|per-item answer)"
+        mutation_term = r"(?:create|write|rewrite|modify|move|relocate|merge|archive|delete|replace|update|apply|wire|change)"
+        contradictory_instruction = re.compile(
+            rf"(?im)^\s*(?:after|once|upon|with|proceed)[^\n]*(?={approval_term})[^\n]*(?:{mutation_term})[^\n]*$"
+        )
+        for probe in (
+            "After per-item consent, relocate the note and rewrite its status.",
+            "After explicit adoption, archive the duplicate and rewrite all inbound citations.",
+        ):
+            self.assertRegex(probe, contradictory_instruction)
         for name, guards in required_guards.items():
             text = self.skills[name]
             for guard in guards:
@@ -159,6 +169,7 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
                 for phrase in forbidden:
                     with self.subTest(skill=name, forbidden=phrase):
                         self.assertNotIn(phrase.lower(), text.lower())
+                self.assertNotRegex(text, contradictory_instruction)
 
     def test_changed_plugin_versions_match_marketplace(self):
         marketplace = json.loads(

@@ -125,7 +125,7 @@ P priority:
 | Flagging "post written before its parts" as a violation | The reverse flow is legitimate: write the post first, then extract parts into `decomposed_to:`. Only flag packs with NEITHER citations NOR `decomposed_to` |
 | Recommending engagement-metric backfill (views/likes/comments/saves/shares) | Deliberately removed 2026-07-07 as overengineering. CASE selection is manual judgment — never resurrect these fields |
 | Looking for journal folders at all | Build Journals were retired (2026-07-07). Entry health = inbox capture within the last 7 days; never recommend restarting a journal ritual |
-| Auto-promoting inbox notes during remediation | `00_Inbox` is the user's decision queue. List candidates with a one-line recommendation each and get per-item approval. A blanket "다 처리해봐 / fix everything" does NOT cover inbox moves, merges, or deletions |
+| Auto-promoting inbox notes during remediation | `00_Inbox` is a free capture buffer. Report aggregate counts and recommendation-only guidance; create no candidate, request no execution approval, and perform 0 file changes. |
 
 ## Red Flags — STOP and Restart
 

@@ -111,7 +111,7 @@ Date: YYYY-MM-DD · Checked all 5 patterns
 
 | Mistake | Fix |
 |---|---|
-| Attempting auto-merge | User decision gate is mandatory. Proceed only after explicit adoption |
+| Attempting auto-merge | This skill never mutates files. Emit one metadata-only candidate and STOP; only an exact CR candidate decision can enter `core-review-approval`. |
 | Recommending merge for every finding | May be intentional variants (A/B test, audience split, evolution trace). Add a diagnosis step |
 | Auto-computing semantic distance | Out of skill scope. Only the user can verify their own voice |
 | Judging subtle snippet differences as duplicates | Hook variants are intentional per channel / audience. Same opening 5 words ≠ duplicate |
