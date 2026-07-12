@@ -1,6 +1,6 @@
 ---
 name: extract-core
-description: Use when reviewing recent Obsidian capture notes and published content to propose atomic CORE candidates, score them against existing CORE notes, and place metadata-only proposals into a human-approved review queue without modifying the vault.
+description: Use when reviewing explicit extraction candidates from recent Obsidian capture notes or published content, scoring them against existing CORE notes, and placing metadata-only proposals into a human-approved review queue without modifying the vault.
 ---
 
 # Extract Core
@@ -60,6 +60,13 @@ description: Use when reviewing recent Obsidian capture notes and published cont
 9. 사용자가 정확히 한 candidate code에 `승인`, `보류`, `거절` 중 하나를 붙여 답하도록 안내한다.
 10. 7일 동안 응답이 없으면 삭제하지 않고 `stale` 상태로 보류한다.
 
+## Bidirectional traceability
+
+- Forward capture/Source → CORE: 기존 CORE와 강하게 연결되면 `new_core`보다 `link_existing`을 우선한다. 승인 가능한 non-Inbox source의 추적 필드는 `extracted_to`다.
+- Reverse published Channel Pack → CORE: 완성 글에서 역추출한 CORE는 source의 `decomposed_to`에 기록한다.
+- `00_Inbox` source는 두 경우 모두 `recommend_only`다. `extracted_to`나 `decomposed_to`를 자동 수정하지 않는다.
+- 추적 필드 변경도 후보 action 하나 안에 정확한 old/new로 제안되어야 하며, 승인 전에 적용하지 않는다.
+
 ## Candidate contract
 
 후보는 다음을 충족해야 한다.
@@ -72,7 +79,7 @@ description: Use when reviewing recent Obsidian capture notes and published cont
 - 1,800자 이하의 안전한 Discord 요약
 - 승인 명령 footer에 현재 candidate code 정확히 한 번
 
-허용 후보 유형은 `new_core`, `merge`, `fix_link`, `classification`, `status_cleanup`, `skill_drift`다. 이 스킬은 후보 유형을 제안할 수 있지만, 결정적으로 적용할 수 없는 action을 자연어로 보완하지 않는다.
+허용 후보 유형은 실제 큐 enum과 동일한 `new_core`, `link_existing`, `merge`, `fix_link`, `classify`, `status_cleanup`, `skill_drift`다. 이 스킬은 후보 유형을 제안할 수 있지만, 결정적으로 적용할 수 없는 action을 자연어로 보완하지 않는다.
 
 ## Human approval
 
