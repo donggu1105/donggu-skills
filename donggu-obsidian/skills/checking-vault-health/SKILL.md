@@ -11,6 +11,7 @@ A periodic checkup that identifies **where the content pipeline of a PKM vault i
 
 ## When to Use
 
+- Daily read-only care report — 후보가 없어도 흐름 지표를 남길 때
 - Right before a weekend extraction ritual — surface stale captures and uncited SOURCE notes
 - Monthly system retrospectives — find stalled layers
 - Before adding a new content domain — verify vault coherence
@@ -37,10 +38,22 @@ What you measure is whether each layer *flows* into the next. Stagnation between
 
 **Refinement flows both ways.** Forward: capture note → CORE promotion, recorded in the capture's `extracted_to:`. Reverse: a post written first → parts extracted back into canon, recorded in the pack's `decomposed_to:`. Both count as healthy refinement. A published pack with NEITHER a CORE citation NOR `decomposed_to` entries is an **orphan post** — that is the defect, not "the post was written before its parts."
 
+## Daily read-only contract
+
+매일 결과를 출력한다. **후보가 없어도** 생략하지 않고 다음 다섯 지표를 0을 포함한 count로 보고한다.
+
+- recent Inbox count
+- recent published count
+- stalled Source count
+- return-gap count
+- link/schema candidate count
+
+Daily care는 metadata-all과 대표 content sample만 읽는다. `00_Inbox`의 age/count alone은 정리 후보 생성 근거가 아니다. Inbox 본문은 aggregate entry health 또는 사용자가 노트 하나를 명시한 recommendation-only 검토에만 사용한다. 이 스킬은 Inbox 자동 이동·삭제·분류·수정이나 다른 Vault mutation을 수행하지 않는다.
+
 ## Workflow (9 steps, sample as conditions allow)
 
 1. **List vault structure** — `list_files_in_vault` + `list_files_in_dir` on 4-5 key folders
-2. **Entry check (capture-based)** — Build Journals were RETIRED (2026-07-07): do NOT look for `journal/` folders or mention them in findings. Entry is healthy when the inbox folder (e.g. `00_Inbox/`) contains notes created in the last 7 days (글감, 생각, 뉴스 브리핑, drafts). Flag P0 only when the inbox shows zero new capture for 7+ days
+2. **Entry check (capture-based)** — Build Journals were RETIRED (2026-07-07): do NOT look for `journal/` folders or mention them in findings. Report the aggregate recent Inbox count for the last 7 days. A zero count is an entry-health signal only; never turn Inbox age/count alone into a move, extraction, merge, delete, or classification candidate
 3. **Refinement check (both directions)** — Forward: `simple_search` for `"extracted_to: \[\]"` to list capture notes never extracted (if the vault stamps `extracted_to`); identify SOURCEs with 0 citations for 1+ weeks. Reverse: posts written first must extract parts back — check `decomposed_to:` on recent packs (see step 7)
 4. **Guide violations** — frontmatter `type` enum violations, anti-patterns (e.g. a published Channel Pack left with neither cited parts nor `decomposed_to` backfill)
 5. **Link integrity** — broken wikilinks, especially comma/whitespace typo patterns (e.g. `[[CORE - X 판단은 사람]]` vs `[[CORE - X, 판단은 사람]]`)

@@ -31,7 +31,7 @@
 - Consumes: SKILL.md text and plugin manifests.
 - Produces: critical workflow invariants expressed as executable assertions.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add unittest cases that assert:
 
@@ -51,7 +51,7 @@ self.assertIn("자동 이동", health)
 
 Also assert that only `core-review-approval` describes applying a candidate and that no audited skill grants automatic Vault mutation.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -61,7 +61,7 @@ python3 -m unittest tests.test_obsidian_content_flow_contracts -v
 
 Expected: failures for missing origin/adapt, `type: content`, and daily notification contract.
 
-- [ ] **Step 3: Keep tests scoped**
+- [x] **Step 3: Keep tests scoped**
 
 Use exact skill paths and semantic assertions; do not snapshot whole documents or assert incidental prose.
 
@@ -77,7 +77,7 @@ Use exact skill paths and semantic assertions; do not snapshot whole documents o
 - Consumes: Inbox/Source/Channel Pack notes.
 - Produces: origin/adapt channel notes and publish ledger/event boundary.
 
-- [ ] **Step 1: Implement `origin` and `adapt` modes**
+- [x] **Step 1: Implement `origin` and `adapt` modes**
 
 Document:
 
@@ -89,19 +89,19 @@ related: ["[[other same-topic Channel Pack]]"]
 
 `origin` creates the first channel note from raw material. `adapt` reads one existing Channel Pack and rewrites it using the destination channel VOICE. `derived_from` records lineage only; every final body remains channel-native.
 
-- [ ] **Step 2: Remove conflicting rules**
+- [x] **Step 2: Remove conflicting rules**
 
 Delete `type: content` and the absolute “no source lineage” wording. Preserve the rule that channels do not share one mechanically published master body.
 
-- [ ] **Step 3: Tighten `publish-sns`**
+- [x] **Step 3: Tighten `publish-sns`**
 
 State that successful `published_posts` persistence creates the post-publication review event through the existing DB trigger. Publishing does not create CORE/Snippet/MOC directly. Failed or dry-run publications must not create a review event.
 
-- [ ] **Step 4: Bump donggu-sns plugin version**
+- [x] **Step 4: Bump donggu-sns plugin version**
 
 Increment patch version in plugin and marketplace manifests to the same value.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 ```bash
 python3 -m unittest tests.test_obsidian_content_flow_contracts -v
@@ -120,7 +120,7 @@ Expected: writing/publishing cases PASS.
 - Consumes: published event metadata and approved canon posts.
 - Produces: routine CORE candidates or deep canon decomposition proposals.
 
-- [ ] **Step 1: Make `extract-core` routine-first**
+- [x] **Step 1: Make `extract-core` routine-first**
 
 Set priority:
 
@@ -132,11 +132,11 @@ Set priority:
 
 Keep Inbox read-only and recommendation-only. Require existing CORE search and `LINK/NEW/MERGE/HOLD` outcome before persistence.
 
-- [ ] **Step 2: Keep `decompose-canon` deep-only**
+- [x] **Step 2: Keep `decompose-canon` deep-only**
 
 Clarify that routine published posts are handled by `extract-core`; `decompose-canon` runs only after explicit canon selection and may propose a small set of CORE/Snippet atoms.
 
-- [ ] **Step 3: Verify RED tests turn GREEN**
+- [x] **Step 3: Verify RED tests turn GREEN**
 
 ```bash
 python3 -m unittest tests.test_obsidian_content_flow_contracts -v
@@ -156,23 +156,23 @@ Expected: extraction/decomposition boundary cases PASS.
 - Consumes: metadata-all + representative content sample.
 - Produces: daily read-only metrics and report-only candidates.
 
-- [ ] **Step 1: Add daily contract**
+- [x] **Step 1: Add daily contract**
 
 Require daily health output even when candidate count is zero. Metrics: recent Inbox count, recent published count, stalled Source count, return-gap count, link/schema candidate count.
 
-- [ ] **Step 2: Preserve Inbox boundary**
+- [x] **Step 2: Preserve Inbox boundary**
 
 Explicitly prohibit candidate generation from Inbox age/count alone. Inbox content can be used only for aggregate entry health or explicit recommendation-only review.
 
-- [ ] **Step 3: Make duplicate audit monthly/on-demand**
+- [x] **Step 3: Make duplicate audit monthly/on-demand**
 
 Prevent daily semantic duplicate scanning of the full Vault. Daily care may report a threshold signal; the full five-pattern audit runs monthly or on explicit request.
 
-- [ ] **Step 4: Bump donggu-obsidian plugin version**
+- [x] **Step 4: Bump donggu-obsidian plugin version**
 
 Increment patch version in plugin and marketplace manifests to the same value.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```bash
 python3 -m unittest tests.test_obsidian_content_flow_contracts -v
@@ -186,7 +186,7 @@ Expected: contract suite and existing 47 helper tests PASS.
 
 **Files:** all files modified by Tasks 1–4.
 
-- [ ] **Step 1: Check scope and secrets**
+- [x] **Step 1: Check scope and secrets**
 
 ```bash
 git diff --check
@@ -195,7 +195,7 @@ git status --short
 
 Verify no AI-news/FDE files, env files, credentials, or unrelated paths are changed.
 
-- [ ] **Step 2: Run final suite**
+- [x] **Step 2: Run final suite**
 
 ```bash
 python3 -m unittest tests.test_obsidian_content_flow_contracts -v
@@ -203,11 +203,11 @@ python3 -m unittest discover -s donggu-obsidian/skills/core-review-approval/test
 claude plugin validate .
 ```
 
-- [ ] **Step 3: Commit scoped changes**
+- [x] **Step 3: Commit scoped changes**
 
 ```bash
 git add tests/test_obsidian_content_flow_contracts.py donggu-sns/skills/writing-social-content/SKILL.md donggu-sns/skills/publish-sns/SKILL.md donggu-sns/.claude-plugin/plugin.json donggu-obsidian/skills/extract-core/SKILL.md donggu-obsidian/skills/decompose-canon/SKILL.md donggu-obsidian/skills/checking-vault-health/SKILL.md donggu-obsidian/skills/finding-duplicate-notes/SKILL.md donggu-obsidian/.claude-plugin/plugin.json .claude-plugin/marketplace.json docs/superpowers/plans/2026-07-13-obsidian-content-skills.md
 git commit -m "♻️ refactor: 콘텐츠 우선 Vault 스킬 경계를 정리한다"
 ```
 
-- [ ] **Step 4: Report commit SHA and exact test counts**
+- [x] **Step 4: Report commit SHA and exact test counts**

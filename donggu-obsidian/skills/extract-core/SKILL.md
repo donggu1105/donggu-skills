@@ -13,19 +13,21 @@ description: Use when reviewing explicit extraction candidates from recent Obsid
 
 ## When to use
 
-- 최근 `00_Inbox`와 `10_Sources`에서 재사용 가능한 주장을 찾을 때
-- 발행 직후 콘텐츠에서 CORE 후보를 제안할 때
+- 발행 직후 Channel Pack에서 routine CORE 후보를 제안할 때
+- 큐레이션된 `10_Sources`에서 재사용 가능한 주장을 찾을 때
+- 사용자가 Inbox 항목 하나를 명시해 recommendation-only 검토를 요청할 때
 - 매일 05:40 검토 큐에서 신규·중복·링크·분류 후보를 묶어 볼 때
 - 기존 CORE와 겹치거나 더 원자적으로 다듬어야 할 후보를 평가할 때
 
 ## Scope
 
-기본 탐색 범위:
+routine 우선순위:
 
-1. 최근 변경된 `00_Inbox/`
-2. 최근 변경된 `10_Sources/`
-3. 비교 대상인 `20_Core/`
-4. 발행 이벤트가 가리키는 source note
+1. newly published Channel Pack
+2. curated `10_Sources` note
+3. explicit Inbox recommendation-only request
+
+`00_Inbox/`는 일반 스캔 대상이 아니다. 사용자가 노트 하나를 명시한 경우에만 읽기 전용·recommendation-only로 검토한다. 비교 대상인 `20_Core/`는 후보 source가 아니라 기존 주장 검색 범위다.
 
 전체 Vault를 읽지 않는다. 최근 변경, 미처리 발행 이벤트, 실패 delivery retry만 대상으로 삼고, 본문은 필요한 노트만 제한적으로 읽는다.
 
@@ -52,8 +54,8 @@ description: Use when reviewing explicit extraction candidates from recent Obsid
 1. 최근 source path와 발행 이벤트를 읽기 전용으로 수집한다.
 2. path가 Vault root 아래의 안전한 상대 `.md`인지 확인한다. 절대경로, `..`, symlink 탈출, `.env*`, binary를 제외한다.
 3. source excerpt를 읽고 atomic claim을 추출한다. 장부에는 본문 저장 금지이며, metadata와 제한된 redacted excerpt만 전달한다.
-4. `20_Core` 제목·path metadata 전체와 관련 CORE excerpt를 비교해 중복 여부를 판정한다.
-5. 후보 하나에는 source 하나, action 하나만 둔다. 다른 정리 작업을 끼워 넣지 않는다.
+4. persistence 전에 `20_Core` 제목·path metadata 전체와 관련 CORE excerpt를 검색하고 각 주장에 정확히 `LINK`, `NEW`, `MERGE`, `HOLD` outcome 하나를 판정한다. 기존 CORE 검색과 outcome이 없으면 후보를 저장하지 않는다.
+5. `LINK`는 기존 CORE 연결, `NEW`는 새 atomic CORE, `MERGE`는 기존 CORE 강화, `HOLD`는 보류다. 후보 하나에는 source 하나, action 하나만 두고 다른 정리 작업을 끼워 넣지 않는다.
 6. source path와 source SHA-256을 후보 생성 시점에 고정한다.
 7. 후보를 Supabase 장부에 `proposed`로 기록한다. 사용자에게 보이는 candidate code는 `CR-YYYYMMDD-NNNNNN` 형식이다.
 8. 신규·retry 후보를 합쳐 우선순위 상위 3~5건만 Discord 일일 보고로 보낸다.

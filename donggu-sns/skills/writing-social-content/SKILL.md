@@ -7,15 +7,15 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 
 ## Overview
 
-사용자의 **텍스트 SNS 채널 전부**(Blog·LinkedIn·X·Threads·Maily)를 한 스킬로 작성한다. **각 채널은 독립적이다** — 마스터/변형 위계가 없다. 어느 채널도 다른 채널의 원천이 아니고, 모든 글은 주제 브리프 + 그 채널 VOICE(하드룰)와 정전(canon) 글에서 **새로** 쓴다. 핵심은 **voice-learning** — 그 채널의 정전·기존 발행 글에서 톤·종결·시그니처를 학습해 일관 유지. 채널 차이는 [채널 매트릭스]로 흡수하고, 작성 절차(retrieve→대화형→생성→저장)는 공통이다.
+사용자의 **텍스트 SNS 채널 전부**(Blog·LinkedIn·X·Threads·Maily)를 한 스킬로 작성한다. 작성 계보는 `origin`과 `adapt` 두 모드로 소유하되, 모든 최종 글은 목적 채널 VOICE에 맞춘 **channel-native 본문**이다. `derived_from`은 변환 계보만 기록하며 마스터/변형 위계를 만들지 않는다. 하나의 마스터 본문을 여러 채널에 기계적으로 발행하지 않는다. 핵심은 **voice-learning** — 그 채널의 정전·기존 발행 글에서 톤·종결·시그니처를 학습해 일관 유지. 채널 차이는 [채널 매트릭스]로 흡수하고, 작성 절차(retrieve→대화형→생성→저장)는 공통이다.
 
 **Core**: Socratic retrieve. 자동 자산(VOICE·CHANNEL_GUIDE·정전 글)은 강제, 선택 자산(GENRE·STRUCTURE·PROJECT·CORE)은 한 결정씩 물어본다.
 
 > **canon에서 배우는 건 보이스(톤·종결·시그니처·후크)지 내용·결론(CORE)이 아니다.** 새 소재는 기본 **채굴 모드** — 그 소재만의 새 앵글을 판다(기존 CORE로 수렴 금지, "얼마 전에 나는 ~썼다"式 자기 인용 금지). **수렴 모드**(기존 CORE 강화·연결)는 사용자가 명시할 때만. 매번 같은 코어로 수렴시키면 글이 다 똑같아지고 새 코어가 안 쌓인다 — 지금은 코어를 넓히는 단계라 채굴이 기본.
 
 ## When to Use
-- 텍스트 채널(blog·linkedin·x·threads·maily) 중 하나에 새 글 작성
-- 같은 주제를 다른 채널용으로 새로 작성 (각 채널 독립 — 마스터 없음)
+- 텍스트 채널(blog·linkedin·x·threads·maily) 중 하나에 `origin` 모드로 첫 Channel Pack 작성
+- 기존 Channel Pack 하나를 읽고 `adapt` 모드로 다른 채널의 VOICE에 맞춰 새로 작성
 - 기존 노트를 발행 가능한 형식(`## 발행`/`## Draft`)으로 정형화
 
 ## When NOT to Use
@@ -39,6 +39,11 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 
 ## Workflow (공통)
 
+### 0. 작성 모드 결정
+- **`origin`**: Inbox 메모, Source, 대화, 주제 브리프 같은 raw material에서 첫 채널 노트를 만든다. `derived_from`은 비운다.
+- **`adapt`**: 기존 Channel Pack 하나를 정확한 source로 읽고 목적 채널 VOICE로 다시 쓴다. source의 문장을 기계적으로 줄이거나 늘리지 않고 목적 채널의 후크·호흡·종결·발행 형식으로 재구성한다.
+- `derived_from`은 lineage이지 master hierarchy가 아니다. 같은 주제의 각 최종 본문은 독립적으로 발행 가능한 channel-native 글이어야 한다.
+
 ### 1. 자동 retrieve (입력 없음)
 - 채널 `_anchors/`: **VOICE**(하드룰 + `canon:` 정전 글 목록) + **CHANNEL_GUIDE**(분량·알고리즘; blog는 없음)
 - **정전(canon) 글 우선 + 기존 발행 글 1~3개**: VOICE의 `canon:`을 먼저 읽고, 없으면 `<채널> - *.md`에서 최근/대표 글 → 종결 어미 비율·시그니처·후크를 학습. *이게 voice-learning의 핵심 — 추상 규칙만 보면 평균값으로 homogenize된다. 실제 글이 보이스의 기준.*
@@ -55,7 +60,16 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 
 ### 4. 저장
 - Path: `1_SNS/<채널>/<채널> - <title>.md`
-- frontmatter: `type: content` · `channel: <ch>` · `project:` · `status: draft` · (같은 주제의 다른 채널 글이 있으면) `related: "[[<채널> - <t>]]"` (대등 링크 — 마스터 참조 아님) · (x) `language:`
+- frontmatter 계약:
+  ```yaml
+  type: channel_pack
+  channel: <ch>
+  project:
+  status: draft
+  derived_from: "[[optional exact source Channel Pack]]"
+  related: ["[[other same-topic Channel Pack]]"]
+  ```
+  `origin`이면 `derived_from`을 비우고, `adapt`이면 읽은 source Channel Pack 하나를 정확히 기록한다. `related`는 같은 주제의 대등한 Channel Pack 연결이다. x는 `language:`도 기록한다.
 - **발행 채널이면 발행 형식 섹션까지** (아래)
 
 ## 발행 형식 (구 make-note 흡수 — 발행기가 읽는 정본)

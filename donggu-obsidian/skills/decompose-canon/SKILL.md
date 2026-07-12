@@ -11,6 +11,8 @@ One proven post → a FEW reusable atoms (CORE + 40_Snippets parts) + back-links
 
 **Core principle: link before create, recommend before adopt, 동구's actual words over reworded prose.** A post is not a quarry for 15 notes — most of its "ideas" already live in existing CORE. Find those first.
 
+**Boundary:** routine published posts are handled by `extract-core`. 이 스킬은 사용자가 좋은 글을 정전으로 명시한 **explicit canon selection** 뒤에만 실행하는 deep decomposition이다. 일반 발행 완료 이벤트나 일일 routine 검토가 자동으로 이 스킬을 시작하지 않는다.
+
 **REQUIRED SUB-SKILL:** Use `donggu-obsidian:extract-core` for CORE atomicity scoring (5 criteria, adopt 8+/hold/discard, healthy yield 2-3/week). This skill adds three things extract-core lacks: **post input** (not journals), **부품 extraction**, and **bidirectional wiring into the post**.
 
 ## When to Use
@@ -21,6 +23,7 @@ One proven post → a FEW reusable atoms (CORE + 40_Snippets parts) + back-links
 ## When NOT to Use
 - Writing a NEW post / spreading to channels → `writing-social-content` (forward fan-out)
 - Weekly journal "💎 추출 후보" sweep → `extract-core`
+- Routine published-post review → `extract-core`
 - A mediocre post — only decompose posts you'd hold up as canon
 
 ## Workflow

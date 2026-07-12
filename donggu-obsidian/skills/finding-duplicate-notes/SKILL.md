@@ -11,11 +11,13 @@ description: Use when auditing personal knowledge management vaults (Obsidian, P
 
 **No auto-merge. Candidate discovery + action recommendations only.** Subtle differences may be intentional (e.g. snippet A/B variants).
 
+**Cadence boundary:** the full five-pattern audit is **monthly or on-demand** only. Daily care must not run a full-Vault semantic duplicate scan; it may emit a metadata-only **threshold signal** and recommend this skill for a later explicit run.
+
 ## When to Use
 
 - Monthly consolidation ritual
+- On-demand after an explicit duplicate/atomicity request
 - When an atomicity-suspect note shows up
-- Regular check once a vault has 100+ notes
 - Before organizing teaching assets — deduplicate before assembling modules
 - When another audit (e.g. `checking-vault-health`) surfaces duplicate signals
 
@@ -24,6 +26,7 @@ description: Use when auditing personal knowledge management vaults (Obsidian, P
 - Vault under 50 notes — duplication unlikely
 - Plain broken-link check — use `checking-vault-health`
 - Atomicity check on a single note — different skill domain
+- Daily full-Vault semantic scanning — daily health may report a threshold signal only
 
 ## Core Principle
 
