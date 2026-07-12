@@ -11,11 +11,15 @@ description: Use when auditing personal knowledge management vaults (Obsidian, P
 
 **No auto-merge. Candidate discovery + action recommendations only.** Subtle differences may be intentional (e.g. snippet A/B variants).
 
+**Cadence boundary:** the full five-pattern audit is **monthly or on-demand** only. Daily care must not run a full-Vault semantic duplicate scan; it may emit a metadata-only **threshold signal** and recommend this skill for a later explicit run.
+
+이 스킬은 report와 metadata-only candidate까지만 생성한다. 자연어 채택이나 blanket approval로 Vault mutation은 수행하지 않는다. mutation 후보 생성 뒤 종료하고, 실제 변경 가능성은 후보 ID별 `core-review-approval`만 판단한다.
+
 ## When to Use
 
 - Monthly consolidation ritual
+- On-demand after an explicit duplicate/atomicity request
 - When an atomicity-suspect note shows up
-- Regular check once a vault has 100+ notes
 - Before organizing teaching assets — deduplicate before assembling modules
 - When another audit (e.g. `checking-vault-health`) surfaces duplicate signals
 
@@ -24,6 +28,7 @@ description: Use when auditing personal knowledge management vaults (Obsidian, P
 - Vault under 50 notes — duplication unlikely
 - Plain broken-link check — use `checking-vault-health`
 - Atomicity check on a single note — different skill domain
+- Daily full-Vault semantic scanning — daily health may report a threshold signal only
 
 ## Core Principle
 
@@ -44,7 +49,7 @@ Each pattern needs a different action — never batch-process them.
 | **Naming twins** | Nearly identical titles (e.g. `CORE - X` vs `CORE - X에 대하여`) | Pick one, redirect the other (alias frontmatter) |
 | **Absorbed-not-merged** | "Absorbed into [[Y]]" callout exists but the note is still alive as a standalone | Delete the body, set `status: archived`, preserve the alias |
 | **Snippet twins** | Same Hook/Lesson spread across 2+ notes | Pick the best version, archive the rest — or preserve if it's an intentional variant |
-| **Source redundancy** | Same external material captured in 2+ SOURCE notes | Merge — consolidate into 1 SOURCE, batch-fix citations to the other |
+| **Source redundancy** | Same external material captured in 2+ SOURCE notes | Recommend one source/path-scoped candidate at a time; never bulk-rewrite citations |
 
 ## Workflow
 
@@ -106,7 +111,7 @@ Date: YYYY-MM-DD · Checked all 5 patterns
 
 | Mistake | Fix |
 |---|---|
-| Attempting auto-merge | User decision gate is mandatory. Proceed only after explicit adoption |
+| Attempting auto-merge | This skill never mutates files. Emit one metadata-only candidate and STOP; only an exact CR candidate decision can enter `core-review-approval`. |
 | Recommending merge for every finding | May be intentional variants (A/B test, audience split, evolution trace). Add a diagnosis step |
 | Auto-computing semantic distance | Out of skill scope. Only the user can verify their own voice |
 | Judging subtle snippet differences as duplicates | Hook variants are intentional per channel / audience. Same opening 5 words ≠ duplicate |
@@ -155,16 +160,19 @@ Date: YYYY-MM-DD · Checked all 5 patterns
    - Recommended action: archive or delete B, add alias "직군이 아닌 책임" to A
 ```
 
-## Action Rules (after user decision)
+## Candidate handoff — mandatory STOP
 
-Follow-up actions that can be automated once adopted:
+각 mutation 권고는 다음 metadata-only candidate 하나로 분리한다.
 
-- **archive**: add `status: archived` to the file's frontmatter + move to `99_Archive/` or preserve as alias
-- **add alias**: append to frontmatter `aliases: [<old name>]` → preserves wikilink compatibility
-- **shorten body**: leave only a 1-2 line aphorism in the body and redirect to the main link
-- **batch-fix citations**: if other notes cite [[B]], swap them to [[A]] in bulk (Obsidian's built-in rename or a vault-wide find-replace)
+- `candidate_code`: `CR-YYYYMMDD-NNNNNN` 하나
+- `source_note_path`: 안전한 non-Inbox 상대 경로 하나
+- `source_sha256`: 생성 시점 lowercase SHA-256 하나
+- `candidate_type`: 실제 queue enum 하나
+- `proposed_changes`: source 하나에 대한 결정적 action 하나
 
-No automation — proceed only after explicit user adoption.
+후보 생성 뒤 종료한다. 정확히 `CR-YYYYMMDD-NNNNNN 승인|보류|거절` 형식만 `core-review-approval`에 전달한다. 자연어 채택, per-item 구두 동의, 후보 목록, 범위, `전체 승인`, `다 합쳐`는 승인으로 간주하지 않는다.
+
+`core-review-approval`이 지원하는 `fix_link`/`link_existing`의 source-local `replace`만 그 스킬의 path·SHA·target 검증을 거쳐 적용될 수 있다. archive, alias, body 축약, move, merge, status 변경, 여러 노트 citation 수정은 현재 지원 action이 아니므로 metadata로만 남기고 승인돼도 release/re-evaluation한다. 여러 파일 또는 Vault 전체 치환 후보는 생성하지 않는다. 이 스킬은 어떤 파일도 직접 수정·이동·삭제하지 않는다. **STOP.**
 
 ## Vault-Specific Context
 
@@ -180,4 +188,4 @@ Read the guide note (e.g. `_GUIDES/CONTENT_PIPELINE.md`) first to confirm the at
 ## Related Skills
 
 - **`checking-vault-health`**: flow check across the content pipeline (entry / refinement / exit / curation). Atomicity is secondary there. Cross-reference with this skill.
-- **`extract-core`**: journal → CORE promotion ritual. After running this skill, if duplicates are found, tighten the overlap check when creating new CORE notes in extract-core.
+- **`extract-core`**: capture/Source/Channel Pack → CORE candidate ritual. If duplicates are found, tighten the overlap check when proposing new CORE notes.

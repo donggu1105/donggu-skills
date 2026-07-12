@@ -11,6 +11,7 @@ A periodic checkup that identifies **where the content pipeline of a PKM vault i
 
 ## When to Use
 
+- Daily read-only care report — 후보가 없어도 흐름 지표를 남길 때
 - Right before a weekend extraction ritual — surface stale captures and uncited SOURCE notes
 - Monthly system retrospectives — find stalled layers
 - Before adding a new content domain — verify vault coherence
@@ -37,10 +38,24 @@ What you measure is whether each layer *flows* into the next. Stagnation between
 
 **Refinement flows both ways.** Forward: capture note → CORE promotion, recorded in the capture's `extracted_to:`. Reverse: a post written first → parts extracted back into canon, recorded in the pack's `decomposed_to:`. Both count as healthy refinement. A published pack with NEITHER a CORE citation NOR `decomposed_to` entries is an **orphan post** — that is the defect, not "the post was written before its parts."
 
+## Daily read-only contract
+
+매일 결과를 출력한다. **후보가 없어도** 생략하지 않고 다음 다섯 지표를 0을 포함한 count로 보고한다.
+
+- recent Inbox count
+- recent published count
+- stalled Source count
+- return-gap count
+- link/schema candidate count
+
+Daily care는 metadata-all과 대표 content sample만 읽는다. `00_Inbox`의 age/count alone은 정리 후보 생성 근거가 아니다. Inbox 본문은 aggregate entry health 또는 사용자가 노트 하나를 명시한 recommendation-only 검토에만 사용한다. 이 스킬은 Inbox 자동 이동·삭제·분류·수정이나 다른 Vault mutation을 수행하지 않는다.
+
+발견 사항은 report 또는 metadata-only candidate로만 남긴다. 자연어 채택, per-item 답변, `전체 승인` 같은 blanket approval은 실행 권한이 아니다. 이 스킬은 Vault mutation을 수행하지 않는다. mutation 후보 생성 뒤 종료하고 실제 적용 가능성은 후보 ID별 `core-review-approval`만 판단한다.
+
 ## Workflow (9 steps, sample as conditions allow)
 
 1. **List vault structure** — `list_files_in_vault` + `list_files_in_dir` on 4-5 key folders
-2. **Entry check (capture-based)** — Build Journals were RETIRED (2026-07-07): do NOT look for `journal/` folders or mention them in findings. Entry is healthy when the inbox folder (e.g. `00_Inbox/`) contains notes created in the last 7 days (글감, 생각, 뉴스 브리핑, drafts). Flag P0 only when the inbox shows zero new capture for 7+ days
+2. **Entry check (capture-based)** — Build Journals were RETIRED (2026-07-07): do NOT look for `journal/` folders or mention them in findings. Report the aggregate recent Inbox count for the last 7 days. A zero count is an entry-health signal only; never turn Inbox age/count alone into a move, extraction, merge, delete, or classification candidate
 3. **Refinement check (both directions)** — Forward: `simple_search` for `"extracted_to: \[\]"` to list capture notes never extracted (if the vault stamps `extracted_to`); identify SOURCEs with 0 citations for 1+ weeks. Reverse: posts written first must extract parts back — check `decomposed_to:` on recent packs (see step 7)
 4. **Guide violations** — frontmatter `type` enum violations, anti-patterns (e.g. a published Channel Pack left with neither cited parts nor `decomposed_to` backfill)
 5. **Link integrity** — broken wikilinks, especially comma/whitespace typo patterns (e.g. `[[CORE - X 판단은 사람]]` vs `[[CORE - X, 판단은 사람]]`)
@@ -54,6 +69,13 @@ What you measure is whether each layer *flows* into the next. Stagnation between
 ```
 # Vault Health — <vault-name>
 Date: YYYY-MM-DD · Scope: N folders, M notes sampled
+
+## Daily integer metrics
+- recent Inbox count: N
+- recent published count: N
+- stalled Source count: N
+- return-gap count: N
+- link/schema candidate count: N
 
 ## P0 — [Layer]: [concrete problem]
 **Finding**: ...
@@ -103,7 +125,7 @@ P priority:
 | Flagging "post written before its parts" as a violation | The reverse flow is legitimate: write the post first, then extract parts into `decomposed_to:`. Only flag packs with NEITHER citations NOR `decomposed_to` |
 | Recommending engagement-metric backfill (views/likes/comments/saves/shares) | Deliberately removed 2026-07-07 as overengineering. CASE selection is manual judgment — never resurrect these fields |
 | Looking for journal folders at all | Build Journals were retired (2026-07-07). Entry health = inbox capture within the last 7 days; never recommend restarting a journal ritual |
-| Auto-promoting inbox notes during remediation | `00_Inbox` is the user's decision queue. List candidates with a one-line recommendation each and get per-item approval. A blanket "다 처리해봐 / fix everything" does NOT cover inbox moves, merges, or deletions |
+| Auto-promoting inbox notes during remediation | `00_Inbox` is a free capture buffer. Report aggregate counts and recommendation-only guidance; create no candidate, request no execution approval, and perform 0 file changes. |
 
 ## Red Flags — STOP and Restart
 
@@ -169,10 +191,20 @@ When the vault health check surfaces the following signals, **immediately chain 
 - Only chain after the user agrees (subagent or direct execution)
 - No blanket auto-chaining — keep the user's decision gate
 
-**Remediation gates**:
-- `00_Inbox` (or the vault's inbox folder) is the user's decision queue, not backlog to clear. When remediation touches inbox notes — moving to `10_Sources`, promoting, merging duplicates, deleting — STOP and present the candidate list (one-line recommendation per item), then act only on the user's per-item answer.
-- A blanket approval covers findings outside the inbox; inbox items always get their own ask.
+## Candidate handoff — mandatory STOP
 
-**Cross-reference rules (follows the writing-skills guide)**:
+실제 파일 변경을 암시하는 각 finding은 report와 별도로 다음 metadata-only candidate 하나로 분리한다.
+
+- `candidate_code`: `CR-YYYYMMDD-NNNNNN` 하나
+- `source_note_path`: 안전한 상대 경로 하나 (`00_Inbox` 제외)
+- `source_sha256`: 생성 시점 lowercase SHA-256 하나
+- `candidate_type`: 실제 queue enum 하나
+- `proposed_changes`: 결정적 action 하나
+
+후보 생성 뒤 종료한다. 정확히 `CR-YYYYMMDD-NNNNNN 승인|보류|거절`만 `core-review-approval`에 전달한다. 자연어 동의, per-item 답변, 여러 후보 나열, 범위, `전체 승인`, `다 처리해봐`는 무효이며 파일 변경 0건이다. Inbox는 candidate source로도 쓰지 않고 recommendation-only 보고만 한다.
+
+`core-review-approval`이 현재 지원하는 `fix_link`/`link_existing`의 결정적 `replace` 또는 `new_core` action만 그 스킬의 검증을 거칠 수 있다. schema/classify/status/merge/MOC cleanup처럼 지원되지 않는 finding은 후보 metadata로만 남고 승인돼도 re-evaluation/release된다. 이 스킬은 helper를 호출하거나 파일을 수정·이동·삭제하지 않는다. **STOP.**
+
+**Cross-reference rules (follows the writing-skills guide):**
 - Do NOT use `**REQUIRED SUB-SKILL:**` — neither is strictly required
 - Use `**Chain recommended:**` — call only after the user decides

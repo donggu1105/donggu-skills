@@ -15,6 +15,10 @@ Publish channel notes from the Obsidian vault to live SNS channels through n8n w
 
 Content *formats* are NOT defined here — each channel's note structure is owned by its authoring skill (text channels = `writing-social-content`, cards = `make-insta-card-news`). This skill owns the *publishing* contract only.
 
+### Post-publication review boundary
+
+성공한 실발행 결과가 `published_posts`에 저장되면 existing DB trigger가 **발행 완료 이벤트**를 생성한다. 이 이벤트가 후속 검토의 유일한 경계다. `publish-sns`는 CORE/Snippet/MOC를 직접 생성하거나 후보를 적용하지 않는다. webhook 실패, 장부 저장 실패, preview, `dry-run`은 발행 완료 이벤트를 만들지 않는다.
+
 ## Flow
 
 ```
@@ -41,8 +45,8 @@ Content *formats* are NOT defined here — each channel's note structure is owne
   4. POST channel webhook(s) (reference below). Header `X-SNS-Token: $SNS_WEBHOOK_TOKEN`.
      Synchronous, 30–60s → timeout ~200s. Channels are independent — one failure doesn't
      stop the others.
-  5. INSERT successes into `published_posts` (maily has no post_id → null).
-  6. Report per-channel success/failure + URLs. Update note frontmatter `status: published`.
+  5. INSERT **real-publish successes only** into `published_posts` (maily has no post_id → null). `dry_run=false` 또는 dry-run 필드가 없는 실제 발행 성공만 persistence한다. **`dry_run=true` 성공 응답은 절대 `published_posts`에 INSERT하지 않는다.** 이 persistence만 existing DB trigger를 통해 발행 완료 이벤트를 만든다.
+  6. Report per-channel success/failure + URLs. Update note frontmatter `status: published` **only when at least one `dry_run=false` (or no dry-run field) real publish succeeded and its ledger INSERT completed**. A dry-run-only result leaves the note status unchanged.
 ```
 
 ### Channel extraction (format canon = make-* skill)
