@@ -45,7 +45,7 @@ Content *formats* are NOT defined here — each channel's note structure is owne
   4. POST channel webhook(s) (reference below). Header `X-SNS-Token: $SNS_WEBHOOK_TOKEN`.
      Synchronous, 30–60s → timeout ~200s. Channels are independent — one failure doesn't
      stop the others.
-  5. INSERT successes into `published_posts` (maily has no post_id → null). 이 성공 persistence가 existing DB trigger를 통해 발행 완료 이벤트를 만든다.
+  5. INSERT **real-publish successes only** into `published_posts` (maily has no post_id → null). `dry_run=false` 또는 dry-run 필드가 없는 실제 발행 성공만 persistence한다. **`dry_run=true` 성공 응답은 절대 `published_posts`에 INSERT하지 않는다.** 이 persistence만 existing DB trigger를 통해 발행 완료 이벤트를 만든다.
   6. Report per-channel success/failure + URLs. Update note frontmatter `status: published`.
 ```
 

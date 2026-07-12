@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 import unittest
 
 
@@ -41,6 +42,10 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         self.assertIn("existing DB trigger", publishing)
         self.assertIn("dry-run", publishing.lower())
         self.assertIn("CORE/Snippet/MOC", publishing)
+        self.assertIn(
+            "`dry_run=true` 성공 응답은 절대 `published_posts`에 INSERT하지 않는다",
+            publishing,
+        )
 
     def test_extract_core_is_routine_first(self):
         extract_core = self.skills["extract_core"]
@@ -60,11 +65,14 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         self.assertIn("explicit canon selection", decompose.lower())
         self.assertIn("routine", decompose.lower())
         self.assertIn("extract-core", decompose)
+        self.assertNotIn("weekly journal", decompose.lower())
+        self.assertNotIn("주간 저널", decompose)
 
     def test_daily_health_reports_even_without_candidates(self):
         health = self.skills["health"]
 
         self.assertIn("후보가 없어도", health)
+        report_format = health.split("## Report Format (standard)", 1)[1].split("```", 2)[1]
         for metric in (
             "recent Inbox count",
             "recent published count",
@@ -73,7 +81,7 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             "link/schema candidate count",
         ):
             with self.subTest(metric=metric):
-                self.assertIn(metric, health)
+                self.assertRegex(report_format, rf"(?m)^- {re.escape(metric)}: [0N]$")
 
     def test_daily_health_preserves_inbox_boundary(self):
         health = self.skills["health"]
@@ -97,18 +105,60 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             with self.subTest(skill=name):
                 self.assertNotIn("apply-action.py", self.skills[name])
 
+        for name in ("decompose", "health", "duplicates"):
+            text = self.skills[name]
+            self.assertIn("## Candidate handoff — mandatory STOP", text)
+            handoff = text.split("## Candidate handoff — mandatory STOP", 1)[1]
+            next_section = handoff.split("\n## ", 1)[0]
+            for token in (
+                "metadata-only",
+                "candidate_code",
+                "source_note_path",
+                "source_sha256",
+                "candidate_type",
+                "proposed_changes",
+                "CR-YYYYMMDD-NNNNNN",
+                "core-review-approval",
+                "STOP",
+            ):
+                with self.subTest(skill=name, token=token):
+                    self.assertIn(token, next_section)
+
     def test_audited_candidate_skills_forbid_automatic_vault_mutation(self):
         required_guards = {
             "extract_core": ("자동 이동", "승인 전에 적용하지 않는다"),
-            "decompose": ("자동 생성 금지", "recommend → STOP → create"),
-            "health": ("Auto-promoting inbox notes", "per-item approval"),
-            "duplicates": ("No auto-merge", "No automation"),
+            "decompose": ("Vault mutation은 수행하지 않는다", "후보 생성 뒤 종료"),
+            "health": ("Vault mutation을 수행하지 않는다", "후보 생성 뒤 종료"),
+            "duplicates": ("Vault mutation은 수행하지 않는다", "후보 생성 뒤 종료"),
         }
+        forbidden = (
+            "Create adopted atoms",
+            "Wire bidirectionally",
+            "recommend → STOP → create",
+            "blanket approval covers",
+            "act only on the user's per-item answer",
+            "can be automated once adopted",
+            "move to `99_Archive/`",
+            "vault-wide find-replace",
+            "actions can be automated",
+        )
         for name, guards in required_guards.items():
             text = self.skills[name]
             for guard in guards:
                 with self.subTest(skill=name, guard=guard):
                     self.assertIn(guard, text)
+            if name != "extract_core":
+                self.assertNotRegex(
+                    text,
+                    r"(?im)^##\s+(?:Action Rules(?:\s|\()|Remediation gates(?:\s|:))",
+                )
+                self.assertNotRegex(
+                    text,
+                    r"(?im)^\d+\.\s+\*\*(?:Create|Wire|Apply|Mutate|Remediate)\b",
+                )
+                for phrase in forbidden:
+                    with self.subTest(skill=name, forbidden=phrase):
+                        self.assertNotIn(phrase.lower(), text.lower())
 
     def test_changed_plugin_versions_match_marketplace(self):
         marketplace = json.loads(

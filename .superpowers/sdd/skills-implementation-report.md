@@ -2,7 +2,7 @@
 
 ## 상태
 
-Task 1~5 구현 및 검증 완료. 작업 기준은 계획 커밋 `11dcc16`이며, 변경은 지정 worktree 안의 portable skill·contract test·plugin manifest·계획 체크리스트·이 보고서로 제한했다.
+Task 1~5 구현 및 검증 완료. 작업 기준은 계획 커밋 `11dcc16`이며, 구현 커밋은 `a6599222301f69b5b62618c482dd8e82c8122d31`이다. 변경은 지정 worktree 안의 portable skill·contract test·plugin manifest·계획 체크리스트·이 보고서로 제한했다.
 
 ## 구현 결과
 

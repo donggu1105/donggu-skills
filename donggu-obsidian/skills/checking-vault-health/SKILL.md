@@ -50,6 +50,8 @@ What you measure is whether each layer *flows* into the next. Stagnation between
 
 Daily care는 metadata-all과 대표 content sample만 읽는다. `00_Inbox`의 age/count alone은 정리 후보 생성 근거가 아니다. Inbox 본문은 aggregate entry health 또는 사용자가 노트 하나를 명시한 recommendation-only 검토에만 사용한다. 이 스킬은 Inbox 자동 이동·삭제·분류·수정이나 다른 Vault mutation을 수행하지 않는다.
 
+발견 사항은 report 또는 metadata-only candidate로만 남긴다. 자연어 채택, per-item 답변, `전체 승인` 같은 blanket approval은 실행 권한이 아니다. 이 스킬은 Vault mutation을 수행하지 않는다. mutation 후보 생성 뒤 종료하고 실제 적용 가능성은 후보 ID별 `core-review-approval`만 판단한다.
+
 ## Workflow (9 steps, sample as conditions allow)
 
 1. **List vault structure** — `list_files_in_vault` + `list_files_in_dir` on 4-5 key folders
@@ -67,6 +69,13 @@ Daily care는 metadata-all과 대표 content sample만 읽는다. `00_Inbox`의 
 ```
 # Vault Health — <vault-name>
 Date: YYYY-MM-DD · Scope: N folders, M notes sampled
+
+## Daily integer metrics
+- recent Inbox count: N
+- recent published count: N
+- stalled Source count: N
+- return-gap count: N
+- link/schema candidate count: N
 
 ## P0 — [Layer]: [concrete problem]
 **Finding**: ...
@@ -182,10 +191,20 @@ When the vault health check surfaces the following signals, **immediately chain 
 - Only chain after the user agrees (subagent or direct execution)
 - No blanket auto-chaining — keep the user's decision gate
 
-**Remediation gates**:
-- `00_Inbox` (or the vault's inbox folder) is the user's decision queue, not backlog to clear. When remediation touches inbox notes — moving to `10_Sources`, promoting, merging duplicates, deleting — STOP and present the candidate list (one-line recommendation per item), then act only on the user's per-item answer.
-- A blanket approval covers findings outside the inbox; inbox items always get their own ask.
+## Candidate handoff — mandatory STOP
 
-**Cross-reference rules (follows the writing-skills guide)**:
+실제 파일 변경을 암시하는 각 finding은 report와 별도로 다음 metadata-only candidate 하나로 분리한다.
+
+- `candidate_code`: `CR-YYYYMMDD-NNNNNN` 하나
+- `source_note_path`: 안전한 상대 경로 하나 (`00_Inbox` 제외)
+- `source_sha256`: 생성 시점 lowercase SHA-256 하나
+- `candidate_type`: 실제 queue enum 하나
+- `proposed_changes`: 결정적 action 하나
+
+후보 생성 뒤 종료한다. 정확히 `CR-YYYYMMDD-NNNNNN 승인|보류|거절`만 `core-review-approval`에 전달한다. 자연어 동의, per-item 답변, 여러 후보 나열, 범위, `전체 승인`, `다 처리해봐`는 무효이며 파일 변경 0건이다. Inbox는 candidate source로도 쓰지 않고 recommendation-only 보고만 한다.
+
+`core-review-approval`이 현재 지원하는 `fix_link`/`link_existing`의 결정적 `replace` 또는 `new_core` action만 그 스킬의 검증을 거칠 수 있다. schema/classify/status/merge/MOC cleanup처럼 지원되지 않는 finding은 후보 metadata로만 남고 승인돼도 re-evaluation/release된다. 이 스킬은 helper를 호출하거나 파일을 수정·이동·삭제하지 않는다. **STOP.**
+
+**Cross-reference rules (follows the writing-skills guide):**
 - Do NOT use `**REQUIRED SUB-SKILL:**` — neither is strictly required
 - Use `**Chain recommended:**` — call only after the user decides
