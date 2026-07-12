@@ -1,7 +1,7 @@
 {
   "name": "donggu-media",
-  "version": "1.1.5",
-  "description": "YouTube transcript fetch — grabs ONLY a video's caption/subtitle text (자막/스크립트, ~tens of KB over HTTP; never downloads the video or audio). get-youtube-scripts returns the transcript text; save-youtube-source turns it into an Obsidian reference note (summary + jump-to timestamps). Captions-only.",
+  "version": "1.1.6",
+  "description": "YouTube media helpers — get-youtube-scripts is a captions-only fallback for source-track selection and 429 avoidance; save-youtube-source turns a video into an Obsidian reference note. No audio transcription.",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"

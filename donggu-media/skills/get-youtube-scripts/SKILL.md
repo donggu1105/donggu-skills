@@ -1,16 +1,16 @@
 ---
 name: get-youtube-scripts
-description: Use when given a YouTube URL (watch, youtu.be, shorts, live) and you need the video's transcript / captions / 자막 / 스크립트 as clean text to summarize (요약), translate, quote, or analyze — returned to the conversation, nothing saved. To save the video as a note in the Obsidian vault, use save-youtube-source instead. Captions-only, no audio transcription.
+description: Use when a captions-only fallback is needed because baoyu-youtube-transcript selected the wrong source-language track, triggered 429 by requesting multiple tracks, or clean text must be returned without saving. Handles watch, youtu.be, shorts, and live URLs; no audio transcription.
 ---
 
 # get-youtube-scripts
 
-Pull a YouTube video's captions as clean plain text + metadata using **yt-dlp**. Output is the transcript only — summarizing / translating / quoting is the caller's job.
+Fallback-only: pull one source-language caption track as clean plain text + metadata using **yt-dlp**. Use `baoyu-youtube-transcript` first for normal transcript, chapter, SRT, cover, translation, and cache work.
 
 **Why yt-dlp (not youtube-transcript-api):** yt-dlp tracks YouTube's changes far more aggressively, and youtube-transcript-api gets PoToken-blocked from cloud IPs (2025–2026). yt-dlp works from a residential IP.
 
 ## When to use
-- A YouTube link is dropped and the 자막 / 스크립트 / transcript is wanted, or a video should be 요약/summarized/analyzed.
+- `baoyu-youtube-transcript` selected a lossy translated track, hit `429`, or only clean text should be returned without saved artifacts.
 - Any URL form — `watch?v=`, `youtu.be/`, `/shorts/`, `/live/`. **Pass the URL straight to yt-dlp; never parse the video id by hand.**
 
 **When NOT to use:** the video has no captions at all → report `자막 없음` and stop. Audio→text (Whisper) is out of scope.

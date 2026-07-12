@@ -27,14 +27,14 @@
       "name": "donggu-sns",
       "source": "./donggu-sns",
       "description": "SNS and YouTube editorial operations — independent text channels, Longform + Shorts Pack planning, production safety, analytics retrospectives, CORE reconciliation, visual artifacts, and gated publishing.",
-      "version": "2.4.1",
+      "version": "2.4.2",
       "strict": false
     },
     {
       "name": "donggu-media",
       "source": "./donggu-media",
-      "description": "YouTube transcript fetch — grabs ONLY a video's 자막/스크립트 text (~tens of KB over HTTP; never downloads the video or audio). get-youtube-scripts = transcript text; save-youtube-source = Obsidian reference note (summary + jump-timestamps). Captions-only.",
-      "version": "1.1.5",
+      "description": "YouTube media helpers — get-youtube-scripts is a captions-only fallback for source-track selection and 429 avoidance; save-youtube-source creates the Obsidian reference note. No audio transcription.",
+      "version": "1.1.6",
       "strict": false
     },
     {
