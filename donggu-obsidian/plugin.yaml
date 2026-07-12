@@ -1,0 +1,10 @@
+manifest_version: 1
+name: donggu-obsidian
+version: 1.6.0
+description: "Native Hermes bridge to the existing crash-atomic CORE review helper. Provides dry-run planning, approval-bound Vault commit, and read-only recovery status while preserving DB reconciliation and journal acknowledgement in the owning skill."
+author: "강동현 (donggu)"
+kind: standalone
+provides_tools:
+  - donggu_core_plan
+  - donggu_core_apply
+  - donggu_core_recovery_status

@@ -1,0 +1,16 @@
+manifest_version: 1
+name: donggu-sns
+version: 2.5.0
+description: "Native publishing adapter with preview, separate approval, Maily confirmation, fixed webhook routing, and durable published_posts reconciliation. Bundled skills remain the Claude-compatible surface."
+author: "강동현 (donggu)"
+kind: standalone
+requires_env:
+  - SNS_WEBHOOK_TOKEN
+  - SUPABASE_URL
+  - SUPABASE_SERVICE_KEY
+provides_tools:
+  - donggu_publishing_preview
+  - donggu_publishing_approve
+  - donggu_publishing_confirm_maily
+  - donggu_publishing_dispatch
+  - donggu_publishing_receipt_status

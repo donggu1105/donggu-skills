@@ -13,7 +13,7 @@
       "name": "donggu-obsidian",
       "source": "./donggu-obsidian",
       "description": "Obsidian PKM vault operations — health audits, capture-to-CORE review queues, duplicate detection. For LYT / PARA / Zettelkasten vaults.",
-      "version": "1.5.1",
+      "version": "1.6.0",
       "strict": false
     },
     {
@@ -27,7 +27,7 @@
       "name": "donggu-sns",
       "source": "./donggu-sns",
       "description": "SNS and YouTube editorial operations — independent text channels, Longform + Shorts Pack planning, production safety, analytics retrospectives, CORE reconciliation, visual artifacts, and gated publishing.",
-      "version": "2.4.3",
+      "version": "2.5.0",
       "strict": false
     },
     {

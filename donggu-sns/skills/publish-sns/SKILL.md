@@ -42,12 +42,39 @@ Content *formats* are NOT defined here — each channel's note structure is owne
      that's intended (offer to source/render images) before firing. Never silently drop
      images a showcase/proof post needs.
      maily = irreversible email send → confirm once more right before firing.
-  4. POST channel webhook(s) (reference below). Header `X-SNS-Token: $SNS_WEBHOOK_TOKEN`.
-     Synchronous, 30–60s → timeout ~200s. Channels are independent — one failure doesn't
-     stop the others.
-  5. INSERT **real-publish successes only** into `published_posts` (maily has no post_id → null). `dry_run=false` 또는 dry-run 필드가 없는 실제 발행 성공만 persistence한다. **`dry_run=true` 성공 응답은 절대 `published_posts`에 INSERT하지 않는다.** 이 persistence만 existing DB trigger를 통해 발행 완료 이벤트를 만든다.
-  6. Report per-channel success/failure + URLs. Update note frontmatter `status: published` **only when at least one `dry_run=false` (or no dry-run field) real publish succeeded and its ledger INSERT completed**. A dry-run-only result leaves the note status unchanged.
+  4. Use the native adapter (required): call `donggu_publishing_preview`, show its exact
+     preview, wait for approval in a later user turn, call `donggu_publishing_approve`, then
+     call `donggu_publishing_dispatch`. Maily real-send requires another later user turn and
+     `donggu_publishing_confirm_maily` before dispatch. In Claude Code, use the shared stdin/stdout JSON bridge at
+     `<donggu-sns-package-root>/runtime/publishing_cli.py`; it invokes the same runtime.
+  5. The adapter POSTs the fixed channel webhook and records **real-publish successes only**
+     in `published_posts`. **`dry_run=true` 성공 응답은 절대 `published_posts`에 INSERT하지 않는다.**
+     It ends as `completed_draft` and therefore never creates the DB-triggered
+     publication-complete event.
+     `reconciliation_required` means the external mutation succeeded but the ledger did not;
+     never retry publication automatically. Reconcile the returned URL/post_id first.
+  6. Report per-channel success/failure + URLs. Update note frontmatter `status: published`
+     only when at least one real publish succeeded and its ledger write completed. A dry-run-only
+     result leaves the note status unchanged.
 ```
+
+### Native adapter contract
+
+The Claude and Hermes packages share one runtime. Do not reimplement webhook routing or
+ledger writes in harness-specific scripts.
+
+- Hermes tools: `donggu_publishing_preview` → later-turn `donggu_publishing_approve` →
+  Maily real-send only: later-turn `donggu_publishing_confirm_maily` →
+  `donggu_publishing_dispatch`; inspect uncertainty with
+  `donggu_publishing_receipt_status`.
+- Claude bridge: pipe one bounded JSON request to
+  `python3 <donggu-sns-package-root>/runtime/publishing_cli.py`. Actions are `preview`,
+  `approve`, `confirm_maily`, `dispatch`, and `status`; bodies and approval text belong in stdin JSON, never argv.
+- Dispatch receipts expire after 15 minutes and are one-shot. A failed, uncertain, or
+  reconciliation-required receipt must not be replayed.
+- If the adapter is unavailable or its credentials/origin validation fails, **fail closed**.
+  Direct webhook and direct ledger mutation are forbidden. The references below are diagnostic
+  contract documentation only, not a fallback execution path.
 
 ### Channel extraction (format canon = make-* skill)
 
@@ -78,11 +105,12 @@ Then extract title (first line) + body **from the converted file** and send that
 
 - **Image gate (ask first)**: threads/instagram images come only from `## 발행` `![[embeds]]`. No embeds → text-only. Before posting, confirm with the user whether images are wanted; if yes and the note has none, get them (user screenshot or a fresh render) BEFORE firing — never post text-only and backfill later.
 - **New cards**: build self-contained HTML (absolute URLs only — `make-insta-card-news` Mode B) → POST render webhook (`sns-render-instagram` / `sns-render-threads`, body `{html, slug}`) → api renders 4:5 + uploads to `sns-cards/<channel>/<YYYY>/<MM-DD>/<slug>-<HHMMSS>/<NN>.png` → returns `image_urls` in carousel order.
-- **User-provided screenshots**: upload the vault file directly to the same dated path: `curl -X POST "https://fvfayignxybdyyravorg.supabase.co/storage/v1/object/sns-cards/<channel>/<dated-path>/<NN>.png" -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" -H "Content-Type: image/png" --data-binary @<file>` (409 = already there, reuse the public URL).
+- **User-provided screenshots**: use `make-insta-card-news/supabase_upload.py`, which reads credentials from the environment and does not place expanded service keys in argv. Upload to the same dated path; 409 means reuse the existing public URL.
 
 ## Webhook reference
 
-Public endpoints (Cloudflare Tunnel). All require header `X-SNS-Token: $SNS_WEBHOOK_TOKEN`. Never print token values.
+Diagnostic contract only. The runtime owns these endpoints, headers, redirects, and ledger writes;
+agents must never call mutation webhooks directly. All require `X-SNS-Token`; never print token values.
 
 | Purpose | POST `https://n8n.donggu.site/webhook/…` | Body | Response |
 |---|---|---|---|
@@ -97,25 +125,12 @@ Public endpoints (Cloudflare Tunnel). All require header `X-SNS-Token: $SNS_WEBH
 
 Delete exists only for tistory·threads. maily emails can't be recalled; linkedin = manual delete.
 
-**tistory edit-in-place**: `sns-update-tistory` updates the live post by `post_id` — **same URL preserved**, no delete+repost. Use it to backfill/fix a published post (e.g. add blog images you missed): run `prepare_blog_images.py` on the note → SELECT the `post_id` from the ledger → POST `{post_id, title, content}`. Preview + approval gate still applies (it mutates a live post). No ledger row changes (same url/post_id); just report the result.
+**tistory edit-in-place**: the adapter resolves `post_id` from the ledger and calls `sns-update-tistory` — **same URL preserved**, no delete+repost. Use it to backfill/fix a published post: run `prepare_blog_images.py`, then use adapter preview → approve → dispatch. Never SELECT a post ID and POST manually.
 
 ## Ledger (Supabase `fvfayignxybdyyravorg` · table `published_posts`)
 
-```sql
--- after each successful publish
-INSERT INTO published_posts (topic, channel, note_path, post_id, url)
-VALUES ('<topic>', '<channel>', '<vault path>', '<post_id|null>', '<url>');
-
--- find delete target (never delete what's not in the ledger)
-SELECT post_id, url FROM published_posts
-WHERE topic='<topic>' AND channel='<ch>' AND deleted_at IS NULL
-ORDER BY published_at DESC LIMIT 1;
-
--- after successful delete
-UPDATE published_posts SET deleted_at = now() WHERE channel='<ch>' AND post_id='<id>';
-```
-
-Delete flow: ledger SELECT → show the user *which* post (topic + url) and confirm → delete webhook → `deleted_at` UPDATE → report. Not in ledger → refuse (no guessing).
+The adapter alone owns ledger SELECT/INSERT/PATCH. It requires exactly one returned row for writes.
+Delete flow: adapter preview resolves the latest active ledger row → show topic + URL → later-turn approve → dispatch → exact active-row `deleted_at` PATCH. Not in ledger, zero-row write, or multi-row write → refuse/reconciliation; never guess or issue manual SQL.
 
 ## Red Flags — STOP
 

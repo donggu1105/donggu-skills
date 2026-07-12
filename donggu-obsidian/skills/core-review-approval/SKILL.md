@@ -52,7 +52,7 @@ python3 "$SKILL_DIR/scripts/apply-action.py" \
 exit 0의 exact JSON `state,candidate_code`만 수용한다. `state=no_transaction`이면 `candidate_code=null`이어야 하며 2번으로 진행한다. `state=prepared|rolled_back`이면 현재 메시지의 후보를 claim하지 않고 journal 후보를 보관한 뒤 `--recover-only`를 실행한다. prepared는 모든 leaf와 hidden stage/backup을 먼저 검증한 뒤 before bytes로 rollback하며, cleanup 실패 exit 6이면 durable `rolled_back` journal로 재시도한다. rollback 성공 후에만 보관한 후보를 release한다. `state=committed`이면 **절대 `--recover-only`로 정리하거나 release하지 않는다.** journal 후보의 DB 상태를 조회한다. DB가 `approved`/`processing`이면 journal의 모든 after hash를 readback 검증한 뒤 `complete(...,'applied',...)`하고, 이미 `applied`면 그대로 다음 단계로 간다. 그 후에만 `--ack-candidate <journal_candidate_code>`를 실행한다. ack exit 0 뒤 recovery-status가 `no_transaction`임을 확인한다. 이 처리가 끝난 뒤에만 현재 메시지 후보 claim으로 넘어간다. preflight exit 4는 비정규·손상 journal을 포함한 integrity failure이므로 claim하지 않고 수동 복구를 보고한다.
 2. `claim_core_review_candidate(p_candidate_code,p_decision_message_id)`를 호출한다.
 3. 반환 후보의 필수 필드와 `proposed_changes`가 정확히 action 하나인지 검증한다. 장부에 없는 작업을 보태지 않는다.
-4. 먼저 정한 `SKILL_DIR`의 portable helper만 사용한다. cwd의 script나 다른 profile의 복사본을 찾지 않는다.
+4. 먼저 정한 `SKILL_DIR`의 portable helper만 사용한다. cwd의 script나 다른 profile의 복사본을 찾지 않는다. Hermes native tool `donggu_core_plan`이 있으면 아래 direct helper dry-run 대신 `vault_root`와 exact envelope를 전달해 receipt를 받는다. 이 tool도 package 내부의 동일 helper만 호출한다.
 
 ```bash
 printf '%s' "$APPLY_ENVELOPE_JSON" | python3 "$SKILL_DIR/scripts/apply-action.py" \
@@ -60,7 +60,7 @@ printf '%s' "$APPLY_ENVELOPE_JSON" | python3 "$SKILL_DIR/scripts/apply-action.py
 ```
 
 5. helper stdin envelope는 `schema_version,candidate_code,candidate_type,source_note_path,source_sha256,claim,target_note_paths,action` **정확히 8개 key**만 가진 schema version 1 JSON이다. claim/경로/action은 claim RPC가 반환한 한 후보에서 그대로 만들며 본문·DB credential을 넣지 않는다. `replace`의 claim은 null일 수 있고, `new_core`의 claim은 비어 있지 않은 한 줄 문자열이어야 한다.
-6. dry-run exit 0과 stdout `status=planned`를 확인한 뒤에만, **동일 envelope**에서 `--dry-run`만 빼고 helper를 한 번 실행한다. dry-run은 write/stage/mtime 변경이 0이어야 한다.
+6. dry-run exit 0과 stdout `status=planned`를 확인한 뒤에만, **동일 envelope**에서 `--dry-run`만 빼고 helper를 한 번 실행한다. dry-run은 write/stage/mtime 변경이 0이어야 한다. Native plan을 사용했다면 direct apply 대신 `donggu_core_apply(receipt_id, approval_text=<현재 triggering 승인 메시지 전체>)`를 한 번 호출한다. 성공 반환은 최종 완료가 아니라 `status=vault_committed_reconciliation_required,journal_state=committed`여야 하며, 13번의 DB complete·after-hash readback·ack까지 반드시 계속한다. Native와 direct apply를 같은 후보에 함께 실행하지 않는다.
 7. helper가 자동 적용하는 action은 다음 둘뿐이다.
    - `replace`: `candidate_type`이 `fix_link` 또는 `link_existing`일 때만 허용하고 action key는 `op,schema_version,old,new` 정확히 4개다. source는 Inbox 밖의 허용 root일 수 있고, lowercase SHA-256 일치, `old` 정확히 1회일 때만 byte-preserving 교체한다. `target_note_paths`는 1~20개의 정렬·중복 없는 reference target 목록이며 `new` 안의 path-qualified wikilink target(alias/fragment 제거 후 canonical path)과 정확히 같아야 한다. target도 snapshot에 포함해 commit 직전까지 hash/존재를 재검증한다.
    - `create_core_with_backlink`: `candidate_type=new_core`이며 action key는 `op,schema_version,template_version,core_path,moc_path,moc_sha256,trace_field` 정확히 7개다. schema/template version은 1, target은 정렬·중복 없는 `[core_path,moc_path]` pair여야 한다. `10_Sources`의 trace field는 `extracted_to`, `50_Channel_Packs`는 `decomposed_to`로 고정한다.
