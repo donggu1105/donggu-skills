@@ -131,7 +131,7 @@ When enhancing existing presentations, viewport fitting is the biggest risk:
 
 ## Phase 1: Content Discovery (New Presentations)
 
-**Ask ALL questions in a single AskUserQuestion call** so the user fills everything out at once:
+Use the **current runtime's user-interaction mechanism** to collect all four decisions below. Prefer one batched, multi-field interaction when the runtime supports it. Otherwise ask one concise grouped question; use sequential choice prompts only when the runtime cannot represent the batch. Do not assume a harness-specific question tool.
 
 **Question 1 — Purpose** (header: "Purpose"):
 What is this presentation for? Options: Pitch deck / Teaching-Tutorial / Conference talk / Internal presentation
@@ -161,10 +161,10 @@ If user selected "No images" → skip to Phase 2.
 If user provides an image folder:
 
 1. **Scan** — List all image files (.png, .jpg, .svg, .webp, etc.)
-2. **View each image** — Use the Read tool (Claude is multimodal)
+2. **View each image** — Use the **current runtime's image/vision capability**. Examples: Hermes `vision_analyze`, Claude multimodal file reading, or Codex image input. If the runtime has no image capability, report that limitation and ask the user to select usable images; do not infer visual quality from filenames.
 3. **Evaluate** — For each: what it shows, USABLE or NOT USABLE (with reason), what concept it represents, dominant colors
 4. **Co-design the outline** — Curated images inform slide structure alongside text. This is NOT "plan slides then add images" — design around both from the start (e.g., 3 screenshots → 3 feature slides, 1 logo → title/closing slide)
-5. **Confirm via AskUserQuestion** (header: "Outline"): "Does this slide outline and image selection look right?" Options: Looks good / Adjust images / Adjust outline
+5. **Confirm with the current runtime's user-interaction mechanism**: "Does this slide outline and image selection look right?" Options: Looks good / Adjust images / Adjust outline
 
 **Logo in previews:** If a usable logo was identified, embed it (base64) into each style preview in Phase 2 — the user sees their brand styled three different ways.
 
@@ -209,7 +209,7 @@ Based on mood, generate 3 distinct single-slide HTML previews showing typography
 | Calm/Focused        | Notebook Tabs, Paper & Ink, Swiss Modern           |
 | Inspired/Moved      | Dark Botanical, Vintage Editorial, Pastel Geometry |
 
-Save previews to `.claude-design/slide-previews/` (style-a.html, style-b.html, style-c.html). Each should be self-contained, ~50-100 lines, showing one animated title slide.
+Save previews to `.presentation-previews/` (style-a.html, style-b.html, style-c.html). Each should be self-contained, ~50-100 lines, showing one animated title slide.
 
 Open each preview automatically for the user.
 
@@ -260,7 +260,7 @@ When converting PowerPoint files:
 
 ## Phase 5: Delivery
 
-1. **Clean up** — Delete `.claude-design/slide-previews/` if it exists
+1. **Clean up** — Delete `.presentation-previews/` if it exists
 2. **Open** — Use `open [filename].html` to launch in browser
 3. **Summarize** — Tell the user:
    - File location, style name, slide count
