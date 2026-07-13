@@ -62,11 +62,13 @@ PROVIDER_KEY_RE = re.compile(
     r"npm_[A-Za-z0-9]{20,})"
 )
 CREDENTIAL_RUN_RE = re.compile(r"(?<![A-Za-z0-9_+/=-])[A-Za-z0-9_+/=-]{24,}(?![A-Za-z0-9_+/=-])")
+PATH_TOKEN_SPLIT_RE = re.compile(r"[ _(),.'-]+")
 PHONE_RE = re.compile(r"(?<![0-9])(?:\+?[0-9][0-9 .()-]{7,}[0-9])(?![0-9])")
 FORBIDDEN_TERMS = ("drift", "recommend_only", "unsupported apply")
 FORBIDDEN_UNICODE_CATEGORIES = {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}
 DISPLAY_PUNCTUATION = frozenset(" -(),.:'")
-PATH_PUNCTUATION = frozenset(" -(),.")
+PATH_PUNCTUATION = frozenset(" _-(),.")
+FIELD_SLOT_DELIMITERS = frozenset("「」\r\n")
 
 
 class ValidationError(Exception):
@@ -114,7 +116,7 @@ def credential_like_run(value: str) -> bool:
     return False
 
 
-def sensitive_text(value: str) -> bool:
+def sensitive_text(value: str, *, check_entropy: bool = True) -> bool:
     folded = value.casefold()
     return (
         "@" in value
@@ -126,7 +128,7 @@ def sensitive_text(value: str) -> bool:
         or AWS_KEY_RE.search(value) is not None
         or JWT_RE.search(value) is not None
         or PROVIDER_KEY_RE.search(value) is not None
-        or credential_like_run(value)
+        or (check_entropy and credential_like_run(value))
         or PHONE_RE.search(value) is not None
         or any(term in folded for term in FORBIDDEN_TERMS)
     )
@@ -149,6 +151,7 @@ def safe_text(
     max_chars: int = MAX_FRAGMENT,
     allow_empty: bool = False,
     allow_none: bool = False,
+    check_entropy: bool = True,
 ) -> Optional[str]:
     if value is None and allow_none:
         return None
@@ -157,7 +160,7 @@ def safe_text(
     validate_unicode(value)
     # Privacy is checked before the length boundary so a secret beyond the
     # visible limit can never be turned into an apparently safe partial field.
-    if sensitive_text(value):
+    if sensitive_text(value, check_entropy=check_entropy):
         raise ValidationError()
     if (not allow_empty and not value) or len(value) > max_chars:
         raise ValidationError()
@@ -186,6 +189,12 @@ def safe_display_text(value: object, *, max_chars: int = MAX_FRAGMENT) -> str:
     return text
 
 
+def trusted_field_slot(label: str, value: str) -> str:
+    if any(delimiter in value for delimiter in FIELD_SLOT_DELIMITERS):
+        raise ValidationError()
+    return f"{label}: 「{value}」"
+
+
 def safe_path_segment(segment: str) -> None:
     if (
         not segment
@@ -206,10 +215,18 @@ def safe_path_segment(segment: str) -> None:
             if (char.isascii() and char.isalpha()) or "HANGUL" in name or "LATIN" in name:
                 continue
         raise ValidationError()
+    if any(
+        credential_like_run(token)
+        for token in PATH_TOKEN_SPLIT_RE.split(segment)
+        if token
+    ):
+        raise ValidationError()
 
 
 def safe_path(value: object, expected_root: Optional[str] = None) -> str:
-    text = safe_text(value)
+    # Parse structural separators before entropy checks. Otherwise an ordinary
+    # path such as 10_Sources/source-create.md becomes one credential-like run.
+    text = safe_text(value, check_entropy=False)
     assert text is not None
     if text.startswith(("/", "~")) or "\\" in text:
         raise ValidationError()
@@ -229,7 +246,9 @@ def safe_path(value: object, expected_root: Optional[str] = None) -> str:
 
 
 def validate_wikilink(value: object, *, require_qualified: bool) -> Tuple[str, str]:
-    text = safe_text(value)
+    # The wrapper and target separators are structure, not credential alphabet.
+    # Parsed target/fragment/alias fields are checked independently below.
+    text = safe_text(value, check_entropy=False)
     assert text is not None
     if (
         not (text.startswith("[[") and text.endswith("]]"))
@@ -451,10 +470,10 @@ def render_content(
             str(action["core_path"]),
             "",
             "한 줄 주장",
-            str(candidate["claim"]),
+            trusted_field_slot("주장", str(candidate["claim"])),
             "",
             "원본 backlink 필드",
-            str(action["trace_field"]),
+            trusted_field_slot("필드", str(action["trace_field"])),
             "",
             "연결할 MOC",
             str(action["moc_path"]),
@@ -470,7 +489,11 @@ def render_content(
             "적용하려면 “적용해줘”라고 답해주세요.",
             "이번에는 하지 않으려면 “넘겨줘”라고 답해주세요.",
         ))
-    if len(content) > MAX_CONTENT or receipt_id in content or sensitive_text(content):
+    if (
+        len(content) > MAX_CONTENT
+        or receipt_id in content
+        or sensitive_text(content, check_entropy=False)
+    ):
         raise ValidationError()
     if any(
         char != "\n" and unicodedata.category(char) in FORBIDDEN_UNICODE_CATEGORIES

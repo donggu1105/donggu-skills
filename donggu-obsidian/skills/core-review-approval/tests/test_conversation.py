@@ -317,13 +317,29 @@ class PreviewRendererTests(unittest.TestCase):
         action = candidate["proposed_changes"][0]
         content = result["content"]
         self.assertIn(action["core_path"], content)
-        self.assertIn(candidate["claim"], content)
+        self.assertIn(f'주장: 「{candidate["claim"]}」', content)
         self.assertIn("원본 backlink 필드", content)
-        self.assertIn(action["trace_field"], content)
+        self.assertIn(f'필드: 「{action["trace_field"]}」', content)
         self.assertIn(action["moc_path"], content)
         self.assertIn("아직 Vault 변경 0건", content)
         self.assertNotIn("source body must stay private", content)
         self.assert_public_content(result, candidate)
+
+    def test_create_claim_is_always_framed_and_cannot_spoof_trusted_lines(self):
+        trusted_line_values = (
+            "변경 전",
+            "변경 후",
+            "영향 범위",
+            "아직 Vault 변경 0건",
+            "적용해줘",
+        )
+        baseline_lines = self.render(self.create_candidate())["content"].splitlines()
+        for claim in trusted_line_values:
+            with self.subTest(claim=claim):
+                candidate = self.create_candidate(claim=claim)
+                lines = self.render(candidate)["content"].splitlines()
+                self.assertEqual(baseline_lines.count(claim), lines.count(claim))
+                self.assertEqual(1, lines.count(f"주장: 「{claim}」"))
 
     def test_preview_hash_is_canonical_binding_not_candidate_metadata(self):
         first = self.replace_candidate(
@@ -396,6 +412,37 @@ class PreviewRendererTests(unittest.TestCase):
             with self.subTest(path=path):
                 candidate = self.replace_candidate(source_note_path=path)
                 self.assert_render_invalid(candidate, self.plan(candidate))
+
+    def test_renderer_checks_path_entropy_per_token_not_across_descriptive_paths(self):
+        safe_paths = (
+            "10_Sources/source-create.md",
+            "10_Sources/research_notes/source-create-review-notes.md",
+            "10_Sources/product-launch-notes/source-create-review-2026.md",
+        )
+        for path in safe_paths:
+            with self.subTest(path=path):
+                candidate = self.replace_candidate(source_note_path=path)
+                result = self.render(candidate)
+                self.assertIn(path, result["content"])
+
+        safe_target = "20_Core/research_notes/CORE-source-create-review-notes.md"
+        candidate = self.replace_candidate(
+            target_note_paths=[safe_target],
+            proposed_changes=[{
+                "op": "replace",
+                "schema_version": 1,
+                "old": "[[깨진 링크]]",
+                "new": f"[[{safe_target[:-3]}|깨진 링크]]",
+            }],
+        )
+        result = self.render(candidate)
+        self.assertIn(candidate["proposed_changes"][0]["new"], result["content"])
+
+        malicious_segment = "aB3dE5fG7hJ9kL2mN4pQ6rS8tV0xY1zC"
+        candidate = self.replace_candidate(
+            source_note_path=f"10_Sources/{malicious_segment}/safe-note.md"
+        )
+        self.assert_render_invalid(candidate, self.plan(candidate))
 
     def test_renderer_requires_exact_bounded_wikilinks_and_claim_display_grammar(self):
         malformed_links = (
@@ -491,6 +538,76 @@ class PreviewRendererTests(unittest.TestCase):
             self.assertEqual(self.expected_preview_hash(candidate, plan), result["preview_hash"])
             self.assertNotIn(plan["receipt_id"], result["content"])
             self.assertEqual(before, (source.read_bytes(), source.stat().st_mtime_ns))
+
+    def test_real_runtime_create_plan_renders_descriptive_source_without_vault_changes(self):
+        module = self.load_core_runtime()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            vault = base / "vault"
+            for root in ("10_Sources", "20_Core", "40_Snippets", "50_Channel_Packs", "60_MOCs"):
+                (vault / root).mkdir(parents=True)
+
+            source_rel = "10_Sources/source-create.md"
+            source = vault / source_rel
+            source_bytes = b"---\ntype: source\nextracted_to: []\n---\n\nCreate source body.\n"
+            source.write_bytes(source_bytes)
+            moc_rel = "60_MOCs/MOC - Creation.md"
+            moc = vault / moc_rel
+            moc_bytes = b"---\ntype: moc\n---\n\n# Creation\n"
+            moc.write_bytes(moc_bytes)
+            core_rel = "20_Core/CORE - Creation requires verification.md"
+            core = vault / core_rel
+            action = {
+                "op": "create_core_with_backlink",
+                "schema_version": 1,
+                "template_version": 1,
+                "core_path": core_rel,
+                "moc_path": moc_rel,
+                "moc_sha256": hashlib.sha256(moc_bytes).hexdigest(),
+                "trace_field": "extracted_to",
+            }
+            candidate = self.create_candidate(
+                source_note_path=source_rel,
+                source_sha256=hashlib.sha256(source_bytes).hexdigest(),
+                target_note_paths=sorted([core_rel, moc_rel]),
+                claim="Creation requires verification",
+                proposed_changes=[action],
+            )
+            before = {
+                source_rel: (source.read_bytes(), source.stat().st_mtime_ns),
+                moc_rel: (moc.read_bytes(), moc.stat().st_mtime_ns),
+            }
+            self.assertFalse(core.exists())
+            runtime = module.CoreActionRuntime(
+                receipt_root=base / "receipts",
+                helper_path=APPLY_HELPER,
+            )
+
+            plan = runtime.plan(
+                vault,
+                self.runtime_envelope(candidate),
+                session_id="create-preview-session",
+                turn_id="create-preview-turn",
+                user_message_id=1,
+            )
+            self.assertEqual(
+                {"status", "receipt_id", "expires_at", "candidate_code", "envelope_sha256", "paths", "hashes"},
+                set(plan),
+            )
+            proc = self.run_renderer(candidate, plan)
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            result = json.loads(proc.stdout)
+            self.assertEqual(self.expected_preview_hash(candidate, plan), result["preview_hash"])
+            self.assertIn("주장: 「Creation requires verification」", result["content"])
+            self.assert_public_content(result, candidate)
+            self.assertEqual(
+                before,
+                {
+                    source_rel: (source.read_bytes(), source.stat().st_mtime_ns),
+                    moc_rel: (moc.read_bytes(), moc.stat().st_mtime_ns),
+                },
+            )
+            self.assertFalse(core.exists())
 
     def test_real_runtime_bound_malicious_visible_fields_are_rejected_without_leak(self):
         module = self.load_core_runtime()
