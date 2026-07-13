@@ -6,6 +6,7 @@ from .tools import (
     APPLY_SCHEMA,
     PLAN_SCHEMA,
     READBACK_SCHEMA,
+    RECOVER_SCHEMA,
     RECEIPT_STATUS_SCHEMA,
     RECOVERY_STATUS_SCHEMA,
     REVOKE_SCHEMA,
@@ -13,6 +14,7 @@ from .tools import (
     handle_apply,
     handle_plan,
     handle_readback,
+    handle_recover,
     handle_receipt_status,
     handle_recovery_status,
     handle_revoke,
@@ -36,6 +38,10 @@ def register(ctx) -> None:
         (
             "donggu_core_apply", APPLY_SCHEMA, handle_apply,
             "Apply one receipt after exact persisted natural-language confirmation.", "🧠",
+        ),
+        (
+            "donggu_core_recover", RECOVER_SCHEMA, handle_recover,
+            "Recover one interrupted apply without forward mutation replay.", "🛟",
         ),
         (
             "donggu_core_readback", READBACK_SCHEMA, handle_readback,

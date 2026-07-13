@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -133,6 +134,12 @@ class FakeDeterministicLedger:
         ):
             raise LedgerOrderError("native apply is outside the mapped claimed workflow")
 
+    def release(self, *, receipt_id):
+        self.require_claimed(receipt_id)
+        self.state = "previewed"
+        self.candidate_state = "proposed"
+        self.events.append("db_release")
+
     def complete(self, *, receipt_id, after_hashes_sha256, completion_nonce):
         if self.state != "applying" or self.candidate_state != "processing":
             raise LedgerOrderError("DB complete requires applying/processing")
@@ -241,6 +248,35 @@ class MinimalApprovalBehavioralTests(unittest.TestCase):
                 self.handlers[name](args, session_id="approval-session")
             )
 
+    def load_helper_module(self):
+        name = f"donggu_recovery_helper_{id(self)}"
+        spec = importlib.util.spec_from_file_location(name, HELPER)
+        if spec is None or spec.loader is None:
+            raise ImportError("cannot load CORE helper")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def leave_prepared_journal(self):
+        module = self.load_helper_module()
+        real_cas = module.cas_install
+
+        class SimulatedDeath(BaseException):
+            pass
+
+        def install_then_die(*args, **kwargs):
+            result = real_cas(*args, **kwargs)
+            raise SimulatedDeath()
+
+        with mock.patch.object(module, "cas_install", side_effect=install_then_die):
+            with self.assertRaises(SimulatedDeath):
+                module.run(
+                    ["--vault-root", str(self.vault)],
+                    io.StringIO(json.dumps(self.envelope)), io.StringIO(), io.StringIO(),
+                )
+        status = self.runtime.recovery_status(self.vault)
+        self.assertEqual("prepared", status["state"])
+
     def preview_to_prepared(self):
         recovery = self.call(
             "donggu_core_recovery_status", {"vault_root": str(self.vault)}
@@ -291,6 +327,19 @@ class MinimalApprovalBehavioralTests(unittest.TestCase):
         self.ledger.events.append("discord_send")
         self.ledger.finalize_sent("170000000000000001")
         return plan, preview
+
+    def claim_without_native_apply(self, plan, preview):
+        claim = self.ledger.claim_apply(
+            receipt_id=plan["receipt_id"],
+            decision_message_id="170000000000000002",
+            preview_hash=preview["preview_hash"],
+            envelope_hash=plan["envelope_sha256"],
+        )
+        receipt_id = claim["receipt_id"]
+        self.runtime.store.claim(
+            receipt_id, "planned", "applying", approval_message_id=2,
+        )
+        return receipt_id
 
     def mapped_apply(self, plan, preview, *, completion_nonce=None):
         claim = self.ledger.claim_apply(
@@ -390,6 +439,72 @@ class MinimalApprovalBehavioralTests(unittest.TestCase):
         self.assertLessEqual(len(public_result), 200)
         for private in (plan["receipt_id"], self.envelope["candidate_code"], str(self.vault)):
             self.assertNotIn(private, public_result)
+
+    def test_prepared_recovery_uses_registered_recover_only_once_then_releases_db(self):
+        plan, preview = self.finalize_preview()
+        receipt_id = self.claim_without_native_apply(plan, preview)
+        self.leave_prepared_journal()
+        recover_only_calls = []
+        original_run = self.runtime._run
+
+        def capture(root, envelope, *flags):
+            if flags == ("--recover-only",):
+                recover_only_calls.append((envelope, flags))
+            return original_run(root, envelope, *flags)
+
+        with mock.patch.object(self.runtime, "_run", side_effect=capture):
+            recovered = self.call("donggu_core_recover", {"receipt_id": receipt_id})
+        self.assertTrue(recovered["success"])
+        self.assertEqual("revoked", recovered["status"])
+        self.assertEqual([(None, ("--recover-only",))], recover_only_calls)
+        self.ledger.release(receipt_id=receipt_id)
+        self.assertEqual(self.source_bytes, (self.vault / self.source_rel).read_bytes())
+        self.assertEqual("no_transaction", self.runtime.recovery_status(self.vault)["state"])
+        self.assertEqual("previewed", self.ledger.state)
+        self.assertEqual("proposed", self.ledger.candidate_state)
+
+    def test_clean_recovery_revokes_without_helper_then_releases_db(self):
+        plan, preview = self.finalize_preview()
+        receipt_id = self.claim_without_native_apply(plan, preview)
+        with mock.patch.object(self.runtime, "_run", wraps=self.runtime._run) as runner:
+            recovered = self.call("donggu_core_recover", {"receipt_id": receipt_id})
+        self.assertTrue(recovered["success"])
+        self.assertEqual("revoked", recovered["status"])
+        self.assertFalse(any(call.args[2:] == ("--recover-only",) for call in runner.call_args_list))
+        self.ledger.release(receipt_id=receipt_id)
+        self.assertEqual(self.source_bytes, (self.vault / self.source_rel).read_bytes())
+
+    def test_committed_recovery_skips_forward_and_recover_only_then_completes_ack(self):
+        plan, preview = self.finalize_preview()
+        receipt_id = self.claim_without_native_apply(plan, preview)
+        code, payload = self.runtime._run(self.vault, self.envelope)
+        self.assertEqual(0, code)
+        self.assertEqual("applied", payload["status"])
+
+        with mock.patch.object(self.runtime, "_run", wraps=self.runtime._run) as runner:
+            recovered = self.call("donggu_core_recover", {"receipt_id": receipt_id})
+        self.assertTrue(recovered["success"])
+        self.assertEqual("vault_committed_reconciliation_required", recovered["status"])
+        self.assertFalse(any(call.args[1] is not None for call in runner.call_args_list))
+        self.assertFalse(any(call.args[2:] == ("--recover-only",) for call in runner.call_args_list))
+
+        readback = self.call("donggu_core_readback", {"receipt_id": receipt_id})
+        after_digest = canonical_sha(readback["hashes"])
+        nonce = str(uuid.uuid4())
+        self.ledger.complete(
+            receipt_id=receipt_id, after_hashes_sha256=after_digest,
+            completion_nonce=nonce,
+        )
+        ack = self.call(
+            "donggu_core_ack", {"receipt_id": receipt_id, "completion_nonce": nonce},
+        )
+        self.assertEqual("completed", ack["status"])
+        self.ledger.confirm_ack(
+            receipt_id=receipt_id, completion_nonce=nonce,
+            after_hashes_sha256=after_digest,
+        )
+        self.assertEqual("native_ack_complete", self.ledger.completion_state)
+        self.assertEqual("no_transaction", self.runtime.recovery_status(self.vault)["state"])
 
     def test_wrong_order_is_blocked_before_registered_apply_and_vault_mutation(self):
         plan, _preview = self.finalize_preview()

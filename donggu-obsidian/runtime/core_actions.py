@@ -591,12 +591,15 @@ class CoreActionRuntime:
         return result
 
     @staticmethod
-    def _journal_matches(receipt: Dict[str, Any], journal: Dict[str, Any]) -> bool:
+    def _transaction_matches(receipt: Dict[str, Any], journal: Dict[str, Any]) -> bool:
         return (
-            journal.get("state") == "committed"
-            and journal.get("candidate_code") == receipt.get("candidate_code")
+            journal.get("candidate_code") == receipt.get("candidate_code")
             and journal.get("transaction_sha256") == receipt.get("transaction_sha256")
         )
+
+    @classmethod
+    def _journal_matches(cls, receipt: Dict[str, Any], journal: Dict[str, Any]) -> bool:
+        return journal.get("state") == "committed" and cls._transaction_matches(receipt, journal)
 
     def _committed_result(
         self,
@@ -631,6 +634,17 @@ class CoreActionRuntime:
             journal = self.recovery_status(Path(receipt["vault_root"]))
         except CoreHelperError:
             journal = {"state": "unknown", "candidate_code": None, "transaction_sha256": None}
+        if exit_code == 4:
+            result = {
+                "status": "ambiguous",
+                "operation_completed": False,
+                "receipt_id": receipt["receipt_id"],
+                "exit_code": exit_code,
+                "helper_status": helper_status,
+                "journal_state": journal.get("state"),
+            }
+            self.store.transition(receipt, "ambiguous", result=result)
+            return result
         if self._journal_matches(receipt, journal):
             return self._committed_result(
                 receipt, helper_status=helper_status, exit_code=exit_code,
@@ -758,6 +772,75 @@ class CoreActionRuntime:
                     )
             return self._classify_apply_outcome(
                 receipt, exit_code=code, helper_status=helper_result.get("status"),
+            )
+
+    def recover(self, receipt_id: str) -> Dict[str, Any]:
+        """Reconcile one interrupted apply using only the helper recovery path."""
+        with self.store._lock(receipt_id):
+            receipt = self.store.load(receipt_id)
+            if receipt.get("state") in _TERMINAL_APPLY_STATES:
+                return self._stored_result(receipt)
+            if receipt.get("state") != "applying":
+                raise CoreReceiptError("only an applying receipt can be recovered")
+
+            def ambiguous(reason: str, *, journal_state: Any = None, exit_code: Optional[int] = None) -> Dict[str, Any]:
+                result = {
+                    "status": "ambiguous",
+                    "operation_completed": False,
+                    "receipt_id": receipt_id,
+                    "reason": reason,
+                }
+                if journal_state is not None:
+                    result["journal_state"] = journal_state
+                if exit_code is not None:
+                    result["exit_code"] = exit_code
+                self.store.transition(receipt, "ambiguous", result=result)
+                return result
+
+            def revoked(reason: str) -> Dict[str, Any]:
+                result = {
+                    "status": "revoked",
+                    "operation_completed": False,
+                    "receipt_id": receipt_id,
+                    "exit_code": -1,
+                    "reason": reason,
+                }
+                self.store.transition(receipt, "revoked", result=result, envelope=None)
+                return result
+
+            try:
+                journal = self.recovery_status(Path(receipt["vault_root"]))
+            except CoreHelperError:
+                return ambiguous("recovery_status_unknown")
+
+            if journal.get("state") == "no_transaction":
+                return revoked("repreview_required_after_interrupted_apply")
+            if self._journal_matches(receipt, journal):
+                return self._committed_result(receipt, helper_status="recovered", exit_code=-1)
+            if journal.get("state") not in {"prepared", "rolled_back"} or not self._transaction_matches(receipt, journal):
+                return ambiguous("journal_binding_mismatch", journal_state=journal.get("state"))
+
+            try:
+                code, _payload = self._run(
+                    Path(receipt["vault_root"]), None, "--recover-only",
+                )
+            except CoreHelperError:
+                return ambiguous("recover_only_outcome_unknown")
+            if code != 0:
+                return ambiguous(
+                    "recover_only_outcome_unknown", journal_state=journal.get("state"), exit_code=code,
+                )
+
+            try:
+                after = self.recovery_status(Path(receipt["vault_root"]))
+            except CoreHelperError:
+                return ambiguous("recovery_readback_unknown", exit_code=code)
+            if after.get("state") == "no_transaction":
+                return revoked("repreview_required_after_recovery")
+            if self._journal_matches(receipt, after):
+                return self._committed_result(receipt, helper_status="recovered", exit_code=code)
+            return ambiguous(
+                "recover_only_outcome_unknown", journal_state=after.get("state"), exit_code=code,
             )
 
     def _mark_ambiguous(self, receipt: Dict[str, Any], reason: str) -> None:

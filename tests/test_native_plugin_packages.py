@@ -298,6 +298,7 @@ class NativePluginPackageTests(unittest.TestCase):
                 "donggu_core_plan",
                 "donggu_core_receipt_status",
                 "donggu_core_apply",
+                "donggu_core_recover",
                 "donggu_core_readback",
                 "donggu_core_revoke",
                 "donggu_core_ack",
@@ -311,7 +312,7 @@ class NativePluginPackageTests(unittest.TestCase):
         )
         for name in (
             "donggu_core_receipt_status", "donggu_core_apply", "donggu_core_readback",
-            "donggu_core_revoke",
+            "donggu_core_recover", "donggu_core_revoke",
         ):
             self.assertEqual(["receipt_id"], by_name[name]["schema"]["parameters"]["required"])
             self.assertEqual({"receipt_id"}, set(by_name[name]["schema"]["parameters"]["properties"]))
@@ -319,6 +320,12 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertEqual(["receipt_id", "completion_nonce"], ack_parameters["required"])
         self.assertEqual({"receipt_id", "completion_nonce"}, set(ack_parameters["properties"]))
         self.assertTrue(all(item["toolset"] == "donggu_obsidian" for item in ctx.tools))
+        manifest_tools = re.findall(
+            r"(?m)^  - (donggu_core_[a-z_]+)$",
+            (ROOT / "donggu-obsidian" / "plugin.yaml").read_text(encoding="utf-8"),
+        )
+        self.assertEqual([item["name"] for item in ctx.tools], manifest_tools)
+        self.assertEqual(8, len(manifest_tools))
 
     def test_registered_obsidian_apply_reads_latest_natural_text_and_reaches_real_helper_once(self):
         module_name = "donggu_obsidian_registered_apply_test"

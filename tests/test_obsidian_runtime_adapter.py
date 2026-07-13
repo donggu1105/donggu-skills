@@ -321,6 +321,117 @@ class CoreActionRuntimeTests(unittest.TestCase):
             self.assertEqual(expected, result["status"])
             self.assertEqual(expected, self.runtime.store.load(plan["receipt_id"])["state"])
 
+    def test_recover_matching_prepared_or_rolled_back_invokes_recover_only_once(self):
+        for message_id, journal_state in enumerate(("prepared", "rolled_back"), start=35):
+            with self.subTest(journal_state=journal_state):
+                plan = self.plan()
+                receipt = self.runtime.store.claim(
+                    plan["receipt_id"], "planned", "applying", approval_message_id=message_id,
+                )
+                initial = {
+                    "state": journal_state,
+                    "candidate_code": receipt["candidate_code"],
+                    "transaction_sha256": receipt["transaction_sha256"],
+                }
+                clean = {"state": "no_transaction", "candidate_code": None, "transaction_sha256": None}
+                statuses = iter((initial, clean))
+                calls = []
+
+                def recover_only(root, envelope, *flags):
+                    calls.append((root, envelope, flags))
+                    return 0, {
+                        "status": "recovered", "state": "prepared",
+                        "candidate_code": receipt["candidate_code"],
+                    }
+
+                with mock.patch.object(
+                    self.runtime, "recovery_status", side_effect=lambda _root: next(statuses)
+                ), mock.patch.object(self.runtime, "_run", side_effect=recover_only):
+                    result = self.runtime.recover(plan["receipt_id"])
+
+                self.assertEqual("revoked", result["status"])
+                self.assertEqual("revoked", self.runtime.store.load(plan["receipt_id"])["state"])
+                self.assertEqual(1, len(calls))
+                self.assertEqual(Path(receipt["vault_root"]), calls[0][0])
+                self.assertEqual((None, ("--recover-only",)), calls[0][1:])
+
+    def test_recover_classifies_committed_clean_and_foreign_without_helper_replay(self):
+        cases = (
+            ("committed", "vault_committed_reconciliation_required", "reconciliation_required"),
+            ("clean", "revoked", "revoked"),
+            ("foreign", "ambiguous", "ambiguous"),
+        )
+        for message_id, (case, expected_status, expected_state) in enumerate(cases, start=37):
+            with self.subTest(case=case):
+                plan = self.plan()
+                receipt = self.runtime.store.claim(
+                    plan["receipt_id"], "planned", "applying", approval_message_id=message_id,
+                )
+                if case == "committed":
+                    journal = {
+                        "state": "committed", "candidate_code": receipt["candidate_code"],
+                        "transaction_sha256": receipt["transaction_sha256"],
+                    }
+                elif case == "clean":
+                    journal = {"state": "no_transaction", "candidate_code": None, "transaction_sha256": None}
+                else:
+                    journal = {
+                        "state": "prepared", "candidate_code": "CR-20260713-999999",
+                        "transaction_sha256": "f" * 64,
+                    }
+                with mock.patch.object(self.runtime, "recovery_status", return_value=journal), mock.patch.object(
+                    self.runtime, "_run", side_effect=AssertionError("recovery helper must not run")
+                ):
+                    result = self.runtime.recover(plan["receipt_id"])
+                self.assertEqual(expected_status, result["status"])
+                self.assertEqual(expected_state, self.runtime.store.load(plan["receipt_id"])["state"])
+
+    def test_recover_exit_5_or_malformed_status_is_terminal_ambiguous_and_idempotent(self):
+        plan = self.plan()
+        receipt = self.runtime.store.claim(
+            plan["receipt_id"], "planned", "applying", approval_message_id=40,
+        )
+        prepared = {
+            "state": "prepared", "candidate_code": receipt["candidate_code"],
+            "transaction_sha256": receipt["transaction_sha256"],
+        }
+        with mock.patch.object(self.runtime, "recovery_status", return_value=prepared), mock.patch.object(
+            self.runtime, "_run", return_value=(5, {})
+        ) as runner:
+            result = self.runtime.recover(plan["receipt_id"])
+        self.assertEqual("ambiguous", result["status"])
+        self.assertEqual(1, runner.call_count)
+        with mock.patch.object(self.runtime, "_run", side_effect=AssertionError("terminal recovery replay")):
+            self.assertEqual(result, self.runtime.recover(plan["receipt_id"]))
+
+        second = self.plan()
+        self.runtime.store.claim(second["receipt_id"], "planned", "applying", approval_message_id=41)
+        with mock.patch.object(
+            self.runtime, "recovery_status", side_effect=self.module.CoreHelperError("malformed journal")
+        ), mock.patch.object(self.runtime, "_run", side_effect=AssertionError("unknown recovery helper call")):
+            malformed = self.runtime.recover(second["receipt_id"])
+        self.assertEqual("ambiguous", malformed["status"])
+
+    def test_recover_rejects_planned_receipt_without_approval_or_helper(self):
+        plan = self.plan()
+        with mock.patch.object(self.runtime, "_run", side_effect=AssertionError("helper called")):
+            with self.assertRaises(self.module.CoreReceiptError):
+                self.runtime.recover(plan["receipt_id"])
+
+    def test_exit_4_matching_committed_still_preserves_local_ambiguous(self):
+        plan = self.plan()
+        receipt = self.runtime.store.load(plan["receipt_id"])
+        committed = {
+            "state": "committed", "candidate_code": receipt["candidate_code"],
+            "transaction_sha256": receipt["transaction_sha256"],
+        }
+        with mock.patch.object(self.runtime, "_run", return_value=(4, {})), mock.patch.object(
+            self.runtime, "recovery_status", return_value=committed
+        ):
+            result = self.apply(plan["receipt_id"], message_id=49)
+        self.assertEqual("ambiguous", result["status"])
+        self.assertEqual("ambiguous", self.runtime.store.load(plan["receipt_id"])["state"])
+
     def test_exit_4_and_unresolved_exit_5_are_ambiguous_and_never_reapplied(self):
         for message_id, exit_code in enumerate((4, 5), start=50):
             plan = self.plan()

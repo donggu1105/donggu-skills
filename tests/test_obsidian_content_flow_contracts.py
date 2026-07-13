@@ -235,6 +235,23 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
                 self.assertIn(contract, preview)
         self.assertNotIn("preview_message_id", preview.split("Discord send", 1)[0])
 
+    def test_core_approval_preview_prepare_unknown_outcome_reads_back_before_deciding(self):
+        approval = self.skills["approval"]
+        preview = approval.split("### Preview — `수정안 보여줘`", 1)[1].split(
+            "### Apply — `적용해줘`", 1
+        )[0]
+        for contract in (
+            "definite zero-row",
+            "exact DB readback",
+            "same receipt ID",
+            "continue from the exact `prepared` row",
+            "mismatch or unknown readback",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, preview)
+        self.assertLess(preview.index("definite zero-row"), preview.index("donggu_core_revoke"))
+        self.assertLess(preview.index("exact DB readback"), preview.index("continue from the exact `prepared` row"))
+
     def test_core_approval_apply_uses_db_claim_complete_nonce_and_ack_order(self):
         approval = self.skills["approval"]
         apply = approval.split("### Apply — `적용해줘`", 1)[1].split(
@@ -273,6 +290,32 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         ):
             with self.subTest(contract=contract):
                 self.assertIn(contract, apply)
+
+    def test_core_approval_recovery_is_executable_and_preserves_ambiguous_states(self):
+        approval = self.skills["approval"]
+        recovery = approval.split("### Recovery — existing transaction", 1)[1].split(
+            "### Apply — `적용해줘`", 1
+        )[0]
+        ordered = (
+            "DB conversation receipt lookup",
+            "`donggu_core_receipt_status(receipt_id)`",
+            "`donggu_core_recover(receipt_id)`",
+            "`release_core_review_conversation(...)`",
+            "`donggu_core_readback(receipt_id)`",
+            "`complete_core_review_conversation(...)`",
+            "`donggu_core_ack(receipt_id, completion_nonce)`",
+            "`confirm_core_review_native_ack(...)`",
+        )
+        positions = [recovery.index(token) for token in ordered]
+        self.assertEqual(sorted(positions), positions)
+        apply = approval.split("### Apply — `적용해줘`", 1)[1].split(
+            "### Hold and reject", 1
+        )[0]
+        self.assertIn("exit 4", apply)
+        self.assertIn("preserve both DB and local `ambiguous`", apply)
+        self.assertIn("never release or revoke", apply)
+        self.assertIn("retry same-nonce `donggu_core_ack` until local receipt is `completed`", apply)
+        self.assertIn("only then retry DB confirm", apply)
 
     def test_core_approval_trust_terminal_and_legacy_boundaries_are_explicit(self):
         approval = self.skills["approval"]

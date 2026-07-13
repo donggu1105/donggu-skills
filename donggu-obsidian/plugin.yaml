@@ -1,7 +1,7 @@
 manifest_version: 1
 name: donggu-obsidian
 version: "1.7.0"
-description: "Minimal native receipt runtime for the existing crash-atomic CORE helper: zero-write plan, exact natural apply, descriptor-relative read-back, planned-only revoke, and committed-journal acknowledgement."
+description: "Minimal native receipt runtime for the existing crash-atomic CORE helper: zero-write plan, exact natural apply, recovery-only reconciliation, descriptor-relative read-back, planned-only revoke, and committed-journal acknowledgement."
 author: "강동현 (donggu)"
 kind: standalone
 provides_tools:
@@ -9,6 +9,7 @@ provides_tools:
   - donggu_core_plan
   - donggu_core_receipt_status
   - donggu_core_apply
+  - donggu_core_recover
   - donggu_core_readback
   - donggu_core_revoke
   - donggu_core_ack

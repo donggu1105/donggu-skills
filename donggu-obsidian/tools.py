@@ -95,6 +95,10 @@ APPLY_SCHEMA = _receipt_schema(
     "donggu_core_apply",
     "Apply one planned receipt only when the latest persisted user text is exactly 적용해줘.",
 )
+RECOVER_SCHEMA = _receipt_schema(
+    "donggu_core_recover",
+    "Recover one interrupted applying receipt without approval text or forward apply.",
+)
 READBACK_SCHEMA = _receipt_schema(
     "donggu_core_readback", "Verify actual Vault after hashes through descriptor-relative receipt paths.",
 )
@@ -170,6 +174,13 @@ def handle_apply(args: dict, **kwargs) -> str:
             session_id=session_id, user_message_id=message_id,
             latest_user_reader=lambda: _latest_trusted_user_message(session_id),
         ))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_recover(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_runtime().recover(str(args.get("receipt_id") or "")))
     except CoreRuntimeError as exc:
         return _error(exc)
 
