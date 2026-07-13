@@ -4,7 +4,7 @@
 
 **Goal:** Make `donggu-sns` a dual Claude/Hermes plugin backed by one safe publishing runtime.
 
-**Architecture:** A stdlib-only runtime validates closed channel contracts, issues one-time preview receipts, dispatches to fixed n8n endpoints, and updates the Supabase ledger. Claude uses a CLI wrapper; Hermes registers handlers around the same functions.
+**Architecture:** A stdlib-only runtime validates closed channel contracts, signs one-time preview receipts, dispatches to fixed n8n endpoints, and updates the Supabase ledger. Hermes handlers bind approval to trusted host session/turn IDs and verify the latest persisted user message in `SessionDB`; model-provided approval text is not accepted. Receipt HMAC keys remain in process memory. Claude's CLI is stateless `preview`-only and Hermes must re-preview before approval.
 
 **Tech Stack:** Python 3 stdlib, `unittest`, local `http.server`, Claude plugin JSON, Hermes `plugin.yaml`.
 
@@ -14,6 +14,8 @@
 - Never print credentials.
 - No production publication during tests.
 - Preview and dispatch are separate calls.
+- Mutation approval requires a later trusted Hermes task in the same session; Maily confirmation requires another task. Each persisted authorization row is atomically one-receipt-only across both transitions.
+- Complete receipts are HMAC-signed and expire in every pre-dispatch state.
 - Publish success plus ledger failure returns `reconciliation_required`.
 - Codex exposure is forbidden.
 
@@ -67,6 +69,6 @@
 
 - [x] Write failing manifest/registration tests with a fake PluginContext.
 - [x] Implement manifest, schemas, handlers, token requirement check, and CLI JSON I/O.
-- [x] Update the skill to prefer native tools or the shared CLI while preserving preview and ledger rules.
-- [x] Assert Claude, marketplace, and Hermes versions all equal `2.5.0` and plugin registration exposes exactly five publishing tools.
+- [x] Update the skill to require Hermes native tools for mutation and keep the shared CLI stateless preview-only.
+- [x] Assert Claude, marketplace, and Hermes versions all equal `2.5.1` and plugin registration exposes exactly five publishing tools.
 - [x] Run all repository tests and `git diff --check`.

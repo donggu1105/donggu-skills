@@ -129,6 +129,17 @@ class ApplyActionTests(unittest.TestCase):
         self.assert_validation(self.run_helper(env))
         self.assert_validation(self.run_helper(self.core_envelope(claim=None)))
 
+    def test_vault_root_with_symlinked_ancestor_is_rejected(self):
+        alias = self.root.parent / f"{self.root.name}-vault-alias"
+        self.addCleanup(lambda: alias.unlink(missing_ok=True))
+        alias.symlink_to(self.root.parent, target_is_directory=True)
+        payload = json.dumps(self.replace_envelope(), ensure_ascii=False).encode("utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--vault-root", str(alias / self.root.name), "--dry-run"],
+            input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        )
+        self.assert_validation(proc)
+
     def test_unsafe_paths_inbox_symlink_binary_and_oversize_are_rejected(self):
         for path in ("/tmp/a.md", "10_Sources/../source.md", "00_Inbox/a.md", "10_Sources/00_Inbox/a.md"):
             env = self.replace_envelope(source_note_path=path, target_note_paths=[path])
@@ -441,7 +452,10 @@ class ApplyActionTests(unittest.TestCase):
         self.assertEqual("committed", json.loads(journal.read_text())["state"])
         self.assertTrue(any("backup" in p.name for p in self.root.rglob(".*")))
         status = self.run_helper(None, "", "--recovery-status")
-        self.assertEqual({"state": "committed", "candidate_code": env["candidate_code"]}, json.loads(status.stdout))
+        status_payload = json.loads(status.stdout)
+        self.assertEqual("committed", status_payload["state"])
+        self.assertEqual(env["candidate_code"], status_payload["candidate_code"])
+        self.assertRegex(status_payload["transaction_sha256"], r"^[0-9a-f]{64}$")
         before = self.snapshot()
         recovery = self.run_helper(None, "", "--recover-only")
         self.assertEqual(0, recovery.returncode, recovery.stderr)
@@ -529,7 +543,10 @@ class ApplyActionTests(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt):
                 module.run(["--vault-root", str(self.root)], io.StringIO(json.dumps(env)), io.StringIO(), io.StringIO())
         status = self.run_helper(None, "", "--recovery-status")
-        self.assertEqual({"state": "committed", "candidate_code": env["candidate_code"]}, json.loads(status.stdout))
+        status_payload = json.loads(status.stdout)
+        self.assertEqual("committed", status_payload["state"])
+        self.assertEqual(env["candidate_code"], status_payload["candidate_code"])
+        self.assertRegex(status_payload["transaction_sha256"], r"^[0-9a-f]{64}$")
         self.assertIn(b"[[20_Core/Target]]", self.source.read_bytes())
 
     def test_prepared_recovery_validates_foreign_stage_before_any_leaf_swap(self):
@@ -683,7 +700,10 @@ class ApplyActionTests(unittest.TestCase):
 
     def test_recovery_status_is_read_only_and_reports_prepared(self):
         no_tx = self.run_helper(None, "", "--recovery-status")
-        self.assertEqual({"state": "no_transaction", "candidate_code": None}, json.loads(no_tx.stdout))
+        self.assertEqual(
+            {"state": "no_transaction", "candidate_code": None, "transaction_sha256": None},
+            json.loads(no_tx.stdout),
+        )
         module = self.load_module()
         self.interrupt_after_first_cas(module, self.replace_envelope())
         before = self.snapshot()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sys
 from typing import Any, Dict
 
@@ -18,20 +19,12 @@ def execute(request: Dict[str, Any], runtime: PublishingRuntime) -> Dict[str, An
         return runtime.preview(
             channel=str(request.get("channel") or ""), operation=str(request.get("operation") or ""),
             payload=request.get("payload"), topic=str(request.get("topic") or ""), note_path=str(request.get("note_path") or ""),
+            session_id="claude-preview-only", turn_id=secrets.token_urlsafe(16),
+            issue_receipt=False,
         )
-    if action == "approve":
-        return runtime.approve(
-            str(request.get("receipt_id") or ""), approval_text=str(request.get("approval_text") or ""),
-        )
-    if action == "confirm_maily":
-        return runtime.confirm_irreversible(
-            str(request.get("receipt_id") or ""), confirmation_text=str(request.get("confirmation_text") or ""),
-        )
-    if action == "dispatch":
-        return runtime.dispatch(str(request.get("receipt_id") or ""))
-    if action == "status":
-        return runtime.receipt_status(str(request.get("receipt_id") or ""))
-    raise PublishingError("action must be preview, approve, confirm_maily, dispatch, or status")
+    if action in {"approve", "confirm_maily", "dispatch", "status"}:
+        raise PublishingError("this action requires the trusted Hermes runtime")
+    raise PublishingError("action must be preview")
 
 
 def main() -> int:

@@ -51,14 +51,27 @@ hermes plugins install donggu1105/donggu-skills/donggu-obsidian --enable
 9. Explicit `reconciliation_required` state if the external publication succeeds but ledger completion fails.
 10. Exact single-row ledger write verification and channel-specific success identifier validation.
 11. One-shot dispatch: a network-uncertain receipt cannot be replayed automatically.
+12. HMAC-SHA256 over the complete receipt, including state and approval metadata.
+13. Expiry enforcement in `planned`, `approved`, and `confirmed` states.
+14. Delete lookup rejects duplicate active rows and PATCHes by the exact ledger row `id`.
+15. Image URLs use a fixed host allowlist and reject non-global DNS answers.
 
-The preview tool does not publish. Runtime states are deliberately separate:
+The preview tool does not publish. Hermes supplies trusted host `session_id` and binds a unique
+`turn_id` in its tool-dispatch approval ContextVar. Approval/confirmation handlers read that
+turn ID plus the latest persisted user message from Hermes `SessionDB`; model-provided approval
+strings are not accepted. The receipt also binds the preview user-message row ID: approval must
+use a larger persisted row ID, and Maily confirmation must use a row newer than approval. Approval
+must use the same session and a later turn with an explicit approval phrase. Maily confirmation
+must use a third turn whose user message explicitly confirms the **final Maily send**. Each persisted authorization row is atomically consumed by exactly one receipt across approval and confirmation; blanket reuse across planned receipts is forbidden. Runtime
+states are deliberately separate:
 `preview → approve → dispatch`; Maily real-send is
 `preview → approve → confirm_maily → dispatch`. Payload binding is rechecked under the
 receipt lock before every state transition. Maily dry-run ends as `completed_draft` and is
 never inserted into `published_posts`.
 
-The Claude skill calls the shared CLI when available; the Hermes plugin calls the same Python runtime directly.
+The Claude skill may call the shared CLI for stateless `preview` only. All receipt status and
+mutations require the trusted in-process Hermes runtime. The Hermes plugin calls the same
+Python core directly.
 
 ## Obsidian contract
 
@@ -66,9 +79,11 @@ The existing `core-review-approval/scripts/apply-action.py` remains the sole mut
 
 The adapter adds:
 
-1. `donggu_core_plan`: invokes the helper with `--dry-run`, then issues a one-time receipt bound to the exact envelope, Vault root identity, paths, and before/after hashes.
-2. `donggu_core_apply`: calls the existing `validate-approval.py`, requires exact `<candidate_code> 승인`, rechecks the receipt/root binding, then invokes the same helper without `--dry-run`.
+1. `donggu_core_plan`: invokes the helper with `--dry-run`, then issues a one-time, process-HMAC-signed receipt bound to the exact envelope, Vault root identity, paths, and before/after hashes.
+2. `donggu_core_apply`: takes only `receipt_id`; the handler reads the actual latest user message across the full Hermes `SessionDB` session, calls the existing `validate-approval.py` for exact `<candidate_code> 승인`, requires the plan session and a persisted message row no older than plan, validates the receipt read-only, atomically commits `(session_sha256,message_id)` for one receipt only in a profile-local durable SQLite UNIQUE store whose exact parent/file modes are descriptor-enforced as `0700/0600` on every consume, then claims the receipt, rechecks the receipt/root binding, and invokes the same helper without `--dry-run`.
 3. `donggu_core_recovery_status`: read-only journal status.
+4. Recovery journal classification only when both its candidate code and deterministic transaction fingerprint (`candidate_code + path별 before/after hashes`) match the HMAC-bound receipt; same-code foreign journals never inherit receipt hashes.
+5. Component-by-component Vault root traversal without following symlinks.
 
 No duplicate Vault mutation implementation is introduced.
 
@@ -81,7 +96,8 @@ inspection; unresolved outcomes retain the envelope as `outcome_unknown`.
 
 - Preview is always separate from external or filesystem mutation.
 - Receipt TTL is 15 minutes.
-- Receipt files are mode `0600` and atomically created.
+- Receipt files are mode `0600`, atomically created, and HMAC-signed with a process-memory-only key.
+- Gateway restart intentionally invalidates unfinished publishing receipts; re-preview instead of recovering them.
 - Tokens and service keys never appear in tool output.
 - Webhook paths and Supabase table are closed constants.
 - Direct mutation fallback is forbidden; adapter/configuration failure is fail-closed.
@@ -92,7 +108,7 @@ inspection; unresolved outcomes retain the envelope as `outcome_unknown`.
 
 ## Versioning
 
-- `donggu-sns`: `2.4.2` → `2.5.0`
-- `donggu-obsidian`: `1.5.0` → `1.6.0`
+- `donggu-sns`: `2.5.0` → `2.5.1`
+- `donggu-obsidian`: `1.6.0` → `1.6.1`
 
 Claude JSON and Hermes YAML versions must match per package.

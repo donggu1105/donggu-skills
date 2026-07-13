@@ -3,9 +3,56 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict
+import threading
+from typing import Any, Dict, Optional
 
 from .runtime import CoreActionRuntime, CoreRuntimeError
+
+
+_RUNTIME: Optional[CoreActionRuntime] = None
+_RUNTIME_LOCK = threading.Lock()
+
+
+def _runtime() -> CoreActionRuntime:
+    global _RUNTIME
+    if _RUNTIME is None:
+        with _RUNTIME_LOCK:
+            if _RUNTIME is None:
+                _RUNTIME = CoreActionRuntime.from_package()
+    return _RUNTIME
+
+
+def _trusted_context(kwargs: dict) -> tuple[str, str]:
+    session_id = kwargs.get("session_id")
+    turn_id = kwargs.get("turn_id")
+    if not isinstance(turn_id, str) or not turn_id:
+        try:
+            from tools.approval import _approval_turn_id
+            turn_id = _approval_turn_id.get()
+        except Exception:
+            turn_id = ""
+    if not isinstance(session_id, str) or not session_id or not isinstance(turn_id, str) or not turn_id:
+        raise CoreRuntimeError("trusted Hermes session/turn context is required")
+    return session_id, turn_id
+
+
+def _latest_trusted_user_message(session_id: str) -> tuple[int, str]:
+    try:
+        from hermes_state import SessionDB
+        db = SessionDB()
+        try:
+            messages = db.get_messages(session_id)
+        finally:
+            db.close()
+    except Exception as exc:
+        raise CoreRuntimeError("trusted Hermes user message is unavailable") from exc
+    for message in reversed(messages):
+        if message.get("role") == "user" and isinstance(message.get("content"), str):
+            text = message["content"].strip()
+            message_id = message.get("id")
+            if text and isinstance(message_id, int) and message_id > 0:
+                return message_id, text
+    raise CoreRuntimeError("trusted Hermes user message is unavailable")
 
 
 PLAN_SCHEMA = {
@@ -34,11 +81,8 @@ APPLY_SCHEMA = {
     ),
     "parameters": {
         "type": "object",
-        "properties": {
-            "receipt_id": {"type": "string"},
-            "approval_text": {"type": "string", "description": "The exact valid single-candidate approval message."},
-        },
-        "required": ["receipt_id", "approval_text"],
+        "properties": {"receipt_id": {"type": "string"}},
+        "required": ["receipt_id"],
         "additionalProperties": False,
     },
 }
@@ -63,22 +107,32 @@ def _error(exc: Exception) -> str:
     return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
 
-def handle_plan(args: dict, **_kw) -> str:
+def handle_plan(args: dict, **kwargs) -> str:
     try:
-        result = CoreActionRuntime.from_package().plan(
+        session_id, turn_id = _trusted_context(kwargs)
+        message_id, _message_text = _latest_trusted_user_message(session_id)
+        result = _runtime().plan(
             Path(str(args.get("vault_root") or "")),
             args.get("envelope"),
+            session_id=session_id,
+            turn_id=turn_id,
+            user_message_id=message_id,
         )
         return _ok(result)
     except CoreRuntimeError as exc:
         return _error(exc)
 
 
-def handle_apply(args: dict, **_kw) -> str:
+def handle_apply(args: dict, **kwargs) -> str:
     try:
-        result = CoreActionRuntime.from_package().apply(
+        session_id, turn_id = _trusted_context(kwargs)
+        message_id, message_text = _latest_trusted_user_message(session_id)
+        result = _runtime().apply(
             str(args.get("receipt_id") or ""),
-            approval_text=str(args.get("approval_text") or ""),
+            approval_text=message_text,
+            session_id=session_id,
+            turn_id=turn_id,
+            user_message_id=message_id,
         )
         return _ok(result)
     except CoreRuntimeError as exc:
@@ -87,7 +141,7 @@ def handle_apply(args: dict, **_kw) -> str:
 
 def handle_recovery_status(args: dict, **_kw) -> str:
     try:
-        result = CoreActionRuntime.from_package().recovery_status(Path(str(args.get("vault_root") or "")))
+        result = _runtime().recovery_status(Path(str(args.get("vault_root") or "")))
         return _ok(result)
     except CoreRuntimeError as exc:
         return _error(exc)

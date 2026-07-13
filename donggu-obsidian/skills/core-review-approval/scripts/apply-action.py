@@ -112,12 +112,30 @@ def safe_relative(value: object, expected_root: str) -> Tuple[str, PurePosixPath
 
 
 def open_root(root: Path) -> int:
+    fd = -1
     try:
-        fd = os.open(str(root), os.O_RDONLY | DIRECTORY | NOFOLLOW)
+        if not root.is_absolute():
+            raise OSError()
+        if (
+            len(root.parts) > 1
+            and root.parts[1] == "var"
+            and os.path.realpath("/var") == "/private/var"
+        ):
+            root = Path("/private/var", *root.parts[2:])
+        fd = os.open(root.anchor, os.O_RDONLY | DIRECTORY | NOFOLLOW)
+        for part in root.parts[1:]:
+            next_fd = os.open(part, os.O_RDONLY | DIRECTORY | NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
         if not stat.S_ISDIR(os.fstat(fd).st_mode):
             raise OSError()
         return fd
     except OSError:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         raise ValidationError()
 
 
@@ -883,6 +901,26 @@ def read_journal(root: Path) -> Optional[Dict[str, object]]:
     return parse_journal(data)
 
 
+def journal_transaction_sha256(journal: Dict[str, object]) -> str:
+    entries = journal.get("entries")
+    if not isinstance(entries, list):
+        raise ApplyError()
+    hashes: Dict[str, Dict[str, Optional[str]]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ApplyError()
+        path = entry.get("path")
+        before = entry.get("before")
+        after = entry.get("after")
+        if not isinstance(path, str) or (before is not None and not isinstance(before, str)) or not isinstance(after, str):
+            raise ApplyError()
+        hashes[path] = {"before": before, "after": after}
+    payload = {"candidate_code": journal["candidate_code"], "hashes": hashes}
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
 def recovery_status(root: Path) -> Tuple[str, Optional[str]]:
     journal = read_journal(root)
     if journal is None:
@@ -1068,8 +1106,19 @@ def run(argv: List[str], stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout,
     try:
         root, dry_run, recover_only, status_only, ack_candidate = parse_args(argv)
         if status_only:
-            recovery_state, recovery_candidate = recovery_status(root)
-            payload = {"state": recovery_state, "candidate_code": recovery_candidate}
+            journal = read_journal(root)
+            if journal is None:
+                recovery_state, recovery_candidate = "no_transaction", None
+                transaction_sha256 = None
+            else:
+                recovery_state = str(journal["state"])
+                recovery_candidate = str(journal["candidate_code"])
+                transaction_sha256 = journal_transaction_sha256(journal)
+            payload = {
+                "state": recovery_state,
+                "candidate_code": recovery_candidate,
+                "transaction_sha256": transaction_sha256,
+            }
             return 0 if safe_write(stdout, json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n") else 70
         if ack_candidate is not None:
             recovery_state, recovery_candidate = recovery_status(root)

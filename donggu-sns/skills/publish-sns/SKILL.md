@@ -45,8 +45,12 @@ Content *formats* are NOT defined here — each channel's note structure is owne
   4. Use the native adapter (required): call `donggu_publishing_preview`, show its exact
      preview, wait for approval in a later user turn, call `donggu_publishing_approve`, then
      call `donggu_publishing_dispatch`. Maily real-send requires another later user turn and
-     `donggu_publishing_confirm_maily` before dispatch. In Claude Code, use the shared stdin/stdout JSON bridge at
-     `<donggu-sns-package-root>/runtime/publishing_cli.py`; it invokes the same runtime.
+     `donggu_publishing_confirm_maily` before dispatch. **Mutations run only through Hermes,**
+     whose host-provided session/turn IDs and the actual latest persisted `SessionDB` user message enforce those
+     later turns. Each persisted approval/confirmation row is consumed by one receipt only; a single `승인` or final-confirmation message never authorizes multiple receipts. The approval/confirmation tools take only `receipt_id`; never synthesize an
+     approval string. Claude Code may create and show a stateless preview, but Hermes must
+     create a new native preview before receipt status, approval, confirmation, or dispatch;
+     direct webhook, ledger, or CLI mutation is forbidden.
   5. The adapter POSTs the fixed channel webhook and records **real-publish successes only**
      in `published_posts`. **`dry_run=true` 성공 응답은 절대 `published_posts`에 INSERT하지 않는다.**
      It ends as `completed_draft` and therefore never creates the DB-triggered
@@ -60,18 +64,21 @@ Content *formats* are NOT defined here — each channel's note structure is owne
 
 ### Native adapter contract
 
-The Claude and Hermes packages share one runtime. Do not reimplement webhook routing or
-ledger writes in harness-specific scripts.
+The Claude and Hermes packages share one validation/runtime core, but only Hermes supplies
+trusted user-turn metadata. Do not reimplement webhook routing or ledger writes in
+harness-specific scripts.
 
 - Hermes tools: `donggu_publishing_preview` → later-turn `donggu_publishing_approve` →
   Maily real-send only: later-turn `donggu_publishing_confirm_maily` →
   `donggu_publishing_dispatch`; inspect uncertainty with
   `donggu_publishing_receipt_status`.
 - Claude bridge: pipe one bounded JSON request to
-  `python3 <donggu-sns-package-root>/runtime/publishing_cli.py`. Actions are `preview`,
-  `approve`, `confirm_maily`, `dispatch`, and `status`; bodies and approval text belong in stdin JSON, never argv.
-- Dispatch receipts expire after 15 minutes and are one-shot. A failed, uncertain, or
-  reconciliation-required receipt must not be replayed.
+  `python3 <donggu-sns-package-root>/runtime/publishing_cli.py`. Only stateless `preview` is
+  accepted. `status`, `approve`, `confirm_maily`, and `dispatch` fail closed because Claude does
+  not provide the trusted in-process Hermes runtime or host turn IDs.
+- Dispatch receipts expire after 15 minutes and are one-shot. The HMAC key exists only in the
+  Hermes gateway process; a gateway restart invalidates unfinished receipts, so re-preview.
+  A failed, uncertain, or reconciliation-required receipt must not be replayed.
 - If the adapter is unavailable or its credentials/origin validation fails, **fail closed**.
   Direct webhook and direct ledger mutation are forbidden. The references below are diagnostic
   contract documentation only, not a fallback execution path.

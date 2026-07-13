@@ -11,10 +11,13 @@
 ## Global Constraints
 
 - Keep Claude package ID `donggu-obsidian` unchanged.
-- The existing 47 CORE tests must remain green.
+- The existing 48 CORE tests must remain green.
 - Real Vault files must not be touched by tests.
-- Apply requires a current plan receipt and explicit approval text.
+- Apply takes only `receipt_id`; its exact approval text comes from the actual latest trusted Hermes `SessionDB` user message across the full session, is bound to the plan session/message row, and is atomically consumable by one receipt only through a profile-local durable SQLite UNIQUE store.
 - Recovery status is read-only; recovery mutation stays in the existing CLI skill.
+- Recovery classification must match both the receipt candidate and the deterministic `candidate_code + before/after hashes` transaction fingerprint. Candidate code alone is insufficient.
+- CORE receipts HMAC-bind the exact envelope, Vault identity, hashes, Hermes provenance, and transaction fingerprint with a process-memory-only key; gateway restart requires re-planning. Consumed authorization identity `(session_sha256,message_id)` alone persists in a profile-local SQLite UNIQUE store so an old approval row cannot authorize a new receipt after restart; user text and Vault content are never stored there. The store opens parent/file descriptors with `O_NOFOLLOW`, enforces and verifies exact `0700/0600` via `fchmod`/`fstat` at initialization and every consume, and fails closed on any permission error. Receipt validation occurs read-only before consumption; the authorization INSERT commits before receipt claim/helper side effects, so a crash may conservatively consume approval but can never leave a claim side effect with a reusable authorization row.
+- Vault root traversal rejects symlinks in every component in both wrapper and helper.
 
 ---
 
@@ -26,7 +29,7 @@
 - Create: `donggu-obsidian/runtime/core_actions.py`
 
 **Interfaces:**
-- Produces: `CoreActionRuntime.plan(vault_root, envelope) -> dict`, `apply(receipt_id, approval_text) -> dict`, `recovery_status(vault_root) -> dict`.
+- Produces: `CoreActionRuntime.plan(vault_root, envelope, session_id, turn_id, user_message_id) -> dict`, `apply(receipt_id, approval_text, session_id, turn_id, user_message_id) -> dict`, `recovery_status(vault_root) -> dict`. Native tool callers provide only `receipt_id` to apply; the handler supplies trusted context and approval text from Hermes.
 
 - [x] Write a failing test that builds a temporary Vault, plans a valid replacement, and verifies zero file changes plus a bound receipt.
 - [x] Run the focused test and confirm import failure.
@@ -50,6 +53,6 @@
 
 - [x] Extend the failing registration test for the Obsidian package.
 - [x] Implement Hermes manifest, schemas, and handlers around `CoreActionRuntime`.
-- [x] Assert Claude, marketplace, and Hermes versions all equal `1.6.0` and exactly three tools register.
+- [x] Assert Claude, marketplace, and Hermes versions all equal `1.6.1` and exactly three tools register.
 - [x] Run the adapter tests, existing 47 CORE tests, all repository tests, syntax compilation, and `git diff --check`.
 - [x] Install both package subdirectories into a temporary `HERMES_HOME`, enable them, and verify plugin and tool discovery without real credentials or Vault mutation.
