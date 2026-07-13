@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
+import hashlib
 import importlib.util
 import importlib
 import json
 from pathlib import Path
 import re
 import sys
+import tempfile
 import threading
 import time
 import types
@@ -45,6 +47,44 @@ class FakeContext:
 
 
 class NativePluginPackageTests(unittest.TestCase):
+    def registered_obsidian_fixture(self, module_name):
+        package = load_package(ROOT / "donggu-obsidian", module_name)
+        tools = importlib.import_module(module_name + ".tools")
+        runtime_module = importlib.import_module(module_name + ".runtime")
+        helper = ROOT / "donggu-obsidian" / "skills" / "core-review-approval" / "scripts" / "apply-action.py"
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        base = Path(temporary.name)
+        vault = base / "vault"
+        for name in ("10_Sources", "20_Core", "50_Channel_Packs", "60_MOCs"):
+            (vault / name).mkdir(parents=True)
+        source_rel = "10_Sources/source.md"
+        source_bytes = b"---\ntype: source\nextracted_to: []\n---\n\n[[Broken]]\n"
+        (vault / source_rel).write_bytes(source_bytes)
+        target_rel = "20_Core/Target.md"
+        (vault / target_rel).write_text("target\n", encoding="utf-8")
+        envelope = {
+            "schema_version": 1,
+            "candidate_code": "CR-20260714-000001",
+            "candidate_type": "fix_link",
+            "source_note_path": source_rel,
+            "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+            "claim": "A claim",
+            "target_note_paths": [target_rel],
+            "action": {
+                "op": "replace", "schema_version": 1,
+                "old": "[[Broken]]", "new": "[[20_Core/Target]]",
+            },
+        }
+        runtime = runtime_module.CoreActionRuntime(
+            receipt_root=base / "receipts", helper_path=helper,
+        )
+        setattr(tools, "_RUNTIME", runtime)
+        context = FakeContext()
+        package.register(context)
+        handlers = {item["name"]: item["handler"] for item in context.tools}
+        return tools, runtime, base, vault, source_rel, envelope, handlers
+
     def test_claude_marketplace_versions_match_dual_harness_packages(self):
         marketplace = json.loads(
             (ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
@@ -368,6 +408,89 @@ class NativePluginPackageTests(unittest.TestCase):
             self.assertEqual("vault_committed_reconciliation_required", payload["status"])
             self.assertEqual(["CR-20260714-000001"], mutation_calls)
             self.assertIn("[[20_Core/Target]]", (vault / source_rel).read_text(encoding="utf-8"))
+
+    def test_registered_obsidian_plan_revokes_receipt_when_latest_row_overtakes_dry_run(self):
+        _tools, runtime, base, vault, _source_rel, envelope, handlers = self.registered_obsidian_fixture(
+            "donggu_obsidian_registered_plan_overtake_test"
+        )
+        rows = [{"id": 1, "role": "user", "content": "수정안 보여줘"}]
+
+        class FakeSessionDB:
+            def get_messages(self, _session_id, limit=None):
+                return list(rows)
+
+            def close(self):
+                return None
+
+        original_run = runtime._run
+
+        def overtake_dry_run(root, candidate_envelope, *flags):
+            result = original_run(root, candidate_envelope, *flags)
+            if "--dry-run" in flags:
+                rows.append({"id": 2, "role": "user", "content": "적용해줘"})
+            return result
+
+        fake_module = types.ModuleType("hermes_state")
+        setattr(fake_module, "SessionDB", FakeSessionDB)
+        with mock.patch.dict(sys.modules, {"hermes_state": fake_module}), mock.patch.object(
+            runtime, "_run", side_effect=overtake_dry_run
+        ):
+            payload = json.loads(handlers["donggu_core_plan"](
+                {"vault_root": str(vault), "envelope": envelope}, session_id="persisted-session",
+            ))
+
+        self.assertFalse(payload["success"])
+        receipts = list((base / "receipts").glob("*.json"))
+        self.assertEqual(1, len(receipts))
+        receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
+        self.assertEqual("revoked", receipt["state"])
+        self.assertIsNone(receipt["envelope"])
+
+    def test_registered_obsidian_apply_rejects_newer_cancel_at_local_claim_boundary(self):
+        _tools, runtime, _base, vault, source_rel, envelope, handlers = self.registered_obsidian_fixture(
+            "donggu_obsidian_registered_apply_overtake_test"
+        )
+        rows = [{"id": 1, "role": "user", "content": "수정안 보여줘"}]
+
+        class FakeSessionDB:
+            def get_messages(self, _session_id, limit=None):
+                return list(rows)
+
+            def close(self):
+                return None
+
+        fake_module = types.ModuleType("hermes_state")
+        setattr(fake_module, "SessionDB", FakeSessionDB)
+        original_binding = runtime._validate_receipt_binding
+        original_run = runtime._run
+        mutation_calls = []
+
+        def overtake_validation(receipt):
+            original_binding(receipt)
+            rows.append({"id": 3, "role": "user", "content": "취소"})
+
+        def capture_helper(root, candidate_envelope, *flags):
+            if candidate_envelope is not None and not flags:
+                mutation_calls.append(candidate_envelope["candidate_code"])
+            return original_run(root, candidate_envelope, *flags)
+
+        with mock.patch.dict(sys.modules, {"hermes_state": fake_module}):
+            plan = json.loads(handlers["donggu_core_plan"](
+                {"vault_root": str(vault), "envelope": envelope}, session_id="persisted-session",
+            ))
+            self.assertTrue(plan["success"])
+            rows.append({"id": 2, "role": "user", "content": "적용해줘"})
+            with mock.patch.object(
+                runtime, "_validate_receipt_binding", side_effect=overtake_validation
+            ), mock.patch.object(runtime, "_run", side_effect=capture_helper):
+                payload = json.loads(handlers["donggu_core_apply"](
+                    {"receipt_id": plan["receipt_id"]}, session_id="persisted-session",
+                ))
+
+        self.assertFalse(payload["success"])
+        self.assertEqual([], mutation_calls)
+        self.assertNotIn("[[20_Core/Target]]", (vault / source_rel).read_text(encoding="utf-8"))
+        self.assertEqual("planned", runtime.store.load(plan["receipt_id"])["state"])
 
 
 if __name__ == "__main__":

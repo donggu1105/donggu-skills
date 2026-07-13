@@ -77,6 +77,7 @@ class CoreActionRuntimeTests(unittest.TestCase):
         return self.runtime.apply(
             receipt_id, latest_user_text=text,
             session_id=session_id, user_message_id=message_id,
+            latest_user_reader=lambda: (message_id, text),
         )
 
     @staticmethod
@@ -246,7 +247,7 @@ class CoreActionRuntimeTests(unittest.TestCase):
             expected_status = "vault_committed_reconciliation_required" if matching else "revoked"
             self.assertEqual(expected_status, result["status"])
 
-    def test_death_after_helper_commit_before_receipt_write_auto_reconciles_without_reapply(self):
+    def test_death_after_helper_commit_before_receipt_write_recovers_after_restart_with_newer_retry(self):
         plan = self.plan()
         original_transition = self.runtime.store.transition
 
@@ -263,9 +264,44 @@ class CoreActionRuntimeTests(unittest.TestCase):
                 self.apply(plan["receipt_id"])
         self.assertEqual("applying", self.runtime.store.load(plan["receipt_id"])["state"])
         self.assertIn("[[20_Core/Target]]", self.source.read_text(encoding="utf-8"))
-        with mock.patch.object(self.runtime, "_run", wraps=self.runtime._run) as runner:
-            result = self.apply(plan["receipt_id"])
+        restarted = self.module.CoreActionRuntime(
+            receipt_root=self.base / "receipts",
+            helper_path=HELPER,
+            receipt_ttl_seconds=900,
+        )
+        with mock.patch.object(restarted, "_run", wraps=restarted._run) as runner:
+            result = restarted.apply(
+                plan["receipt_id"], latest_user_text="적용해줘",
+                session_id="session-a", user_message_id=12,
+                latest_user_reader=lambda: (12, "적용해줘"),
+            )
         self.assertEqual("vault_committed_reconciliation_required", result["status"])
+        self.assertFalse(any(call.args[1] is not None and not call.args[2:] for call in runner.call_args_list))
+
+    def test_readback_recovers_committed_applying_receipt_after_process_restart(self):
+        plan = self.plan()
+        original_transition = self.runtime.store.transition
+
+        class SimulatedDeath(BaseException):
+            pass
+
+        def die_before_reconciliation(receipt, state, **updates):
+            if state == "reconciliation_required":
+                raise SimulatedDeath()
+            return original_transition(receipt, state, **updates)
+
+        with mock.patch.object(self.runtime.store, "transition", side_effect=die_before_reconciliation):
+            with self.assertRaises(SimulatedDeath):
+                self.apply(plan["receipt_id"])
+        restarted = self.module.CoreActionRuntime(
+            receipt_root=self.base / "receipts",
+            helper_path=HELPER,
+            receipt_ttl_seconds=900,
+        )
+        with mock.patch.object(restarted, "_run", wraps=restarted._run) as runner:
+            result = restarted.readback(plan["receipt_id"])
+        self.assertEqual("readback_verified", result["status"])
+        self.assertEqual("reconciliation_required", restarted.store.load(plan["receipt_id"])["state"])
         self.assertFalse(any(call.args[1] is not None and not call.args[2:] for call in runner.call_args_list))
 
     def test_applying_with_clean_journal_is_revoked_and_foreign_journal_is_ambiguous(self):
@@ -326,6 +362,24 @@ class CoreActionRuntimeTests(unittest.TestCase):
         self.assertNotIn("receipt_hmac", status)
         self.assertLess(len(json.dumps(status)), 4096)
         self.assertEqual(before, receipt_path.read_bytes())
+
+    def test_receipt_status_omits_unbounded_malformed_dynamic_strings(self):
+        plan = self.plan()
+        receipt_path = self.base / "receipts" / f"{plan['receipt_id']}.json"
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["candidate_code"] = "가" * 10_000
+        receipt["source_sha256"] = "source" * 2_000
+        receipt["envelope_sha256"] = "envelope" * 2_000
+        receipt_path.write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
+
+        status = self.runtime.receipt_status(plan["receipt_id"])
+        response = json.dumps({"success": True, **status}, ensure_ascii=False).encode("utf-8")
+
+        self.assertLessEqual(len(response), self.module._MAX_STATUS_BYTES)
+        self.assertNotIn("가", response.decode("utf-8"))
+        self.assertIsNone(status["candidate_code"])
+        self.assertIsNone(status["source_sha256"])
+        self.assertIsNone(status["envelope_sha256"])
 
     def test_readback_verifies_actual_after_hashes_using_receipt_paths(self):
         plan = self.plan()

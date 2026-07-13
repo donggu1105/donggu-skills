@@ -6,7 +6,7 @@ from pathlib import Path
 import threading
 from typing import Any, Dict, Optional
 
-from .runtime import CoreActionRuntime, CoreRuntimeError
+from .runtime import CoreActionRuntime, CoreApprovalError, CoreRuntimeError
 
 
 _RUNTIME: Optional[CoreActionRuntime] = None
@@ -135,12 +135,21 @@ def handle_plan(args: dict, **kwargs) -> str:
     try:
         session_id = _trusted_session_id(kwargs)
         message_id, message_text = _latest_trusted_user_message(session_id)
-        return _ok(_runtime().plan(
+        runtime = _runtime()
+        result = runtime.plan(
             Path(str(args.get("vault_root") or "")), args.get("envelope"),
             session_id=session_id,
             plan_message_id=message_id,
             latest_user_text=message_text,
-        ))
+        )
+        try:
+            latest_message_id, latest_message_text = _latest_trusted_user_message(session_id)
+            if (latest_message_id, latest_message_text) != (message_id, message_text):
+                raise CoreApprovalError("preview request was overtaken by a newer persisted user message")
+        except CoreRuntimeError:
+            runtime.revoke(result["receipt_id"])
+            raise
+        return _ok(result)
     except CoreRuntimeError as exc:
         return _error(exc)
 
@@ -159,6 +168,7 @@ def handle_apply(args: dict, **kwargs) -> str:
         return _ok(_runtime().apply(
             str(args.get("receipt_id") or ""), latest_user_text=message_text,
             session_id=session_id, user_message_id=message_id,
+            latest_user_reader=lambda: _latest_trusted_user_message(session_id),
         ))
     except CoreRuntimeError as exc:
         return _error(exc)

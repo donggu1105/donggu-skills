@@ -36,6 +36,7 @@ class CoreHelperError(CoreRuntimeError):
 
 _RECEIPT_RE = re.compile(r"^[A-Za-z0-9_-]{20,80}$")
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+_CANDIDATE_RE = re.compile(r"^CR-[0-9]{8}-[0-9]{6}$")
 _MAX_ENVELOPE = 1_000_000
 _MAX_RECEIPT = 1_100_000
 _MAX_READBACK_FILE = 8 * 1024 * 1024
@@ -556,15 +557,30 @@ class CoreActionRuntime:
 
     def receipt_status(self, receipt_id: str) -> Dict[str, Any]:
         receipt = self.store.load(receipt_id)
+        candidate_code = receipt.get("candidate_code")
+        if not isinstance(candidate_code, str) or _CANDIDATE_RE.fullmatch(candidate_code) is None:
+            candidate_code = None
+        source_sha256 = receipt.get("source_sha256")
+        if not _valid_hash(source_sha256):
+            source_sha256 = None
+        envelope_sha256 = receipt.get("envelope_sha256")
+        if not _valid_hash(envelope_sha256):
+            envelope_sha256 = None
+        expires_at = receipt.get("expires_at")
+        if isinstance(expires_at, bool) or not isinstance(expires_at, int) or not 0 <= expires_at <= 2**63 - 1:
+            expires_at = None
         result = {
             "state": receipt["state"],
             "receipt_id": receipt["receipt_id"],
-            "candidate_code": receipt.get("candidate_code"),
-            "source_sha256": receipt.get("source_sha256"),
-            "envelope_sha256": receipt.get("envelope_sha256"),
+            "candidate_code": candidate_code,
+            "source_sha256": source_sha256,
+            "envelope_sha256": envelope_sha256,
             "path_count": len(receipt.get("paths", [])) if isinstance(receipt.get("paths"), list) else 0,
-            "expires_at": receipt.get("expires_at"),
+            "expires_at": expires_at,
         }
+        encoded = json.dumps({"success": True, **result}, ensure_ascii=False).encode("utf-8")
+        if len(encoded) > _MAX_STATUS_BYTES:
+            result = {"state": receipt["state"], "receipt_id": receipt["receipt_id"]}
         return result
 
     @staticmethod
@@ -676,6 +692,7 @@ class CoreActionRuntime:
         latest_user_text: str,
         session_id: str,
         user_message_id: int,
+        latest_user_reader: Callable[[], tuple[int, str]],
     ) -> Dict[str, Any]:
         if latest_user_text != "적용해줘":
             raise CoreApprovalError("latest persisted user text must exactly equal 적용해줘")
@@ -695,8 +712,6 @@ class CoreActionRuntime:
                     raise CoreApprovalError("apply receipt is bound to a different persisted message")
                 return self._stored_result(observed)
             if observed.get("state") == "applying":
-                if observed.get("approval_message_id") != user_message_id:
-                    raise CoreApprovalError("apply receipt is bound to a different persisted message")
                 return self._recover_applying(observed)
             if observed.get("state") != "planned":
                 raise CoreReceiptError("receipt is not available for apply")
@@ -707,6 +722,14 @@ class CoreActionRuntime:
             self._validate_approval(private_legacy_approval, candidate_code)
             self._validate_receipt_binding(observed)
             self.store.load(receipt_id, require_state="planned", enforce_expiry=True)
+            try:
+                latest_message_id, latest_message_text = latest_user_reader()
+            except CoreRuntimeError:
+                raise
+            except Exception:
+                raise CoreApprovalError("trusted Hermes user message is unavailable") from None
+            if (latest_message_id, latest_message_text) != (user_message_id, latest_user_text):
+                raise CoreApprovalError("apply request was overtaken by a newer persisted user message")
             self.store.consume_message(session_id, user_message_id, receipt_id)
             receipt = self.store.transition(
                 observed,
@@ -751,6 +774,12 @@ class CoreActionRuntime:
 
     def readback(self, receipt_id: str) -> Dict[str, Any]:
         receipt = self.store.load(receipt_id)
+        if receipt.get("state") == "applying":
+            with self.store._lock(receipt_id):
+                receipt = self.store.load(receipt_id)
+                if receipt.get("state") == "applying":
+                    self._recover_applying(receipt)
+                    receipt = self.store.load(receipt_id)
         if receipt.get("state") == "completed":
             result = receipt.get("readback_result")
             if isinstance(result, dict):
