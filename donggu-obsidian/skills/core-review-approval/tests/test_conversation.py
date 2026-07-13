@@ -525,8 +525,8 @@ class PreviewRendererTests(unittest.TestCase):
                 vault,
                 self.runtime_envelope(candidate),
                 session_id="preview-session",
-                turn_id="preview-turn",
-                user_message_id=1,
+                plan_message_id=1,
+                latest_user_text="수정안 보여줘",
             )
             self.assertEqual(
                 {"status", "receipt_id", "expires_at", "candidate_code", "envelope_sha256", "paths", "hashes"},
@@ -587,8 +587,8 @@ class PreviewRendererTests(unittest.TestCase):
                 vault,
                 self.runtime_envelope(candidate),
                 session_id="create-preview-session",
-                turn_id="create-preview-turn",
-                user_message_id=1,
+                plan_message_id=1,
+                latest_user_text="수정안 보여줘",
             )
             self.assertEqual(
                 {"status", "receipt_id", "expires_at", "candidate_code", "envelope_sha256", "paths", "hashes"},
@@ -673,8 +673,8 @@ class PreviewRendererTests(unittest.TestCase):
                         vault,
                         self.runtime_envelope(candidate),
                         session_id="preview-session",
-                        turn_id=f"preview-turn-{index}",
-                        user_message_id=index + 1,
+                        plan_message_id=index + 1,
+                        latest_user_text="수정안 보여줘",
                     )
                     self.assertEqual(
                         {"status", "receipt_id", "expires_at", "candidate_code", "envelope_sha256", "paths", "hashes"},

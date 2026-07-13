@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import uuid
 from unittest import mock
 from concurrent.futures import ThreadPoolExecutor
 
@@ -66,10 +67,21 @@ class CoreActionRuntimeTests(unittest.TestCase):
         )
 
     def plan(self):
-        return self.runtime.plan(self.vault, self.envelope)
+        return self.runtime.plan(
+            self.vault, self.envelope,
+            session_id="session-a", plan_message_id=10,
+            latest_user_text="수정안 보여줘",
+        )
 
-    def apply(self, receipt_id, text="적용해줘"):
-        return self.runtime.apply(receipt_id, latest_user_text=text)
+    def apply(self, receipt_id, text="적용해줘", *, session_id="session-a", message_id=11):
+        return self.runtime.apply(
+            receipt_id, latest_user_text=text,
+            session_id=session_id, user_message_id=message_id,
+        )
+
+    @staticmethod
+    def nonce():
+        return str(uuid.uuid4())
 
     def test_plan_runs_real_zero_write_helper_and_stores_absolute_expiry(self):
         before = self.source.read_bytes()
@@ -82,7 +94,18 @@ class CoreActionRuntimeTests(unittest.TestCase):
         receipt = json.loads((self.base / "receipts" / f"{result['receipt_id']}.json").read_text(encoding="utf-8"))
         self.assertEqual(1900, receipt["expires_at"])
         self.assertEqual(result["envelope_sha256"], receipt["envelope_sha256"])
+        self.assertEqual("session-a", receipt["session_id"])
+        self.assertEqual(10, receipt["plan_message_id"])
         self.assertNotIn("receipt_hmac", receipt)
+
+    def test_plan_requires_exact_latest_persisted_preview_command(self):
+        for text in ("", " 수정안 보여줘", "수정안 보여줘\n", "적용해줘"):
+            with self.assertRaises(self.module.CoreApprovalError):
+                self.runtime.plan(
+                    self.vault, self.envelope,
+                    session_id="session-a", plan_message_id=10,
+                    latest_user_text=text,
+                )
 
     def test_receipt_write_error_never_closes_an_already_transferred_descriptor(self):
         receipt_id = "A" * 20
@@ -151,6 +174,22 @@ class CoreActionRuntimeTests(unittest.TestCase):
             second = self.apply(plan["receipt_id"])
         self.assertEqual(first, second)
 
+    def test_apply_requires_same_session_and_strictly_later_message(self):
+        plan = self.plan()
+        for session_id, message_id in (("session-b", 11), ("session-a", 10), ("session-a", 9)):
+            with mock.patch.object(self.runtime, "_run", side_effect=AssertionError("mutation helper called")):
+                with self.assertRaises(self.module.CoreApprovalError):
+                    self.apply(plan["receipt_id"], session_id=session_id, message_id=message_id)
+        self.assertEqual("planned", self.runtime.store.load(plan["receipt_id"])["state"])
+
+    def test_same_persisted_apply_message_cannot_authorize_two_receipts(self):
+        first = self.plan()
+        second = self.plan()
+        self.apply(first["receipt_id"], message_id=11)
+        with self.assertRaises(self.module.CoreApprovalError):
+            self.apply(second["receipt_id"], message_id=11)
+        self.assertEqual("planned", self.runtime.store.load(second["receipt_id"])["state"])
+
     def test_expired_receipt_is_rejected_without_helper_or_mutation(self):
         with mock.patch.object(self.module.time, "time", return_value=100):
             plan = self.plan()
@@ -187,17 +226,86 @@ class CoreActionRuntimeTests(unittest.TestCase):
         self.assertEqual(5, result["exit_code"])
         self.assertEqual("reconciliation_required", self.runtime.store.load(plan["receipt_id"])["state"])
 
+    def test_exit_70_clean_revokes_but_matching_commit_requires_reconciliation(self):
+        message_id = 20
+        for matching, expected in ((False, "revoked"), (True, "reconciliation_required")):
+            plan = self.plan()
+            receipt = self.runtime.store.load(plan["receipt_id"])
+            recovery = (
+                {"state": "committed", "candidate_code": receipt["candidate_code"],
+                 "transaction_sha256": receipt["transaction_sha256"]}
+                if matching else
+                {"state": "no_transaction", "candidate_code": None, "transaction_sha256": None}
+            )
+            with mock.patch.object(self.runtime, "_run", return_value=(70, {})), mock.patch.object(
+                self.runtime, "recovery_status", return_value=recovery
+            ):
+                result = self.apply(plan["receipt_id"], message_id=message_id)
+            message_id += 1
+            self.assertEqual(expected, self.runtime.store.load(plan["receipt_id"])["state"])
+            expected_status = "vault_committed_reconciliation_required" if matching else "revoked"
+            self.assertEqual(expected_status, result["status"])
+
+    def test_death_after_helper_commit_before_receipt_write_auto_reconciles_without_reapply(self):
+        plan = self.plan()
+        original_transition = self.runtime.store.transition
+
+        class SimulatedDeath(BaseException):
+            pass
+
+        def die_before_reconciliation(receipt, state, **updates):
+            if state == "reconciliation_required":
+                raise SimulatedDeath()
+            return original_transition(receipt, state, **updates)
+
+        with mock.patch.object(self.runtime.store, "transition", side_effect=die_before_reconciliation):
+            with self.assertRaises(SimulatedDeath):
+                self.apply(plan["receipt_id"])
+        self.assertEqual("applying", self.runtime.store.load(plan["receipt_id"])["state"])
+        self.assertIn("[[20_Core/Target]]", self.source.read_text(encoding="utf-8"))
+        with mock.patch.object(self.runtime, "_run", wraps=self.runtime._run) as runner:
+            result = self.apply(plan["receipt_id"])
+        self.assertEqual("vault_committed_reconciliation_required", result["status"])
+        self.assertFalse(any(call.args[1] is not None and not call.args[2:] for call in runner.call_args_list))
+
+    def test_applying_with_clean_journal_is_revoked_and_foreign_journal_is_ambiguous(self):
+        cases = (
+            ({"state": "no_transaction", "candidate_code": None, "transaction_sha256": None}, "revoked"),
+            ({"state": "committed", "candidate_code": "CR-foreign", "transaction_sha256": "a" * 64}, "ambiguous"),
+        )
+        for index, (journal, expected) in enumerate(cases, start=30):
+            plan = self.plan()
+            self.runtime.store.claim(
+                plan["receipt_id"], "planned", "applying", approval_message_id=index,
+            )
+            with mock.patch.object(self.runtime, "recovery_status", return_value=journal), mock.patch.object(
+                self.runtime, "_run", side_effect=AssertionError("apply helper replayed")
+            ):
+                result = self.apply(plan["receipt_id"], message_id=index)
+            self.assertEqual(expected, result["status"])
+            self.assertEqual(expected, self.runtime.store.load(plan["receipt_id"])["state"])
+
     def test_exit_4_and_unresolved_exit_5_are_ambiguous_and_never_reapplied(self):
-        for exit_code in (4, 5):
+        for message_id, exit_code in enumerate((4, 5), start=50):
             plan = self.plan()
             clean = {"state": "no_transaction", "candidate_code": None, "transaction_sha256": None}
             with mock.patch.object(self.runtime, "_run", return_value=(exit_code, {})), mock.patch.object(
                 self.runtime, "recovery_status", return_value=clean
             ):
-                result = self.apply(plan["receipt_id"])
+                result = self.apply(plan["receipt_id"], message_id=message_id)
             self.assertEqual("ambiguous", result["status"])
             with mock.patch.object(self.runtime, "_run", side_effect=AssertionError("ambiguous replay")):
-                self.assertEqual(result, self.apply(plan["receipt_id"]))
+                self.assertEqual(result, self.apply(plan["receipt_id"], message_id=message_id))
+
+    def test_helper_transport_failure_with_clean_journal_requires_repreview(self):
+        plan = self.plan()
+        clean = {"state": "no_transaction", "candidate_code": None, "transaction_sha256": None}
+        with mock.patch.object(
+            self.runtime, "_run", side_effect=self.module.CoreHelperError("transport failed")
+        ), mock.patch.object(self.runtime, "recovery_status", return_value=clean):
+            result = self.apply(plan["receipt_id"], message_id=60)
+        self.assertEqual("revoked", result["status"])
+        self.assertEqual("revoked", self.runtime.store.load(plan["receipt_id"])["state"])
 
     def test_receipt_status_is_read_only_bounded_and_private_even_after_expiry(self):
         with mock.patch.object(self.module.time, "time", return_value=100):
@@ -207,12 +315,14 @@ class CoreActionRuntimeTests(unittest.TestCase):
         with mock.patch.object(self.module.time, "time", return_value=1001):
             status = self.runtime.receipt_status(plan["receipt_id"])
         self.assertEqual(
-            {"state", "receipt_id", "candidate_code", "source_sha256", "envelope_sha256", "paths", "hashes", "expires_at"},
+            {"state", "receipt_id", "candidate_code", "source_sha256", "envelope_sha256", "path_count", "expires_at"},
             set(status),
         )
         self.assertEqual("planned", status["state"])
         self.assertNotIn(str(self.vault), json.dumps(status))
         self.assertNotIn("envelope", status)
+        self.assertNotIn("paths", status)
+        self.assertNotIn("hashes", status)
         self.assertNotIn("receipt_hmac", status)
         self.assertLess(len(json.dumps(status)), 4096)
         self.assertEqual(before, receipt_path.read_bytes())
@@ -223,7 +333,7 @@ class CoreActionRuntimeTests(unittest.TestCase):
         result = self.runtime.readback(plan["receipt_id"])
         self.assertEqual("readback_verified", result["status"])
         self.assertEqual(
-            self.runtime.receipt_status(plan["receipt_id"])["hashes"], result["hashes"]
+            self.runtime.store.load(plan["receipt_id"])["hashes"], result["hashes"]
         )
         stored = self.runtime.store.load(plan["receipt_id"])
         self.assertTrue(stored["readback_verified"])
@@ -259,15 +369,29 @@ class CoreActionRuntimeTests(unittest.TestCase):
     def test_ack_requires_local_readback_then_cleans_matching_committed_journal(self):
         plan = self.plan()
         self.apply(plan["receipt_id"])
+        nonce = self.nonce()
         with self.assertRaises(self.module.CoreReceiptError):
-            self.runtime.ack(plan["receipt_id"])
+            self.runtime.ack(plan["receipt_id"], completion_nonce=nonce)
         self.runtime.readback(plan["receipt_id"])
-        result = self.runtime.ack(plan["receipt_id"])
+        result = self.runtime.ack(plan["receipt_id"], completion_nonce=nonce)
         self.assertEqual("completed", result["status"])
         self.assertTrue(result["operation_completed"])
+        self.assertEqual(nonce, result["completion_nonce"])
         self.assertEqual("no_transaction", self.runtime.recovery_status(self.vault)["state"])
         with mock.patch.object(self.runtime, "_run", side_effect=AssertionError("ack replay")):
-            self.assertEqual(result, self.runtime.ack(plan["receipt_id"]))
+            self.assertEqual(result, self.runtime.ack(plan["receipt_id"], completion_nonce=nonce))
+
+    def test_ack_rejects_noncanonical_or_changed_completion_nonce(self):
+        plan = self.plan()
+        self.apply(plan["receipt_id"])
+        self.runtime.readback(plan["receipt_id"])
+        for nonce in ("", "NOT-A-UUID", str(uuid.uuid4()).upper(), "{" + str(uuid.uuid4()) + "}"):
+            with self.assertRaises(self.module.CoreReceiptError):
+                self.runtime.ack(plan["receipt_id"], completion_nonce=nonce)
+        nonce = self.nonce()
+        self.runtime.ack(plan["receipt_id"], completion_nonce=nonce)
+        with self.assertRaises(self.module.CoreReceiptError):
+            self.runtime.ack(plan["receipt_id"], completion_nonce=self.nonce())
 
     def test_ack_exit_6_is_cleanup_only_retry_and_never_calls_apply(self):
         plan = self.plan()
@@ -288,10 +412,87 @@ class CoreActionRuntimeTests(unittest.TestCase):
         with mock.patch.object(self.runtime, "recovery_status", return_value=committed), mock.patch.object(
             self.runtime, "_run", side_effect=cleanup_retry
         ):
-            result = self.runtime.ack(plan["receipt_id"])
+            result = self.runtime.ack(plan["receipt_id"], completion_nonce=self.nonce())
         self.assertEqual("cleanup_retry_required", result["status"])
-        self.assertEqual("reconciliation_required", self.runtime.store.load(plan["receipt_id"])["state"])
+        self.assertEqual("acknowledging", self.runtime.store.load(plan["receipt_id"])["state"])
         self.assertEqual([(None, ("--ack-candidate", "CR-20260713-000001"))], calls)
+
+    def test_ack_exit_5_reconciles_clean_as_completed_and_matching_as_retryable(self):
+        for index, state in enumerate(("no_transaction", "committed"), start=40):
+            plan = self.plan()
+            self.apply(plan["receipt_id"], message_id=index)
+            self.runtime.readback(plan["receipt_id"])
+            receipt = self.runtime.store.load(plan["receipt_id"])
+            committed = {
+                "state": "committed", "candidate_code": receipt["candidate_code"],
+                "transaction_sha256": receipt["transaction_sha256"],
+            }
+            after = (
+                {"state": "no_transaction", "candidate_code": None, "transaction_sha256": None}
+                if state == "no_transaction" else committed
+            )
+            statuses = iter((committed, after))
+            nonce = self.nonce()
+            with mock.patch.object(self.runtime, "recovery_status", side_effect=lambda _root: next(statuses)), mock.patch.object(
+                self.runtime, "_run", return_value=(5, {})
+            ):
+                result = self.runtime.ack(plan["receipt_id"], completion_nonce=nonce)
+            expected_status = "completed" if state == "no_transaction" else "ack_retry_required"
+            expected_state = "completed" if state == "no_transaction" else "acknowledging"
+            self.assertEqual(expected_status, result["status"])
+            self.assertEqual(expected_state, self.runtime.store.load(plan["receipt_id"])["state"])
+            cleanup_code, _cleanup_payload = self.runtime._run(
+                self.vault, None, "--ack-candidate", str(receipt["candidate_code"]),
+            )
+            self.assertEqual(0, cleanup_code)
+            self.source.write_bytes(self.source_bytes)
+
+    def test_death_after_ack_cleanup_before_receipt_completion_converges_completed(self):
+        plan = self.plan()
+        self.apply(plan["receipt_id"])
+        self.runtime.readback(plan["receipt_id"])
+        nonce = self.nonce()
+        original_transition = self.runtime.store.transition
+
+        class SimulatedDeath(BaseException):
+            pass
+
+        def die_before_completed(receipt, state, **updates):
+            if state == "completed":
+                raise SimulatedDeath()
+            return original_transition(receipt, state, **updates)
+
+        with mock.patch.object(self.runtime.store, "transition", side_effect=die_before_completed):
+            with self.assertRaises(SimulatedDeath):
+                self.runtime.ack(plan["receipt_id"], completion_nonce=nonce)
+        self.assertEqual("acknowledging", self.runtime.store.load(plan["receipt_id"])["state"])
+        self.assertEqual("no_transaction", self.runtime.recovery_status(self.vault)["state"])
+        with mock.patch.object(self.runtime, "_run", wraps=self.runtime._run) as runner:
+            result = self.runtime.ack(plan["receipt_id"], completion_nonce=nonce)
+        self.assertEqual("completed", result["status"])
+        self.assertFalse(any("--ack-candidate" in call.args[2:] for call in runner.call_args_list))
+
+    def test_concurrent_ack_invokes_helper_once(self):
+        plan = self.plan()
+        self.apply(plan["receipt_id"])
+        self.runtime.readback(plan["receipt_id"])
+        nonce = self.nonce()
+        original_run = self.runtime._run
+        ack_calls = 0
+
+        def count_ack(root, envelope, *flags):
+            nonlocal ack_calls
+            if "--ack-candidate" in flags:
+                ack_calls += 1
+            return original_run(root, envelope, *flags)
+
+        with mock.patch.object(self.runtime, "_run", side_effect=count_ack):
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                results = list(pool.map(
+                    lambda _index: self.runtime.ack(plan["receipt_id"], completion_nonce=nonce), range(8)
+                ))
+        self.assertEqual(1, ack_calls)
+        self.assertTrue(all(result["status"] == "completed" for result in results))
 
     def test_core_receipt_claim_allows_exactly_one_concurrent_winner(self):
         plan = self.plan()
@@ -318,7 +519,10 @@ class CoreActionRuntimeTests(unittest.TestCase):
         link = self.base / "vault-link"
         link.symlink_to(self.vault, target_is_directory=True)
         with self.assertRaises(self.module.CoreHelperError):
-            self.runtime.plan(link, self.envelope)
+            self.runtime.plan(
+                link, self.envelope, session_id="session-a", plan_message_id=10,
+                latest_user_text="수정안 보여줘",
+            )
 
 
 if __name__ == "__main__":

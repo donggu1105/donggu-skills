@@ -40,12 +40,13 @@ def _latest_trusted_user_message(session_id: str) -> tuple[int, str]:
     except Exception as exc:
         raise CoreRuntimeError("trusted Hermes user message is unavailable") from exc
     for message in reversed(messages):
-        if message.get("role") == "user" and isinstance(message.get("content"), str):
-            text = message["content"]
-            message_id = message.get("id")
-            if isinstance(message_id, int) and message_id > 0:
-                return message_id, text
+        if message.get("role") != "user":
+            continue
+        text = message.get("content")
+        message_id = message.get("id")
+        if not isinstance(text, str) or isinstance(message_id, bool) or not isinstance(message_id, int) or message_id <= 0:
             raise CoreRuntimeError("trusted Hermes user message is unavailable")
+        return message_id, text
     raise CoreRuntimeError("trusted Hermes user message is unavailable")
 
 
@@ -100,9 +101,19 @@ READBACK_SCHEMA = _receipt_schema(
 REVOKE_SCHEMA = _receipt_schema(
     "donggu_core_revoke", "Revoke one still-planned receipt without calling the mutation helper.",
 )
-ACK_SCHEMA = _receipt_schema(
-    "donggu_core_ack", "Acknowledge a matching committed journal after verified local read-back.",
-)
+ACK_SCHEMA = {
+    "name": "donggu_core_ack",
+    "description": "Acknowledge a matching committed journal after DB completion and verified local read-back.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "receipt_id": {"type": "string"},
+            "completion_nonce": {"type": "string"},
+        },
+        "required": ["receipt_id", "completion_nonce"],
+        "additionalProperties": False,
+    },
+}
 
 
 def _ok(payload: Dict[str, Any]) -> str:
@@ -120,10 +131,15 @@ def handle_recovery_status(args: dict, **_kwargs) -> str:
         return _error(exc)
 
 
-def handle_plan(args: dict, **_kwargs) -> str:
+def handle_plan(args: dict, **kwargs) -> str:
     try:
+        session_id = _trusted_session_id(kwargs)
+        message_id, message_text = _latest_trusted_user_message(session_id)
         return _ok(_runtime().plan(
             Path(str(args.get("vault_root") or "")), args.get("envelope"),
+            session_id=session_id,
+            plan_message_id=message_id,
+            latest_user_text=message_text,
         ))
     except CoreRuntimeError as exc:
         return _error(exc)
@@ -139,9 +155,10 @@ def handle_receipt_status(args: dict, **_kwargs) -> str:
 def handle_apply(args: dict, **kwargs) -> str:
     try:
         session_id = _trusted_session_id(kwargs)
-        _message_id, message_text = _latest_trusted_user_message(session_id)
+        message_id, message_text = _latest_trusted_user_message(session_id)
         return _ok(_runtime().apply(
             str(args.get("receipt_id") or ""), latest_user_text=message_text,
+            session_id=session_id, user_message_id=message_id,
         ))
     except CoreRuntimeError as exc:
         return _error(exc)
@@ -163,6 +180,9 @@ def handle_revoke(args: dict, **_kwargs) -> str:
 
 def handle_ack(args: dict, **_kwargs) -> str:
     try:
-        return _ok(_runtime().ack(str(args.get("receipt_id") or "")))
+        return _ok(_runtime().ack(
+            str(args.get("receipt_id") or ""),
+            completion_nonce=str(args.get("completion_nonce") or ""),
+        ))
     except CoreRuntimeError as exc:
         return _error(exc)

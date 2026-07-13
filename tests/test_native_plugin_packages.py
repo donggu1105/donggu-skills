@@ -227,6 +227,27 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertEqual(3, message_id)
         self.assertEqual("", text)
 
+    def test_obsidian_latest_user_lookup_fails_closed_on_structured_latest_row(self):
+        module_name = "donggu_obsidian_structured_latest_message_test"
+        load_package(ROOT / "donggu-obsidian", module_name)
+        tools = importlib.import_module(f"{module_name}.tools")
+
+        class FakeSessionDB:
+            def get_messages(self, _session_id, limit=None):
+                return [
+                    {"id": 1, "role": "user", "content": "적용해줘"},
+                    {"id": 2, "role": "user", "content": [{"type": "text", "text": "other"}]},
+                ]
+
+            def close(self):
+                return None
+
+        fake_module = types.ModuleType("hermes_state")
+        setattr(fake_module, "SessionDB", FakeSessionDB)
+        with mock.patch.dict(sys.modules, {"hermes_state": fake_module}):
+            with self.assertRaises(tools.CoreRuntimeError):
+                tools._latest_trusted_user_message("session")
+
     def test_obsidian_registers_exact_native_tool_surface(self):
         package = load_package(ROOT / "donggu-obsidian", "donggu_obsidian_plugin_test")
         ctx = FakeContext()
@@ -250,10 +271,13 @@ class NativePluginPackageTests(unittest.TestCase):
         )
         for name in (
             "donggu_core_receipt_status", "donggu_core_apply", "donggu_core_readback",
-            "donggu_core_revoke", "donggu_core_ack",
+            "donggu_core_revoke",
         ):
             self.assertEqual(["receipt_id"], by_name[name]["schema"]["parameters"]["required"])
             self.assertEqual({"receipt_id"}, set(by_name[name]["schema"]["parameters"]["properties"]))
+        ack_parameters = by_name["donggu_core_ack"]["schema"]["parameters"]
+        self.assertEqual(["receipt_id", "completion_nonce"], ack_parameters["required"])
+        self.assertEqual({"receipt_id", "completion_nonce"}, set(ack_parameters["properties"]))
         self.assertTrue(all(item["toolset"] == "donggu_obsidian" for item in ctx.tools))
 
     def test_registered_obsidian_apply_reads_latest_natural_text_and_reaches_real_helper_once(self):
@@ -291,11 +315,11 @@ class NativePluginPackageTests(unittest.TestCase):
             runtime = runtime_module.CoreActionRuntime(
                 receipt_root=base / "receipts", helper_path=helper,
             )
-            plan = runtime.plan(vault, envelope)
             tools._RUNTIME = runtime
             ctx = FakeContext()
             package.register(ctx)
-            handler = next(item["handler"] for item in ctx.tools if item["name"] == "donggu_core_apply")
+            apply_handler = next(item["handler"] for item in ctx.tools if item["name"] == "donggu_core_apply")
+            plan_handler = next(item["handler"] for item in ctx.tools if item["name"] == "donggu_core_plan")
             original_run = runtime._run
             mutation_calls = []
 
@@ -304,12 +328,42 @@ class NativePluginPackageTests(unittest.TestCase):
                     mutation_calls.append(candidate_envelope["candidate_code"])
                 return original_run(root, candidate_envelope, *flags)
 
-            with mock.patch.object(tools, "_latest_trusted_user_message", return_value=(2, "적용해줘")), mock.patch.object(
+            rows = {
+                "persisted-session": [{"id": 1, "role": "user", "content": "수정안 보여줘"}],
+                "other-session": [{"id": 3, "role": "user", "content": "적용해줘"}],
+            }
+
+            class FakeSessionDB:
+                def get_messages(self, session_id, limit=None):
+                    return list(rows.get(session_id, []))
+
+                def close(self):
+                    return None
+
+            fake_module = types.ModuleType("hermes_state")
+            setattr(fake_module, "SessionDB", FakeSessionDB)
+            with mock.patch.dict(sys.modules, {"hermes_state": fake_module}), mock.patch.object(
                 runtime, "_run", side_effect=capture
             ):
-                payload = json.loads(handler(
-                    {"receipt_id": plan["receipt_id"]}, session_id="persisted-session",
+                first_plan = json.loads(plan_handler(
+                    {"vault_root": str(vault), "envelope": envelope}, session_id="persisted-session",
                 ))
+                second_plan = json.loads(plan_handler(
+                    {"vault_root": str(vault), "envelope": envelope}, session_id="persisted-session",
+                ))
+                self.assertTrue(first_plan["success"] and second_plan["success"])
+                rows["persisted-session"].append({"id": 2, "role": "user", "content": "적용해줘"})
+                cross_session = json.loads(apply_handler(
+                    {"receipt_id": first_plan["receipt_id"]}, session_id="other-session",
+                ))
+                self.assertFalse(cross_session["success"])
+                payload = json.loads(apply_handler(
+                    {"receipt_id": first_plan["receipt_id"]}, session_id="persisted-session",
+                ))
+                reused = json.loads(apply_handler(
+                    {"receipt_id": second_plan["receipt_id"]}, session_id="persisted-session",
+                ))
+            self.assertFalse(reused["success"])
             self.assertTrue(payload["success"])
             self.assertEqual("vault_committed_reconciliation_required", payload["status"])
             self.assertEqual(["CR-20260714-000001"], mutation_calls)

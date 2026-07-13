@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from typing import Any, Callable, Dict, Optional
 
 
@@ -41,7 +42,7 @@ _MAX_READBACK_FILE = 8 * 1024 * 1024
 _MAX_STATUS_BYTES = 4096
 _MAX_RECEIPT_TTL = 900
 _ALLOWED_RECEIPT_STATES = {
-    "planned", "applying", "reconciliation_required", "completed", "revoked", "ambiguous",
+    "planned", "applying", "reconciliation_required", "acknowledging", "completed", "revoked", "ambiguous",
 }
 _TERMINAL_APPLY_STATES = {"reconciliation_required", "completed", "revoked", "ambiguous"}
 _ALLOWED_VAULT_ROOTS = {"10_Sources", "20_Core", "40_Snippets", "50_Channel_Packs", "60_MOCs"}
@@ -80,6 +81,15 @@ class CoreReceiptStore:
             os.chmod(self.root, 0o700)
         except OSError:
             raise CoreReceiptError("receipt store is unavailable") from None
+        self.claim_root = self.root / ".message-claims"
+        try:
+            self.claim_root.mkdir(mode=0o700, exist_ok=True)
+            claim_info = self.claim_root.lstat()
+            if stat.S_ISLNK(claim_info.st_mode) or not stat.S_ISDIR(claim_info.st_mode):
+                raise CoreReceiptError("message claim store is unavailable")
+            os.chmod(self.claim_root, 0o700)
+        except OSError:
+            raise CoreReceiptError("message claim store is unavailable") from None
 
     def _path(self, receipt_id: str) -> Path:
         if not isinstance(receipt_id, str) or _RECEIPT_RE.fullmatch(receipt_id) is None:
@@ -220,6 +230,53 @@ class CoreReceiptStore:
                 validator(receipt)
             return self.transition(receipt, next_state, **updates)
 
+    def consume_message(self, session_id: str, message_id: int, receipt_id: str) -> None:
+        binding = {"session_id": session_id, "message_id": message_id, "receipt_id": receipt_id}
+        data = _canonical(binding)
+        name = hashlib.sha256(_canonical([session_id, message_id])).hexdigest() + ".json"
+        target = self.claim_root / name
+        descriptor, temp_name = tempfile.mkstemp(prefix=".claim-", dir=str(self.claim_root))
+        linked = False
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb", closefd=True) as stream:
+                descriptor = -1
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            try:
+                os.link(temp_name, target, follow_symlinks=False)
+                linked = True
+            except FileExistsError:
+                pass
+            if linked:
+                root_fd = os.open(self.claim_root, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
+                try:
+                    os.fsync(root_fd)
+                finally:
+                    os.close(root_fd)
+                return
+            existing_fd = os.open(target, os.O_RDONLY | _NOFOLLOW | _NONBLOCK)
+            try:
+                info = os.fstat(existing_fd)
+                existing = os.read(existing_fd, len(data) + 1)
+            finally:
+                os.close(existing_fd)
+            if stat.S_ISREG(info.st_mode) and existing == data:
+                return
+            raise CoreApprovalError("persisted apply message was already consumed")
+        except CoreApprovalError:
+            raise
+        except OSError:
+            raise CoreReceiptError("message claim store is unavailable") from None
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            try:
+                os.unlink(temp_name)
+            except OSError:
+                pass
+
 
 def _checked_vault_root(value: Path) -> tuple[Path, tuple[int, int]]:
     raw = os.path.expanduser(str(value))
@@ -286,6 +343,7 @@ def _receipt_binding_sha256(receipt: Dict[str, Any]) -> str:
     fields = (
         "vault_root", "vault_device", "vault_inode", "envelope", "envelope_sha256",
         "candidate_code", "source_sha256", "paths", "hashes", "transaction_sha256", "expires_at",
+        "session_id", "plan_message_id",
     )
     return _sha256({field: receipt.get(field) for field in fields})
 
@@ -443,9 +501,21 @@ class CoreActionRuntime:
         if not _valid_hash(expected) or not secrets.compare_digest(expected, _receipt_binding_sha256(receipt)):
             raise CoreReceiptError("receipt plan binding mismatch")
 
-    def plan(self, vault_root: Path, envelope: Any, **_legacy_context: Any) -> Dict[str, Any]:
-        # Older renderer fixtures pass trusted session metadata. The minimal
-        # receipt deliberately does not persist or authorize from those values.
+    def plan(
+        self,
+        vault_root: Path,
+        envelope: Any,
+        *,
+        session_id: str,
+        plan_message_id: int,
+        latest_user_text: str,
+    ) -> Dict[str, Any]:
+        if latest_user_text != "수정안 보여줘":
+            raise CoreApprovalError("latest persisted user text must exactly equal 수정안 보여줘")
+        if not isinstance(session_id, str) or not session_id:
+            raise CoreApprovalError("trusted plan session is invalid")
+        if isinstance(plan_message_id, bool) or not isinstance(plan_message_id, int) or plan_message_id <= 0:
+            raise CoreApprovalError("trusted plan message is invalid")
         if not isinstance(envelope, dict):
             raise CoreHelperError("CORE action envelope must be an object")
         root, identity = _checked_vault_root(vault_root)
@@ -468,6 +538,8 @@ class CoreActionRuntime:
             "paths": result.get("paths", []),
             "hashes": hashes,
             "transaction_sha256": _transaction_sha256(candidate_code, hashes),
+            "session_id": session_id,
+            "plan_message_id": plan_message_id,
             "expires_at": expires_at,
         }
         receipt_data["receipt_sha256"] = _receipt_binding_sha256(receipt_data)
@@ -490,12 +562,9 @@ class CoreActionRuntime:
             "candidate_code": receipt.get("candidate_code"),
             "source_sha256": receipt.get("source_sha256"),
             "envelope_sha256": receipt.get("envelope_sha256"),
-            "paths": receipt.get("paths"),
-            "hashes": receipt.get("hashes"),
+            "path_count": len(receipt.get("paths", [])) if isinstance(receipt.get("paths"), list) else 0,
             "expires_at": receipt.get("expires_at"),
         }
-        if len(_canonical(result)) > _MAX_STATUS_BYTES:
-            raise CoreReceiptError("receipt status is too large")
         return result
 
     @staticmethod
@@ -551,7 +620,7 @@ class CoreActionRuntime:
                 receipt, helper_status=helper_status, exit_code=exit_code,
             )
         clean = journal.get("state") == "no_transaction"
-        if clean and exit_code in {2, 3, 70}:
+        if clean and exit_code in {-1, 2, 3, 70}:
             result = {
                 "status": "revoked",
                 "operation_completed": False,
@@ -572,49 +641,101 @@ class CoreActionRuntime:
         self.store.transition(receipt, "ambiguous", result=result)
         return result
 
-    def apply(self, receipt_id: str, *, latest_user_text: str) -> Dict[str, Any]:
+    def _recover_applying(self, receipt: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            journal = self.recovery_status(Path(receipt["vault_root"]))
+        except CoreHelperError:
+            journal = {"state": "unknown", "candidate_code": None, "transaction_sha256": None}
+        if self._journal_matches(receipt, journal):
+            return self._committed_result(receipt, helper_status="recovered", exit_code=-1)
+        if journal.get("state") == "no_transaction":
+            result = {
+                "status": "revoked",
+                "operation_completed": False,
+                "receipt_id": receipt["receipt_id"],
+                "exit_code": -1,
+                "reason": "repreview_required_after_interrupted_apply",
+            }
+            self.store.transition(receipt, "revoked", result=result, envelope=None)
+            return result
+        result = {
+            "status": "ambiguous",
+            "operation_completed": False,
+            "receipt_id": receipt["receipt_id"],
+            "exit_code": -1,
+            "journal_state": journal.get("state"),
+            "reason": "interrupted_apply_outcome_unknown",
+        }
+        self.store.transition(receipt, "ambiguous", result=result)
+        return result
+
+    def apply(
+        self,
+        receipt_id: str,
+        *,
+        latest_user_text: str,
+        session_id: str,
+        user_message_id: int,
+    ) -> Dict[str, Any]:
         if latest_user_text != "적용해줘":
             raise CoreApprovalError("latest persisted user text must exactly equal 적용해줘")
-        observed = self.store.load(receipt_id)
-        if observed.get("state") in _TERMINAL_APPLY_STATES:
-            return self._stored_result(observed)
-        if observed.get("state") != "planned":
-            raise CoreReceiptError("receipt is not available for apply")
-        candidate_code = observed.get("candidate_code")
-        if not isinstance(candidate_code, str):
-            raise CoreReceiptError("receipt has no candidate code")
-        private_legacy_approval = f"{candidate_code} 승인"
-        self._validate_approval(private_legacy_approval, candidate_code)
-        receipt = self.store.claim(
-            receipt_id,
-            "planned",
-            "applying",
-            validator=self._validate_receipt_binding,
-            enforce_expiry=True,
-            approval_command="적용해줘",
-        )
-        try:
-            code, helper_result = self._run(Path(receipt["vault_root"]), receipt["envelope"])
-        except CoreHelperError:
-            return self._classify_apply_outcome(receipt, exit_code=-1)
-        if code == 0 and helper_result.get("status") == "applied":
+        if not isinstance(session_id, str) or not session_id:
+            raise CoreApprovalError("trusted apply session is invalid")
+        if isinstance(user_message_id, bool) or not isinstance(user_message_id, int) or user_message_id <= 0:
+            raise CoreApprovalError("trusted apply message is invalid")
+        with self.store._lock(receipt_id):
+            observed = self.store.load(receipt_id)
+            if observed.get("session_id") != session_id:
+                raise CoreApprovalError("apply must use the plan session")
+            plan_message_id = observed.get("plan_message_id")
+            if isinstance(plan_message_id, bool) or not isinstance(plan_message_id, int) or user_message_id <= plan_message_id:
+                raise CoreApprovalError("apply message must be strictly later than the plan message")
+            if observed.get("state") in _TERMINAL_APPLY_STATES:
+                if observed.get("approval_message_id") != user_message_id:
+                    raise CoreApprovalError("apply receipt is bound to a different persisted message")
+                return self._stored_result(observed)
+            if observed.get("state") == "applying":
+                if observed.get("approval_message_id") != user_message_id:
+                    raise CoreApprovalError("apply receipt is bound to a different persisted message")
+                return self._recover_applying(observed)
+            if observed.get("state") != "planned":
+                raise CoreReceiptError("receipt is not available for apply")
+            candidate_code = observed.get("candidate_code")
+            if not isinstance(candidate_code, str):
+                raise CoreReceiptError("receipt has no candidate code")
+            private_legacy_approval = f"{candidate_code} 승인"
+            self._validate_approval(private_legacy_approval, candidate_code)
+            self._validate_receipt_binding(observed)
+            self.store.load(receipt_id, require_state="planned", enforce_expiry=True)
+            self.store.consume_message(session_id, user_message_id, receipt_id)
+            receipt = self.store.transition(
+                observed,
+                "applying",
+                approval_command="적용해줘",
+                approval_message_id=user_message_id,
+            )
             try:
-                hashes = _validated_hashes(helper_result)
-                valid = (
-                    helper_result.get("candidate_code") == receipt.get("candidate_code")
-                    and helper_result.get("state") == "committed"
-                    and helper_result.get("paths") == receipt.get("paths")
-                    and hashes == receipt.get("hashes")
-                )
+                code, helper_result = self._run(Path(receipt["vault_root"]), receipt["envelope"])
             except CoreHelperError:
-                valid = False
-            if valid:
-                return self._committed_result(
-                    receipt, helper_status="applied", exit_code=0,
-                )
-        return self._classify_apply_outcome(
-            receipt, exit_code=code, helper_status=helper_result.get("status"),
-        )
+                return self._classify_apply_outcome(receipt, exit_code=-1)
+            if code == 0 and helper_result.get("status") == "applied":
+                try:
+                    hashes = _validated_hashes(helper_result)
+                    valid = (
+                        helper_result.get("candidate_code") == receipt.get("candidate_code")
+                        and helper_result.get("state") == "committed"
+                        and helper_result.get("paths") == receipt.get("paths")
+                        and hashes == receipt.get("hashes")
+                    )
+                except CoreHelperError:
+                    valid = False
+                if valid:
+                    return self._committed_result(
+                        receipt, helper_status="applied", exit_code=0,
+                    )
+            return self._classify_apply_outcome(
+                receipt, exit_code=code, helper_status=helper_result.get("status"),
+            )
 
     def _mark_ambiguous(self, receipt: Dict[str, Any], reason: str) -> None:
         result = {
@@ -702,73 +823,119 @@ class CoreActionRuntime:
             self.store.transition(receipt, "revoked", result=result, envelope=None)
             return result
 
-    def ack(self, receipt_id: str) -> Dict[str, Any]:
-        receipt = self.store.load(receipt_id)
-        if receipt.get("state") == "completed":
-            return self._stored_result(receipt)
-        if receipt.get("state") != "reconciliation_required" or receipt.get("readback_verified") is not True:
-            raise CoreReceiptError("ack requires verified local reconciliation")
-        journal = self.recovery_status(Path(receipt["vault_root"]))
-        if not self._journal_matches(receipt, journal):
-            self._mark_ambiguous(receipt, "journal_binding_mismatch")
-            raise CoreReceiptError("committed journal does not match receipt")
+    @staticmethod
+    def _validated_completion_nonce(value: Any) -> str:
+        if not isinstance(value, str):
+            raise CoreReceiptError("completion nonce must be a canonical UUID")
         try:
-            code, payload = self._run(
-                Path(receipt["vault_root"]), None, "--ack-candidate", str(receipt["candidate_code"]),
-            )
-        except CoreHelperError:
-            code, payload = -1, {}
-        if (
-            code == 0
-            and payload == {
-                "status": "acknowledged",
-                "state": "committed",
-                "candidate_code": receipt.get("candidate_code"),
-            }
-        ):
-            result = {
-                "status": "completed",
-                "operation_completed": True,
-                "receipt_id": receipt_id,
-                "candidate_code": receipt.get("candidate_code"),
-                "hashes": receipt.get("hashes"),
-            }
-            with self.store._lock(receipt_id):
-                current = self.store.load(receipt_id, require_state="reconciliation_required")
-                self.store.transition(current, "completed", result=result, envelope=None)
-            return result
-        if code == 6:
-            result = {
-                "status": "cleanup_retry_required",
-                "operation_completed": False,
-                "receipt_id": receipt_id,
-                "exit_code": 6,
-            }
-            with self.store._lock(receipt_id):
-                current = self.store.load(receipt_id, require_state="reconciliation_required")
-                self.store.transition(current, "reconciliation_required", ack_result=result)
-            return result
-        if code == 70:
-            result = {
-                "status": "ack_retry_required",
-                "operation_completed": False,
-                "receipt_id": receipt_id,
-                "exit_code": 70,
-            }
-            with self.store._lock(receipt_id):
-                current = self.store.load(receipt_id, require_state="reconciliation_required")
-                self.store.transition(current, "reconciliation_required", ack_result=result)
-            return result
+            parsed = uuid.UUID(value)
+        except (ValueError, AttributeError):
+            raise CoreReceiptError("completion nonce must be a canonical UUID") from None
+        if str(parsed) != value:
+            raise CoreReceiptError("completion nonce must be a canonical UUID")
+        return value
+
+    def _complete_ack(self, receipt: Dict[str, Any], completion_nonce: str) -> Dict[str, Any]:
         result = {
-            "status": "ambiguous",
-            "operation_completed": False,
-            "receipt_id": receipt_id,
-            "exit_code": code,
+            "status": "completed",
+            "operation_completed": True,
+            "receipt_id": receipt["receipt_id"],
+            "candidate_code": receipt.get("candidate_code"),
+            "hashes": receipt.get("hashes"),
+            "completion_nonce": completion_nonce,
         }
-        with self.store._lock(receipt_id):
-            current = self.store.load(receipt_id, require_state="reconciliation_required")
-            self.store.transition(current, "ambiguous", result=result)
+        self.store.transition(receipt, "completed", result=result, envelope=None)
         return result
+
+    def ack(self, receipt_id: str, *, completion_nonce: str) -> Dict[str, Any]:
+        nonce = self._validated_completion_nonce(completion_nonce)
+        with self.store._lock(receipt_id):
+            receipt = self.store.load(receipt_id)
+            if receipt.get("state") == "completed":
+                if receipt.get("completion_nonce") != nonce:
+                    raise CoreReceiptError("completion nonce does not match receipt")
+                return self._stored_result(receipt)
+            if receipt.get("state") not in {"reconciliation_required", "acknowledging"} or receipt.get("readback_verified") is not True:
+                raise CoreReceiptError("ack requires verified local reconciliation")
+            journal: Dict[str, Any]
+            if receipt.get("state") == "reconciliation_required":
+                try:
+                    journal = self.recovery_status(Path(receipt["vault_root"]))
+                except CoreHelperError:
+                    journal = {"state": "unknown", "candidate_code": None, "transaction_sha256": None}
+                if not self._journal_matches(receipt, journal):
+                    result = {
+                        "status": "ambiguous", "operation_completed": False,
+                        "receipt_id": receipt_id, "reason": "journal_binding_mismatch",
+                    }
+                    self.store.transition(receipt, "ambiguous", result=result)
+                    raise CoreReceiptError("committed journal does not match receipt")
+                receipt = self.store.transition(
+                    receipt, "acknowledging", completion_nonce=nonce,
+                )
+            else:
+                if receipt.get("completion_nonce") != nonce:
+                    raise CoreReceiptError("completion nonce does not match receipt")
+                try:
+                    journal = self.recovery_status(Path(receipt["vault_root"]))
+                except CoreHelperError:
+                    journal = {"state": "unknown", "candidate_code": None, "transaction_sha256": None}
+
+            if journal.get("state") == "no_transaction":
+                return self._complete_ack(receipt, nonce)
+            if not self._journal_matches(receipt, journal):
+                result = {
+                    "status": "ambiguous", "operation_completed": False,
+                    "receipt_id": receipt_id, "reason": "ack_journal_outcome_unknown",
+                    "journal_state": journal.get("state"),
+                }
+                self.store.transition(receipt, "ambiguous", result=result)
+                return result
+
+            try:
+                code, payload = self._run(
+                    Path(receipt["vault_root"]), None,
+                    "--ack-candidate", str(receipt["candidate_code"]),
+                )
+            except CoreHelperError:
+                code, payload = -1, {}
+            if (
+                code == 0
+                and payload == {
+                    "status": "acknowledged",
+                    "state": "committed",
+                    "candidate_code": receipt.get("candidate_code"),
+                }
+            ):
+                return self._complete_ack(receipt, nonce)
+
+            try:
+                after = self.recovery_status(Path(receipt["vault_root"]))
+            except CoreHelperError:
+                after = {"state": "unknown", "candidate_code": None, "transaction_sha256": None}
+            if after.get("state") == "no_transaction":
+                return self._complete_ack(receipt, nonce)
+            if self._journal_matches(receipt, after):
+                status = "cleanup_retry_required" if code == 6 else "ack_retry_required"
+                result = {
+                    "status": status,
+                    "operation_completed": False,
+                    "receipt_id": receipt_id,
+                    "completion_nonce": nonce,
+                    "exit_code": code,
+                }
+                self.store.transition(receipt, "acknowledging", ack_result=result)
+                return result
+            result = {
+                "status": "ambiguous",
+                "operation_completed": False,
+                "receipt_id": receipt_id,
+                "completion_nonce": nonce,
+                "exit_code": code,
+                "journal_state": after.get("state"),
+            }
+            self.store.transition(receipt, "ambiguous", result=result)
+            return result
 
     def recovery_status(self, vault_root: Path) -> Dict[str, Any]:
         root, _identity = _checked_vault_root(vault_root)
