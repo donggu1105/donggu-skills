@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[3]
 VALIDATOR = HERE.parent / "scripts" / "validate-conversation.py"
 RENDERER = HERE.parent / "scripts" / "render-preview.py"
+CORE_RUNTIME = ROOT / "donggu-obsidian" / "runtime" / "core_actions.py"
+APPLY_HELPER = HERE.parent / "scripts" / "apply-action.py"
 CHANNEL_ID = "1526033497100390641"
 USER_ID = "736583402244931584"
 
@@ -131,6 +136,17 @@ class ConversationValidatorTests(unittest.TestCase):
 
 
 class PreviewRendererTests(unittest.TestCase):
+    def load_core_runtime(self):
+        spec = importlib.util.spec_from_file_location(
+            "donggu_core_runtime_preview_tests", CORE_RUNTIME
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {CORE_RUNTIME}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+
     def replace_candidate(self, **updates):
         value = {
             "candidate_code": "CR-20260713-000001",
@@ -218,6 +234,19 @@ class PreviewRendererTests(unittest.TestCase):
         }
         value.update(updates)
         return value
+
+    def runtime_envelope(self, candidate):
+        action = candidate["proposed_changes"][0]
+        return {
+            "schema_version": 1,
+            "candidate_code": candidate["candidate_code"],
+            "candidate_type": candidate["candidate_type"],
+            "source_note_path": candidate["source_note_path"],
+            "source_sha256": candidate["source_sha256"],
+            "claim": candidate["claim"],
+            "target_note_paths": candidate["target_note_paths"],
+            "action": action,
+        }
 
     def run_renderer(self, candidate=None, plan=None, raw=None):
         payload = raw if raw is not None else compact({"candidate": candidate, "plan": plan})
@@ -344,6 +373,202 @@ class PreviewRendererTests(unittest.TestCase):
             with self.subTest(candidate=candidate):
                 plan_candidate = self.create_candidate() if candidate.get("candidate_type") == "new_core" else self.replace_candidate()
                 self.assert_render_invalid(candidate, self.plan(plan_candidate))
+
+    def test_renderer_rejects_structurally_unsafe_relative_paths(self):
+        bad_paths = (
+            "/Volumes/PrivateVault/secret.md",
+            "/opt/private/secret.md",
+            "~/Vault/secret.md",
+            "C:/Vault/secret.md",
+            "\\\\server\\share\\secret.md",
+            "file:10_Sources/secret.md",
+            "https://example.com/secret.md",
+            "urn:private:secret.md",
+            "10_Sources/../secret.md",
+            "10_Sources/./secret.md",
+            "10_Sources\\secret.md",
+            "10_Sources/e\u0301.md",
+            "10_Sources/safe\u202Egnidnep.md",
+            "10_Sources/private\ue000.md",
+            "10_Sources/unassigned\u0378.md",
+        )
+        for path in bad_paths:
+            with self.subTest(path=path):
+                candidate = self.replace_candidate(source_note_path=path)
+                self.assert_render_invalid(candidate, self.plan(candidate))
+
+    def test_renderer_requires_exact_bounded_wikilinks_and_claim_display_grammar(self):
+        malformed_links = (
+            ("prefix [[깨진 링크]]", "[[20_Core/정확한 대상|깨진 링크]]"),
+            ("[[깨진 링크]] suffix", "[[20_Core/정확한 대상|깨진 링크]]"),
+            ("[[깨진 링크]]", "**[[20_Core/정확한 대상|깨진 링크]]**"),
+            ("[[깨진 링크]]", "`[[20_Core/정확한 대상|깨진 링크]]`"),
+        )
+        for old, new in malformed_links:
+            with self.subTest(old=old, new=new):
+                candidate = self.replace_candidate(proposed_changes=[{
+                    "op": "replace", "schema_version": 1, "old": old, "new": new,
+                }])
+                self.assert_render_invalid(candidate, self.plan(candidate))
+
+        bad_claims = (
+            "claim/with/slash",
+            "claim\\with\\backslash",
+            "**강조 주장**",
+            "`코드 주장`",
+            "# 제목 주장",
+            "@everyone 알림",
+            "safe\u202Egnidnep",
+            "line\u2028separator",
+            "paragraph\u2029separator",
+            "private\ue000value",
+            "unassigned\u0378value",
+        )
+        for claim in bad_claims:
+            with self.subTest(claim=claim):
+                candidate = self.create_candidate(claim=claim)
+                self.assert_render_invalid(candidate, self.plan(candidate))
+        surrogate_candidate = self.create_candidate(claim="\ud800")
+        surrogate_raw = json.dumps(
+            {"candidate": surrogate_candidate, "plan": {}},
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        self.assert_render_invalid(raw=surrogate_raw)
+
+    def test_renderer_rejects_actual_receipt_id_anywhere_in_public_content(self):
+        receipt_id = "ReceiptCapabilityAllLettersOnly"
+        candidate = self.replace_candidate(proposed_changes=[{
+            "op": "replace",
+            "schema_version": 1,
+            "old": f"[[{receipt_id}]]",
+            "new": "[[20_Core/정확한 대상|깨진 링크]]",
+        }])
+        self.assert_render_invalid(candidate, self.plan(candidate, receipt_id=receipt_id))
+
+    def test_real_runtime_plan_renders_safely_without_source_bytes_or_mtime_changes(self):
+        module = self.load_core_runtime()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            vault = base / "vault"
+            for root in ("10_Sources", "20_Core", "40_Snippets", "50_Channel_Packs", "60_MOCs"):
+                (vault / root).mkdir(parents=True)
+            candidate = self.replace_candidate(
+                source_note_path="10_Sources/source.md",
+                target_note_paths=["20_Core/Target.md"],
+                proposed_changes=[{
+                    "op": "replace",
+                    "schema_version": 1,
+                    "old": "[[Broken]]",
+                    "new": "[[20_Core/Target|Broken]]",
+                }],
+            )
+            source = vault / candidate["source_note_path"]
+            source_bytes = b"---\ntype: source\n---\n\n[[Broken]]\n"
+            source.write_bytes(source_bytes)
+            (vault / "20_Core/Target.md").write_text("target\n", encoding="utf-8")
+            candidate["source_sha256"] = hashlib.sha256(source_bytes).hexdigest()
+            before = (source.read_bytes(), source.stat().st_mtime_ns)
+            runtime = module.CoreActionRuntime(
+                receipt_root=base / "receipts",
+                helper_path=APPLY_HELPER,
+            )
+
+            plan = runtime.plan(
+                vault,
+                self.runtime_envelope(candidate),
+                session_id="preview-session",
+                turn_id="preview-turn",
+                user_message_id=1,
+            )
+            self.assertEqual(
+                {"status", "receipt_id", "expires_at", "candidate_code", "envelope_sha256", "paths", "hashes"},
+                set(plan),
+            )
+            proc = self.run_renderer(candidate, plan)
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            result = json.loads(proc.stdout)
+            self.assertEqual(self.expected_preview_hash(candidate, plan), result["preview_hash"])
+            self.assertNotIn(plan["receipt_id"], result["content"])
+            self.assertEqual(before, (source.read_bytes(), source.stat().st_mtime_ns))
+
+    def test_real_runtime_bound_malicious_visible_fields_are_rejected_without_leak(self):
+        module = self.load_core_runtime()
+        malicious_values = (
+            "/Volumes/PrivateVault/secret.md",
+            "/opt/private/secret.md",
+            "-----BEGIN PRIVATE KEY-----",
+            "AKIAIOSFODNN7EXAMPLE",
+            "sk-proj-AbCdEf0123456789AbCdEf0123456789",
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+            "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.",
+            "aB3dE5fG7hJ9kL2mN4pQ6rS8tV0xY1zC",
+            "api key",
+            "access key",
+            "credential",
+            "token",
+            "password",
+            "private key",
+            "@everyone",
+            "@here",
+            "hello@world",
+            "<@123456>",
+            "<@&123456>",
+            "<#123456>",
+            "**markdown**",
+            "`inline code`",
+            "# heading",
+            "safe\u202Egnidnep",
+            "line\u2028separator",
+            "paragraph\u2029separator",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            vault = base / "vault"
+            for root in ("10_Sources", "20_Core", "40_Snippets", "50_Channel_Packs", "60_MOCs"):
+                (vault / root).mkdir(parents=True)
+            (vault / "20_Core/Target.md").write_text("target\n", encoding="utf-8")
+            runtime = module.CoreActionRuntime(
+                receipt_root=base / "receipts",
+                helper_path=APPLY_HELPER,
+            )
+            for index, malicious in enumerate(malicious_values):
+                with self.subTest(malicious=malicious):
+                    source_rel = f"10_Sources/source-{index}.md"
+                    source = vault / source_rel
+                    old = f"[[20_Core/Target|{malicious}]]"
+                    source_bytes = f"---\ntype: source\n---\n\n{old}\n".encode("utf-8")
+                    source.write_bytes(source_bytes)
+                    candidate = self.replace_candidate(
+                        candidate_code=f"CR-20260713-{index + 100:06d}",
+                        source_note_path=source_rel,
+                        source_sha256=hashlib.sha256(source_bytes).hexdigest(),
+                        target_note_paths=["20_Core/Target.md"],
+                        proposed_changes=[{
+                            "op": "replace",
+                            "schema_version": 1,
+                            "old": old,
+                            "new": "[[20_Core/Target]]",
+                        }],
+                    )
+                    before = (source.read_bytes(), source.stat().st_mtime_ns)
+                    plan = runtime.plan(
+                        vault,
+                        self.runtime_envelope(candidate),
+                        session_id="preview-session",
+                        turn_id=f"preview-turn-{index}",
+                        user_message_id=index + 1,
+                    )
+                    self.assertEqual(
+                        {"status", "receipt_id", "expires_at", "candidate_code", "envelope_sha256", "paths", "hashes"},
+                        set(plan),
+                    )
+                    proc = self.run_renderer(candidate, plan)
+                    self.assertEqual(2, proc.returncode)
+                    self.assertEqual(b"", proc.stdout)
+                    self.assertEqual(b"preview rendering failed\n", proc.stderr)
+                    self.assertNotIn(malicious, (proc.stdout + proc.stderr).decode("utf-8"))
+                    self.assertEqual(before, (source.read_bytes(), source.stat().st_mtime_ns))
 
     def test_renderer_rejects_extra_duplicate_malformed_and_deep_json_generically(self):
         candidate = self.replace_candidate()
