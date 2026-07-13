@@ -207,14 +207,14 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             "### Apply — `적용해줘`", 1
         )[0]
         ordered = (
-            "`thread_open`",
-            "recovery preflight",
-            "`proposed`",
-            "`source_sha256`",
-            "`donggu_core_plan`",
+            "`donggu_core_recovery_status(vault_root)`",
+            "`state=no_transaction`",
+            "`donggu_core_plan(vault_root, envelope)`",
+            "handler itself binds the exact plan `session_id` and persisted preview message row",
             "`render-preview.py`",
-            "`save_core_review_preview(...)`",
-            "post only the returned `content`",
+            "`prepare_core_review_preview(...)`",
+            "Discord send",
+            "`complete_core_review_preview_delivery(...)`",
         )
         positions = [preview.index(token) for token in ordered]
         self.assertEqual(sorted(positions), positions)
@@ -225,48 +225,56 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             "exact 8-key envelope",
             "receipt_id",
             "preview_hash",
-            "15 minutes",
+            "native absolute `expires_at`",
+            "actual Discord message ID",
+            "`mark_core_review_preview_delivery_ambiguous(...)`",
+            "never resend automatically",
             "Vault changes: 0",
         ):
             with self.subTest(contract=contract):
                 self.assertIn(contract, preview)
+        self.assertNotIn("preview_message_id", preview.split("Discord send", 1)[0])
 
-    def test_core_approval_apply_claims_before_internal_approval_and_apply(self):
+    def test_core_approval_apply_uses_db_claim_complete_nonce_and_ack_order(self):
         approval = self.skills["approval"]
         apply = approval.split("### Apply — `적용해줘`", 1)[1].split(
             "### Hold and reject", 1
         )[0]
         ordered = (
             "`previewed`",
-            "unexpired",
-            "recovery preflight",
+            "`sent`",
             "`claim_core_review_conversation_apply(...)`",
             "`previewed → applying`",
             "`proposed → processing`",
-            'approval_text = f"{candidate_code} 승인"',
             "`donggu_core_apply(receipt_id)`",
-            "after-hash read-back",
-            "`complete_core_review_conversation(..., 'applied', ...)`",
-            "`--ack-candidate`",
+            "`donggu_core_readback(receipt_id)`",
+            "n8n generates one canonical UUID `completion_nonce`",
+            "`complete_core_review_conversation(...)`",
+            "`donggu_core_ack(receipt_id, completion_nonce)`",
+            "`confirm_core_review_native_ack(...)`",
+            "final `donggu_core_receipt_status(receipt_id)`",
+            "`donggu_core_recovery_status(vault_root)`",
         )
         positions = [apply.index(token) for token in ordered]
         self.assertEqual(sorted(positions), positions)
         for contract in (
             "source_sha256",
             "preview_hash",
+            "envelope_hash",
             "exactly 1 row",
-            "duplicate apply",
-            "never synthesize it from arbitrary natural language",
+            "same nonce",
             "exit 70",
-            "exit 4",
             "exit 5",
             "exit 6",
-            "never retry apply blindly",
+            "never call apply again",
+            "release",
+            "revoke",
+            "ambiguous",
         ):
             with self.subTest(contract=contract):
                 self.assertIn(contract, apply)
 
-    def test_core_approval_terminal_and_legacy_paths_cannot_bypass_thread_state(self):
+    def test_core_approval_trust_terminal_and_legacy_boundaries_are_explicit(self):
         approval = self.skills["approval"]
         terminal = approval.split("### Hold and reject", 1)[1].split(
             "## Legacy entry gate", 1
@@ -283,6 +291,21 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             "A candidate bound to a conversation thread may never use this legacy path",
             approval,
         )
+        for trust_contract in (
+            "deterministic n8n workflow owns DB claim/complete ordering",
+            "native plugin does not independently authenticate DB state",
+            "Direct manual apply/ack tool calls outside the mapped workflow are unsupported",
+        ):
+            with self.subTest(trust_contract=trust_contract):
+                self.assertIn(trust_contract, approval)
+        for removed in (
+            "hmac",
+            "signed capability",
+            "secret manager",
+            "receipt capability",
+        ):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, approval.lower())
         self.assertIn("blanket or multi-candidate approval is forbidden", approval)
         self.assertIn("Never expose candidate code, receipt_id", approval)
         self.assertIn("Never mutate Vault files directly", approval)

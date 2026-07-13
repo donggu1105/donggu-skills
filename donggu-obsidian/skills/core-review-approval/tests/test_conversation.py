@@ -225,7 +225,7 @@ class PreviewRendererTests(unittest.TestCase):
         ).hexdigest()
         value = {
             "status": "planned",
-            "receipt_id": "privateReceiptCapability_1234567890",
+            "receipt_id": "privateReceiptIdentifier_1234567890",
             "expires_at": 2000000000,
             "candidate_code": candidate["candidate_code"],
             "envelope_sha256": envelope_sha256,
@@ -291,7 +291,7 @@ class PreviewRendererTests(unittest.TestCase):
         content = result["content"]
         self.assertLessEqual(len(content), 1800)
         self.assertNotIn(candidate["candidate_code"], content)
-        self.assertNotIn("privateReceiptCapability", content)
+        self.assertNotIn("privateReceiptIdentifier", content)
         self.assertNotIn("/Users/", content)
         for forbidden in ("drift", "recommend_only", "unsupported apply"):
             self.assertNotIn(forbidden, content.casefold())
