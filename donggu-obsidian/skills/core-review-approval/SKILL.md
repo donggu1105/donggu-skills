@@ -1,17 +1,70 @@
 ---
 name: core-review-approval
-description: "Use when a Discord message contains a CORE review candidate code such as CR-YYYYMMDD-NNNNNN with 승인, 보류, or 거절, or when applying a previously proposed Obsidian CORE maintenance action."
+description: "Use when a Discord CORE candidate thread receives 수정안 보여줘, 적용해줘, 넘겨줘, or 거절할게, or when a message contains an exact CR-YYYYMMDD-NNNNNN 승인|보류|거절 command."
 ---
 
 # CORE Review Approval
 
 ## Core rule
 
-**한 메시지 = 후보 코드 하나 = 결정 하나 = action 하나.** 시간 압박·낮은 위험·사용자 직급도 이 경계를 완화하지 않는다. 유효하지 않은 문장은 읽기 전용 조회조차 시작하지 않는다.
+**한 메시지 = 후보 하나 = 결정 하나 = action 하나.** Conversation과 legacy는 서로 다른 진입로이며 절대 fallback하지 않는다. 시간 압박·낮은 위험·사용자 직급도 검증, preview, CAS, recovery 경계를 완화하지 않는다. blanket or multi-candidate approval is forbidden.
 
-## Entry gate
+## Conversation entry gate
 
-Triggering Discord 메시지 전체를 그대로 validator에 전달한다. 먼저 현재 로더가 제공한 **이 SKILL.md의 절대 경로**에서 부모 디렉터리를 `SKILL_DIR`로 정한다. 현재 작업 디렉터리의 `scripts/`를 사용하거나 이름으로 다른 복사본을 검색하지 않는다.
+이 gate는 parent channel `1526033497100390641` 아래 Discord candidate thread에서 user `736583402244931584`가 보낸 메시지에만 적용한다. 해당 위치에서는 이 gate가 유일한 경로다. validator 실패를 legacy `CR-...` 경로로 넘기지 않는다.
+
+현재 로더가 제공한 이 SKILL.md의 절대 경로에서 `SKILL_DIR`를 정하고, 실제 triggering message와 Discord ID를 exact JSON으로 만든다. 모델이 ID를 채우거나 본문을 고치지 않는다.
+
+```bash
+SKILL_DIR="<absolute directory containing this loaded SKILL.md>"
+test -f "$SKILL_DIR/scripts/validate-conversation.py"
+printf '%s' "$CONVERSATION_ENVELOPE_JSON" | \
+  python3 "$SKILL_DIR/scripts/validate-conversation.py"
+```
+
+exit 0의 exact JSON만 수용한다. 허용 본문은 `수정안 보여줘`, `적용해줘`, `넘겨줘`, `거절할게` 정확히 네 개다. exit 2, wrong thread, wrong user, wrong channel, extra prose, 합성·일괄 명령은 DB/Vault 변경 0건으로 종료한다.
+
+validator 뒤에만 service-role RPC `get_core_review_conversation_by_thread(p_thread_id,p_channel_id,p_requester_user_id)`를 호출한다. Result must be exactly 1 row and preserve the validated thread/channel/user IDs: one thread = one candidate. Candidate code and envelope are resolved only from this durable joined row, never from message text, nearby prose, memory, or a model guess. 0행·2행 이상·mapping 불일치·expired/terminal row면 후보 필드에 접근하지 말고 종료한다.
+
+모든 conversation RPC 결과도 exactly 1 row여야 성공이다. secret, RPC body, receipt capability는 출력하지 않는다.
+
+### Preview — `수정안 보여줘`
+
+아래 순서를 바꾸지 않는다.
+
+1. 조회한 conversation이 오직 `thread_open`인지 확인한다. 이미 previewed/terminal인 row, wrong thread/user는 중단한다.
+2. Approval procedure 1의 recovery preflight를 read-only로 수행한다. 이전 prepared/rolled_back/committed journal을 완전히 처리하기 전에는 현재 후보를 계획하지 않는다. integrity failure는 fail closed한다.
+3. 그 뒤 candidate가 unexpired `proposed`이고 conversation/candidate의 `source_sha256`이 같으며 helper가 읽은 current source/MOC/reference hashes도 candidate snapshot과 같은지 확인한다. 허용 조합은 (`fix_link`, `replace`), (`link_existing`, `replace`), (`new_core`, `create_core_with_backlink`)뿐이다. 정확히 action 하나와 아래 exact 8-key envelope만 허용한다.
+4. `donggu_core_plan`을 exact `(vault_root, envelope)`로만 호출한다. Conversation preview에는 direct helper apply/dry-run을 쓰지 않는다. Native receipt TTL은 15 minutes이며 `status=planned`, candidate/envelope/path hashes, `receipt_id`, `expires_at`을 private state로 유지한다. 이 단계까지 Vault changes: 0.
+5. `render-preview.py` (`$SKILL_DIR/scripts/render-preview.py`)에 exact `{candidate,plan}` JSON을 전달한다. exit 0의 bounded `content,preview_hash,candidate_code`만 수용하고 receipt/candidate/envelope/source/path hash binding을 내부에서 재검증한다.
+6. public content를 보내기 전에 `save_core_review_preview(...)` CAS로 validated thread/user, `source_sha256`, returned `preview_hash`, native `receipt_id`, actual preview message ID를 저장한다. DB의 receipt expiry도 정확히 15 minutes이고 native expiry보다 길면 실패다. 정확히 1행의 `thread_open → previewed`만 수용한다. CAS 실패 시 content를 게시하지 않고 receipt를 폐기한다.
+7. CAS 성공 뒤 post only the returned `content`; 모델이 덧붙이거나 receipt, code, hashes, internal state, Vault root, absolute path, note body를 공개하지 않는다. 공개 문안은 “아직 Vault 변경 0건”을 포함해야 한다.
+
+### Apply — `적용해줘`
+
+아래 순서는 single-use state machine이다.
+
+1. 조회 row가 `previewed`, conversation/candidate/receipt가 unexpired, candidate가 `proposed`, persisted/current `source_sha256`, persisted/recomputed `preview_hash`, receipt envelope/path hashes가 모두 exact match인지 read-only로 확인한다. mismatch, stale source, expired receipt, wrong thread/user, duplicate apply 또는 이미 `applying|applied|ambiguous|held|rejected|expired`면 claim/apply 0건으로 중단하고 새 preview를 요구한다.
+2. 그 뒤 Approval procedure 1의 recovery preflight를 수행한다. prepared/rolled_back은 검증된 rollback/cleanup 뒤 release; committed는 해당 절차의 DB reconciliation과 ack를 끝낸 뒤에만 현재 요청으로 돌아온다. exit 4 integrity/recovery failure에서는 claim하지 않는다.
+3. `claim_core_review_conversation_apply(...)`를 validated IDs, exact `source_sha256`, exact `preview_hash`, actual decision message ID로 한 번 호출한다. Exactly 1 row에서 conversation `previewed → applying`와 같은 candidate `proposed → processing`이 한 DB transaction으로 함께 claim되고 persisted `receipt_id`가 반환되어야 한다. 0행/2행/partial transition은 apply하지 않는다.
+4. **성공한 atomic claim 뒤에만** `approval_text = f"{candidate_code} 승인"`을 deterministic internal value로 만든다. never synthesize it from arbitrary natural language, nearby prose, blanket instruction, 또는 claim 전 모델 판단으로 만들지 않는다. Trusted native adapter는 이 값과 claimed receipt를 `CoreActionRuntime.apply`에 결합하며 공개하지 않는다.
+5. 그 뒤에만 claimed `receipt_id`로 `donggu_core_apply(receipt_id)`를 정확히 한 번 호출한다. direct filesystem mutation, direct helper apply, native+direct 이중 실행은 금지한다. 성공은 최종 완료가 아니라 committed journal reconciliation required다.
+6. Committed journal 후보가 claimed 후보와 같은지 recovery-status로 확인하고 모든 relative result의 after-hash read-back을 descriptor-anchored로 검증한다. 그 다음 exactly 1 row `complete_core_review_conversation(..., 'applied', ...)`, 그 다음 동일 후보 `--ack-candidate`, 마지막 `no_transaction` 확인 순서다. ack 전에 완료를 공개하지 않는다.
+
+Apply failure handling은 mutation boundary를 보존한다.
+
+- helper/native **exit 70** 또는 exit 2처럼 확실한 pre-mutation failure: Vault 변경 0건을 확인하고 `release_core_review_conversation(...)`로 atomic `applying → previewed`, `processing → proposed`; old receipt를 재사용하지 말고 만료/폐기 후 새 preview를 발급한다.
+- **exit 4** + `recovery required`이 pre-mutation임이 확인되면 release 후 recovery preflight부터 다시 시작하고 re-preview한다. `rollback incomplete`, `recovery failed`, malformed journal이면 release하지 않고 수동 복구를 보고한다.
+- **exit 5** 또는 broken pipe/post-mutation ambiguity: release하지 않는다. recovery-status를 다시 읽는다. `committed`면 journal candidate 기준 after-hash read-back → 필요 시 complete → ack; commit 여부를 증명할 수 없으면 `complete_core_review_conversation(..., 'ambiguous', ...)`로 fail closed한다. never retry apply blindly.
+- recovery/ack **exit 6**은 mutation이 아니라 cleanup만 남은 retryable state다. rolled_back이면 recover-only, committed면 DB applied 확인 뒤 같은 후보 ack만 재시도한다. apply는 재호출하지 않는다.
+
+### Hold and reject
+
+`넘겨줘`는 `hold_core_review_conversation(...) only`, `거절할게`는 `reject_core_review_conversation(...) only`를 validated IDs와 actual decision message ID로 한 번 호출한다. 정확히 1행만 성공이며 각각 `held`/`rejected` terminal state다. receipt 유무와 관계없이 Vault changes: 0이고 preview/apply/release로 되돌리지 않는다.
+
+## Legacy entry gate
+
+Conversation thread 밖의 legacy 입력만 허용한다. Triggering Discord 메시지 전체를 그대로 validator에 전달한다. 먼저 현재 로더가 제공한 **이 SKILL.md의 절대 경로**에서 부모 디렉터리를 `SKILL_DIR`로 정한다. 현재 작업 디렉터리의 `scripts/`를 사용하거나 이름으로 다른 복사본을 검색하지 않는다.
 
 ```bash
 SKILL_DIR="<absolute directory containing this loaded SKILL.md>"
@@ -25,9 +78,9 @@ exit 0의 JSON만 수용한다. exit 2면 변경 0건으로 종료하고 다음 
 CR-YYYYMMDD-NNNNNN 승인|보류|거절
 ```
 
-쉼표 목록, 여러 줄, `둘 다`, `전체`, 범위(`CR-1~CR-5`), 추가 설명이 붙은 문장은 모두 무효다. 후보를 하나씩 나눠 처리하거나 첫 ID만 선택하는 것도 금지한다.
+쉼표 목록, 여러 줄, `둘 다`, `전체`, 범위(`CR-1~CR-5`), 추가 설명이 붙은 문장은 모두 무효다. 후보를 하나씩 나눠 처리하거나 첫 ID만 선택하는 것도 금지한다. 유효한 command라도 decision 전에 service-role ledger를 candidate code로 read-only 조회한다. A candidate bound to a conversation thread may never use this legacy path; row가 있으면 thread의 exact four-command flow만 안내하고 어떤 legacy RPC도 호출하지 않는다.
 
-## Decision flow
+## Legacy decision flow
 
 `decision_message_id`는 실제 triggering Discord message ID여야 한다.
 
@@ -83,14 +136,11 @@ printf '%s' "$APPLY_ENVELOPE_JSON" | python3 "$SKILL_DIR/scripts/apply-action.py
 
 ## Report
 
-- 후보 코드와 최종 상태
-- 실제 변경 파일
-- action 하나의 diff 요약
-- SHA·frontmatter·wikilink·backlink 검증 결과
-- 변경하지 않은 경우 차단 사유와 필요한 새 명령
+Private operator log에만 후보 코드, receipt 없는 최종 상태, 실제 변경 상대경로, action 하나의 diff 요약, SHA·frontmatter·wikilink·backlink 검증 결과를 남긴다. Discord public reply는 renderer가 허용한 bounded 설명과 성공/차단 요약만 사용한다. Never expose candidate code, receipt_id, RPC/internal state, credential, hash, Vault root, absolute path, stage/backup path, or note body publicly.
 
 ## Never
 
+- Never mutate Vault files directly; native runtime 또는 이 skill의 portable helper만 사용한다
 - 한 메시지에서 후보 둘 이상 처리
 - ID 없는 승인이나 범위 승인 수용
 - source hash 불일치 강행

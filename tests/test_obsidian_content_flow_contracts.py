@@ -171,6 +171,122 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
                         self.assertNotIn(phrase.lower(), text.lower())
                 self.assertNotRegex(text, contradictory_instruction)
 
+    def test_core_approval_conversation_gate_is_context_first_and_exact(self):
+        approval = self.skills["approval"]
+        gate = approval.split("## Conversation entry gate", 1)[1].split(
+            "## Legacy entry gate", 1
+        )[0]
+
+        self.assertLess(
+            approval.index("## Conversation entry gate"),
+            approval.index("## Legacy entry gate"),
+        )
+        for command in ("수정안 보여줘", "적용해줘", "넘겨줘", "거절할게"):
+            with self.subTest(command=command):
+                self.assertIn(f"`{command}`", gate)
+        for binding in (
+            "validate-conversation.py",
+            'SKILL_DIR="<absolute directory containing this loaded SKILL.md>"',
+            "1526033497100390641",
+            "736583402244931584",
+            "get_core_review_conversation_by_thread",
+            "exactly 1 row",
+            "one thread = one candidate",
+            "never from message text, nearby prose, memory, or a model guess",
+        ):
+            with self.subTest(binding=binding):
+                self.assertIn(binding, gate)
+        self.assertLess(
+            gate.index("validate-conversation.py"),
+            gate.index("get_core_review_conversation_by_thread"),
+        )
+
+    def test_core_approval_preview_is_native_bound_and_zero_write(self):
+        approval = self.skills["approval"]
+        preview = approval.split("### Preview — `수정안 보여줘`", 1)[1].split(
+            "### Apply — `적용해줘`", 1
+        )[0]
+        ordered = (
+            "`thread_open`",
+            "recovery preflight",
+            "`proposed`",
+            "`source_sha256`",
+            "`donggu_core_plan`",
+            "`render-preview.py`",
+            "`save_core_review_preview(...)`",
+            "post only the returned `content`",
+        )
+        positions = [preview.index(token) for token in ordered]
+        self.assertEqual(sorted(positions), positions)
+        for contract in (
+            "(`fix_link`, `replace`)",
+            "(`link_existing`, `replace`)",
+            "(`new_core`, `create_core_with_backlink`)",
+            "exact 8-key envelope",
+            "receipt_id",
+            "preview_hash",
+            "15 minutes",
+            "Vault changes: 0",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, preview)
+
+    def test_core_approval_apply_claims_before_internal_approval_and_apply(self):
+        approval = self.skills["approval"]
+        apply = approval.split("### Apply — `적용해줘`", 1)[1].split(
+            "### Hold and reject", 1
+        )[0]
+        ordered = (
+            "`previewed`",
+            "unexpired",
+            "recovery preflight",
+            "`claim_core_review_conversation_apply(...)`",
+            "`previewed → applying`",
+            "`proposed → processing`",
+            'approval_text = f"{candidate_code} 승인"',
+            "`donggu_core_apply(receipt_id)`",
+            "after-hash read-back",
+            "`complete_core_review_conversation(..., 'applied', ...)`",
+            "`--ack-candidate`",
+        )
+        positions = [apply.index(token) for token in ordered]
+        self.assertEqual(sorted(positions), positions)
+        for contract in (
+            "source_sha256",
+            "preview_hash",
+            "exactly 1 row",
+            "duplicate apply",
+            "never synthesize it from arbitrary natural language",
+            "exit 70",
+            "exit 4",
+            "exit 5",
+            "exit 6",
+            "never retry apply blindly",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, apply)
+
+    def test_core_approval_terminal_and_legacy_paths_cannot_bypass_thread_state(self):
+        approval = self.skills["approval"]
+        terminal = approval.split("### Hold and reject", 1)[1].split(
+            "## Legacy entry gate", 1
+        )[0]
+        for contract in (
+            "hold_core_review_conversation(...) only",
+            "reject_core_review_conversation(...) only",
+            "terminal",
+            "Vault changes: 0",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, terminal)
+        self.assertIn(
+            "A candidate bound to a conversation thread may never use this legacy path",
+            approval,
+        )
+        self.assertIn("blanket or multi-candidate approval is forbidden", approval)
+        self.assertIn("Never expose candidate code, receipt_id", approval)
+        self.assertIn("Never mutate Vault files directly", approval)
+
     def test_changed_plugin_versions_match_marketplace(self):
         marketplace = json.loads(
             (REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
