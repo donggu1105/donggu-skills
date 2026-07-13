@@ -177,7 +177,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-obsidian", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("1.6.1", claude["version"])
+        self.assertEqual("1.7.0", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_obsidian_latest_user_lookup_reads_past_first_fifty_messages(self):
@@ -203,17 +203,117 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertEqual(60, message_id)
         self.assertEqual("message-60", text)
 
+    def test_obsidian_latest_user_lookup_does_not_fall_back_past_blank_latest_row(self):
+        module_name = "donggu_obsidian_blank_latest_message_test"
+        load_package(ROOT / "donggu-obsidian", module_name)
+        tools = importlib.import_module(f"{module_name}.tools")
+        messages = [
+            {"id": 1, "role": "user", "content": "적용해줘"},
+            {"id": 2, "role": "assistant", "content": "working"},
+            {"id": 3, "role": "user", "content": ""},
+        ]
+
+        class FakeSessionDB:
+            def get_messages(self, _session_id, limit=None):
+                return messages
+
+            def close(self):
+                return None
+
+        fake_module = types.ModuleType("hermes_state")
+        setattr(fake_module, "SessionDB", FakeSessionDB)
+        with mock.patch.dict(sys.modules, {"hermes_state": fake_module}):
+            message_id, text = tools._latest_trusted_user_message("session")
+        self.assertEqual(3, message_id)
+        self.assertEqual("", text)
+
     def test_obsidian_registers_exact_native_tool_surface(self):
         package = load_package(ROOT / "donggu-obsidian", "donggu_obsidian_plugin_test")
         ctx = FakeContext()
         package.register(ctx)
         self.assertEqual(
-            ["donggu_core_plan", "donggu_core_apply", "donggu_core_recovery_status"],
+            [
+                "donggu_core_recovery_status",
+                "donggu_core_plan",
+                "donggu_core_receipt_status",
+                "donggu_core_apply",
+                "donggu_core_readback",
+                "donggu_core_revoke",
+                "donggu_core_ack",
+            ],
             [item["name"] for item in ctx.tools],
         )
-        apply_tool = next(item for item in ctx.tools if item["name"] == "donggu_core_apply")
-        self.assertEqual(["receipt_id"], apply_tool["schema"]["parameters"]["required"])
+        by_name = {item["name"]: item for item in ctx.tools}
+        self.assertEqual(
+            ["vault_root", "envelope"],
+            by_name["donggu_core_plan"]["schema"]["parameters"]["required"],
+        )
+        for name in (
+            "donggu_core_receipt_status", "donggu_core_apply", "donggu_core_readback",
+            "donggu_core_revoke", "donggu_core_ack",
+        ):
+            self.assertEqual(["receipt_id"], by_name[name]["schema"]["parameters"]["required"])
+            self.assertEqual({"receipt_id"}, set(by_name[name]["schema"]["parameters"]["properties"]))
         self.assertTrue(all(item["toolset"] == "donggu_obsidian" for item in ctx.tools))
+
+    def test_registered_obsidian_apply_reads_latest_natural_text_and_reaches_real_helper_once(self):
+        module_name = "donggu_obsidian_registered_apply_test"
+        package = load_package(ROOT / "donggu-obsidian", module_name)
+        tools = importlib.import_module(module_name + ".tools")
+        runtime_module = importlib.import_module(module_name + ".runtime")
+        helper = ROOT / "donggu-obsidian" / "skills" / "core-review-approval" / "scripts" / "apply-action.py"
+
+        import hashlib
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            vault = base / "vault"
+            for name in ("10_Sources", "20_Core", "50_Channel_Packs", "60_MOCs"):
+                (vault / name).mkdir(parents=True)
+            source_rel = "10_Sources/source.md"
+            source_bytes = b"---\ntype: source\nextracted_to: []\n---\n\n[[Broken]]\n"
+            (vault / source_rel).write_bytes(source_bytes)
+            target_rel = "20_Core/Target.md"
+            (vault / target_rel).write_text("target\n", encoding="utf-8")
+            envelope = {
+                "schema_version": 1,
+                "candidate_code": "CR-20260714-000001",
+                "candidate_type": "fix_link",
+                "source_note_path": source_rel,
+                "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+                "claim": "A claim",
+                "target_note_paths": [target_rel],
+                "action": {
+                    "op": "replace", "schema_version": 1,
+                    "old": "[[Broken]]", "new": "[[20_Core/Target]]",
+                },
+            }
+            runtime = runtime_module.CoreActionRuntime(
+                receipt_root=base / "receipts", helper_path=helper,
+            )
+            plan = runtime.plan(vault, envelope)
+            tools._RUNTIME = runtime
+            ctx = FakeContext()
+            package.register(ctx)
+            handler = next(item["handler"] for item in ctx.tools if item["name"] == "donggu_core_apply")
+            original_run = runtime._run
+            mutation_calls = []
+
+            def capture(root, candidate_envelope, *flags):
+                if candidate_envelope is not None and not flags:
+                    mutation_calls.append(candidate_envelope["candidate_code"])
+                return original_run(root, candidate_envelope, *flags)
+
+            with mock.patch.object(tools, "_latest_trusted_user_message", return_value=(2, "적용해줘")), mock.patch.object(
+                runtime, "_run", side_effect=capture
+            ):
+                payload = json.loads(handler(
+                    {"receipt_id": plan["receipt_id"]}, session_id="persisted-session",
+                ))
+            self.assertTrue(payload["success"])
+            self.assertEqual("vault_committed_reconciliation_required", payload["status"])
+            self.assertEqual(["CR-20260714-000001"], mutation_calls)
+            self.assertIn("[[20_Core/Target]]", (vault / source_rel).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -2,37 +2,60 @@
 from __future__ import annotations
 
 from .tools import (
+    ACK_SCHEMA,
     APPLY_SCHEMA,
     PLAN_SCHEMA,
-    STATUS_SCHEMA,
+    READBACK_SCHEMA,
+    RECEIPT_STATUS_SCHEMA,
+    RECOVERY_STATUS_SCHEMA,
+    REVOKE_SCHEMA,
+    handle_ack,
     handle_apply,
     handle_plan,
+    handle_readback,
+    handle_receipt_status,
     handle_recovery_status,
+    handle_revoke,
 )
 
 
 def register(ctx) -> None:
-    ctx.register_tool(
-        name="donggu_core_plan",
-        toolset="donggu_obsidian",
-        schema=PLAN_SCHEMA,
-        handler=handle_plan,
-        description="Run the crash-atomic helper in zero-write dry-run mode and bind the exact action to a receipt.",
-        emoji="🧪",
-    )
-    ctx.register_tool(
-        name="donggu_core_apply",
-        toolset="donggu_obsidian",
-        schema=APPLY_SCHEMA,
-        handler=handle_apply,
-        description="Commit a DB-claimed CORE action to the Vault; DB completion and journal acknowledgement remain mandatory.",
-        emoji="🧠",
-    )
-    ctx.register_tool(
-        name="donggu_core_recovery_status",
-        toolset="donggu_obsidian",
-        schema=STATUS_SCHEMA,
-        handler=handle_recovery_status,
-        description="Read the CORE helper's durable journal state without changing the Vault.",
-        emoji="🩺",
-    )
+    registrations = [
+        (
+            "donggu_core_recovery_status", RECOVERY_STATUS_SCHEMA, handle_recovery_status,
+            "Read the helper journal state without changing the Vault.", "🩺",
+        ),
+        (
+            "donggu_core_plan", PLAN_SCHEMA, handle_plan,
+            "Create a zero-write, absolute-expiry local receipt.", "🧪",
+        ),
+        (
+            "donggu_core_receipt_status", RECEIPT_STATUS_SCHEMA, handle_receipt_status,
+            "Inspect bounded private receipt state without mutation.", "🧾",
+        ),
+        (
+            "donggu_core_apply", APPLY_SCHEMA, handle_apply,
+            "Apply one receipt after exact persisted natural-language confirmation.", "🧠",
+        ),
+        (
+            "donggu_core_readback", READBACK_SCHEMA, handle_readback,
+            "Read actual after hashes through descriptor-relative paths.", "🔎",
+        ),
+        (
+            "donggu_core_revoke", REVOKE_SCHEMA, handle_revoke,
+            "Revoke a planned receipt without invoking the helper.", "🚫",
+        ),
+        (
+            "donggu_core_ack", ACK_SCHEMA, handle_ack,
+            "Clean a matching committed journal after verified read-back.", "✅",
+        ),
+    ]
+    for name, schema, handler, description, emoji in registrations:
+        ctx.register_tool(
+            name=name,
+            toolset="donggu_obsidian",
+            schema=schema,
+            handler=handler,
+            description=description,
+            emoji=emoji,
+        )

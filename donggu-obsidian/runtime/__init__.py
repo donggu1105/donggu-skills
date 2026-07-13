@@ -1,10 +1,11 @@
-"""Shared CORE action runtime for the dual-harness Obsidian package."""
+"""Shared minimal CORE receipt runtime for the dual-harness Obsidian package."""
 
 from .core_actions import (
     CoreActionRuntime,
     CoreApprovalError,
     CoreHelperError,
     CoreReceiptError,
+    CoreReceiptStore,
     CoreRuntimeError,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "CoreApprovalError",
     "CoreHelperError",
     "CoreReceiptError",
+    "CoreReceiptStore",
     "CoreRuntimeError",
 ]
