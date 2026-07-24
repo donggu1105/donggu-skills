@@ -1,6 +1,6 @@
 manifest_version: 1
 name: donggu-sns
-version: "2.5.1"
+version: "2.6.0"
 description: "Native publishing adapter with HMAC receipts, trusted later-turn approval, Maily confirmation, fixed webhook routing, and durable published_posts reconciliation. Claude publishing mutation is fail-closed; its bridge is preview-only."
 author: "강동현 (donggu)"
 kind: standalone

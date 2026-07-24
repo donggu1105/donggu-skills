@@ -23,7 +23,7 @@ Content *formats* are NOT defined here — each channel's note structure is owne
 
 ```
 "<topic> <channel>에 올려줘"
-  1. Find note(s):  Personal Branding/50_Channel_Packs/1_SNS/<folder>/<채널> - <topic>.md
+  1. Find note(s):  Personal Branding/50_Channel_Packs/<folder>/<채널> - <topic>.md
      folder→channel: Blog→tistory · Maily→maily · Threads→threads · LinkedIn→linkedin · Instagram→instagram
      │
      ├─ note MISSING ──► DO NOT stop and ask for a filename.

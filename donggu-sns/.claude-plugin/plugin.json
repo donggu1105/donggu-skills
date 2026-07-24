@@ -1,6 +1,6 @@
 {
   "name": "donggu-sns",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "description": "SNS and YouTube editorial operations — channel-specific writing, Longform + Shorts Pack planning, production safety, analytics retrospectives, CORE reconciliation, visual artifact creation, and gated publishing. Boundary: writing = words, youtube = editorial pack, make = artifacts, publish = ship.",
   "author": {
     "name": "강동현 (donggu)",

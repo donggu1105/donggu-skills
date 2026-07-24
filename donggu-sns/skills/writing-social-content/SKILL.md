@@ -34,7 +34,7 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 | **threads** | `VOICE - Threads` | 500자 / 5~7타래 | 친근 반말 | 5~7줄 짧은 호흡, 미완 끝맺음, 링크 첫 댓글 | `Threads/...` · 발행 = `## 발행`(아래) |
 | **maily** | `VOICE - Maily` | 뉴스레터 편지 | 편지체 | 인사 → `### 소제목` 본문 → "오늘 한 가지만" → 맺음 | `Maily/...` · 발행 = `## 발행`(아래) |
 
-> 경로 베이스: `Personal Branding/50_Channel_Packs/1_SNS/<채널>/`. 각 채널 `_anchors/`에 VOICE·CHANNEL_GUIDE. (WINNING_PATTERNS는 폐기 — 추상 combo가 글을 평균값으로 끌어당김. 보이스는 VOICE의 `canon:` 정전 글로 학습한다.)
+> 경로 베이스: `Personal Branding/50_Channel_Packs/<채널>/`. 각 채널 `_anchors/`에 VOICE·CHANNEL_GUIDE. (WINNING_PATTERNS는 폐기 — 추상 combo가 글을 평균값으로 끌어당김. 보이스는 VOICE의 `canon:` 정전 글로 학습한다.)
 > ⚠️ x: 한국어/영어 풀은 **같은 시간 발행 금지**(SimClusters 다름).
 
 ## Workflow (공통)
@@ -59,7 +59,7 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 - **blog: 본문 확정 후 이미지 배치**(아래 [블로그 이미지 배치]) — 동구님이 찍은 캡처가 없을 때만
 
 ### 4. 저장
-- Path: `1_SNS/<채널>/<채널> - <title>.md`
+- Path: `50_Channel_Packs/<채널>/<채널> - <title>.md`
 - frontmatter 계약:
   ```yaml
   type: channel_pack

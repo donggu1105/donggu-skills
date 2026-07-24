@@ -58,7 +58,7 @@ YouTube 채널 운영 → youtube (baoyu transcript + thumbnail design 라우팅
 채널마다 *고유 voice 자산*(VOICE·CHANNEL_GUIDE)과 **정전(canon) 글**을 학습해 일관 유지 — 같은 채널엔 같은 톤, 쓸수록 voice 정착:
 
 ```
-Personal Branding/50_Channel_Packs/1_SNS/<channel>/
+Personal Branding/50_Channel_Packs/<channel>/
 ├── _anchors/
 │   ├── CHANNEL_GUIDE - <channel>.md     📜 룰 (분량·후크·알고리즘; Blog는 없음)
 │   └── VOICE - <channel>.md             🎤 하드룰 + 정전(canon) 글 포인터 (보이스는 실제 글로 학습)
@@ -73,8 +73,8 @@ Personal Branding/50_Channel_Packs/1_SNS/<channel>/
 
 ```
 Personal Branding/
-├── 50_Channel_Packs/1_SNS/
-│   ├── INDEX - SNS.md           도메인 매뉴얼
+├── 50_Channel_Packs/
+│   ├── INDEX - Channels.md           도메인 매뉴얼
 │   ├── Blog/ LinkedIn/ X/ Threads/ Maily/   (각 _anchors/ + 발행 글)
 │   └── Instagram/               (make-insta-card-news 카드)
 ├── 20_Core/                     atomic claims (CORE 인용 시)
@@ -82,7 +82,7 @@ Personal Branding/
 └── 70_Projects/                 프로젝트 메타 (옵션)
 ```
 
-자세한 path·frontmatter 스키마: vault `Personal Branding/50_Channel_Packs/1_SNS/INDEX - SNS.md`
+자세한 path·frontmatter 스키마: vault `Personal Branding/50_Channel_Packs/INDEX - Channels.md`
 
 ---
 
