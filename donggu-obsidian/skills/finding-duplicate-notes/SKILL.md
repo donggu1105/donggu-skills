@@ -117,7 +117,7 @@ Date: YYYY-MM-DD · Checked all 5 patterns
 | Judging subtle snippet differences as duplicates | Hook variants are intentional per channel / audience. Same opening 5 words ≠ duplicate |
 | Bulk-archiving absorbed notes | The body may still hold alias / citation value. Confirm via callout first |
 | Searching common frontmatter values | `simple_search "status: archived"` blows up tokens. Bypass with folder + sampling |
-| Bulk status changes without opening each note | A duplicate pair's old note often self-declares "리프레시 버전 있음 · 비교·기록용" in its **first callout** — bulk-marking it `published` fabricates a publish record. Read the first callout before ANY status flip: 기록용·리프레시 구버전 → `archived`, never `published` (2026-07-03 실제 사고: 카지노 딜러 리프레시 페어 양쪽이 published로 찍혔다가 교정) |
+| Bulk status changes without opening each note | A duplicate pair's old note often self-declares "리프레시 버전 있음 · 비교·기록용" in its **first callout** — bulk-marking it `published` fabricates a publish record. Read the first callout before ANY status flip: 기록용·리프레시 구버전은 `published`로 바꾸지 않는다 (채널 글 status enum은 볼트 규칙 문서를 따른다) (2026-07-03 실제 사고: 카지노 딜러 리프레시 페어 양쪽이 published로 찍혔다가 교정) |
 
 ## Red Flags — STOP
 
@@ -183,7 +183,7 @@ Atomicity conventions differ per PKM system:
 - **PARA**: atomicity rule is weaker (Projects/Areas are containers)
 - **Personal Branding vault**: CORE = atomic POV, so apply strictly
 
-Read the guide note (e.g. `_GUIDES/CONTENT_PIPELINE.md`) first to confirm the atomicity rule before starting the check.
+Read the guide note (e.g. `_GUIDES/RULES.md`) first to confirm the atomicity rule before starting the check. 볼트 정본이 이 스킬과 다르면 볼트를 따른다.
 
 ## Related Skills
 

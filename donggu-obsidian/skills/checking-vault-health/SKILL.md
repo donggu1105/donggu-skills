@@ -59,8 +59,8 @@ Daily care는 metadata-all과 대표 content sample만 읽는다. `00_Inbox`의 
 3. **Refinement check (both directions)** — Forward: `simple_search` for `"extracted_to: \[\]"` to list capture notes never extracted (if the vault stamps `extracted_to`); identify SOURCEs with 0 citations for 1+ weeks. Reverse: posts written first must extract parts back — check `decomposed_to:` on recent packs (see step 7)
 4. **Guide violations** — frontmatter `type` enum violations, anti-patterns (e.g. a published Channel Pack left with neither cited parts nor `decomposed_to` backfill)
 5. **Link integrity** — broken wikilinks, especially comma/whitespace typo patterns (e.g. `[[CORE - X 판단은 사람]]` vs `[[CORE - X, 판단은 사람]]`)
-6. **Stub backlog** — `status: draft` or `status: stub` + `created < (today - 2 weeks)`
-7. **Canon consistency (output side)** — sample the 3-5 most recent `status: published` Channel Packs. Each must anchor to canon in at least one direction: cites ≥1 CORE (`core_principle` field or a 부품/parts section) OR lists extractions in `decomposed_to:`. Spot-check voice fields (register, pillar) against the vault's `canon: true` reference posts. Flag anchorless packs as orphan output (P1)
+6. **Stub backlog** — `status: draft` + `created < (today - 2 weeks)` (볼트가 별도 stub 상태를 쓰면 포함)
+7. **Canon consistency (output side)** — sample the 3-5 most recent `status: published` Channel Packs. Each must anchor to canon in at least one direction: cites ≥1 CORE (`core_principle` field or a 부품/parts section) OR lists extractions in `decomposed_to:`. Spot-check voice fields (register, topics) against the vault's `canon: true` reference posts. Note anchorless packs as informational — 볼트 규칙(RULES:21)상 CORE 환원은 의무 게이트가 아니라 extract-core의 제안 대상이므로 차단(P1) 플래그를 걸지 않는다
 8. **MOC threshold** — same topic appears in 5+ notes but no MOC exists (Nick Milo's rule)
 9. **1-3 positive signals** — for balance, identify what's working well
 
@@ -121,7 +121,7 @@ P priority:
 | Reading the same frontmatter key 50 times | Use metadata batch retrieval or search |
 | Searching directly for common frontmatter values | Searches like `simple_search "status: draft"` blow up to 100k+ token results. **Constrain by enum value + folder** (e.g. `obsidian_list_files_in_dir "20_Core"` then sample with batch_get_file_contents) |
 | Report exceeds 5000 chars | 5 lines max per P, one-line summary is literally 1 line |
-| Bulk status remediation right after the audit | Before flipping any status (e.g. drafting→published), read each note's **first callout** — 기록용/리프레시 구버전은 `archived`가 맞지 `published`가 아니다 (2026-07-03 사고: 리프레시 페어 구버전에 가짜 발행 기록이 찍힘) |
+| Bulk status remediation right after the audit | Before flipping any status (e.g. draft→published), read each note's **first callout** — 기록용/리프레시 구버전은 `archived`가 맞지 `published`가 아니다 (2026-07-03 사고: 리프레시 페어 구버전에 가짜 발행 기록이 찍힘) |
 | Flagging "post written before its parts" as a violation | The reverse flow is legitimate: write the post first, then extract parts into `decomposed_to:`. Only flag packs with NEITHER citations NOR `decomposed_to` |
 | Recommending engagement-metric backfill (views/likes/comments/saves/shares) | Deliberately removed 2026-07-07 as overengineering. CASE selection is manual judgment — never resurrect these fields |
 | Looking for journal folders at all | Build Journals were retired (2026-07-07). Entry health = inbox capture within the last 7 days; never recommend restarting a journal ritual |
@@ -162,7 +162,7 @@ P priority:
 
 **Finding**: Of the 5 most recent published packs, 2 cite no CORE and have an empty `decomposed_to:`.
 **Impact**: Posts aren't feeding back into canon — the flywheel (글 → 부품 역추출 → 다음 글) breaks silently.
-**Action**: For each orphan, extract 1-3 parts (Hook / Lesson / CORE) and backfill `decomposed_to:`. If nothing is extractable, the post may be off-canon — review its register/pillar against the `canon: true` posts.
+**Action**: For each orphan, extract 1-3 parts (Hook / Lesson / CORE) and backfill `decomposed_to:`. If nothing is extractable, the post may be off-canon — review its register against the `canon: true` posts.
 ```
 
 ## Vault-Specific Context
@@ -174,7 +174,7 @@ Layer mapping differs by PKM system. The skill is the framework; the mapping dep
 - **Zettelkasten**: Fleeting → Literature → Permanent → Drafts
 - **Second Brain (CODE)**: Capture → Organize → Distill → Express
 
-Read the vault's guide note (e.g. `_GUIDES/CONTENT_PIPELINE.md`) or CLAUDE.md first to lock in the layer mapping before starting the check.
+Read the vault's guide note (e.g. `_GUIDES/RULES.md`) or CLAUDE.md first to lock in the layer mapping before starting the check. 볼트 정본이 이 스킬과 다르면 볼트를 따른다.
 
 ## Related Skills (auto-chain)
 
