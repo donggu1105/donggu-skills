@@ -1,13 +1,13 @@
 ---
 name: decompose-canon
-description: Use when a finished vault post is explicitly selected as a best/canon piece and its reusable CORE or Snippet parts should be evaluated as metadata-only candidates. Not for routine published-content review or capture review (use extract-core).
+description: Use when a finished vault post is explicitly selected as a best/canon piece and its reusable CORE parts should be evaluated as metadata-only candidates. Not for routine published-content review or capture review (use extract-core).
 ---
 
 # Decompose Canon (정전 역분해)
 
 ## Overview
 
-One proven post → a FEW reusable atom proposals (CORE + 40_Snippets parts) with planned back-links. Good posts can feed future writing, but this skill only reads, evaluates, and creates candidate metadata.
+One proven post → a FEW reusable atom proposals (CORE 후보) with planned back-links. Good posts can feed future writing, but this skill only reads, evaluates, and creates candidate metadata.
 
 **Core principle: link before new, 동구's actual words over reworded prose, candidate before mutation.** A post is not a quarry for 15 notes. Find existing atoms first.
 
@@ -20,7 +20,7 @@ One proven post → a FEW reusable atom proposals (CORE + 40_Snippets parts) wit
 ## When to Use
 
 - A post is marked `canon` / "이건 내 좋은 글" and the user explicitly requests decomposition
-- A canon post's reusable CORE/Snippet parts need evaluation
+- A canon post's reusable CORE parts need evaluation
 - Existing atom-bank overlap and bidirectional-link proposals need review
 
 ## When NOT to Use
@@ -35,11 +35,11 @@ One proven post → a FEW reusable atom proposals (CORE + 40_Snippets parts) wit
 1. **Read the post's canon body** (`## Draft` / `## 발행` / 본문) and existing parts metadata, read-only.
 2. **Search the vault first:**
    - `20_Core/` — existing claim coverage; prefer `LINK` over `NEW`
-   - `40_Snippets/` — existing near-verbatim parts
+   - `60_Projects/Teaching/PARTS - *.md` — 기존 강의 부품 (읽기 전용 · recommendation-only)
    - `50_MOCs/` — existing hub metadata; never create a new MOC here
 3. **Form draft proposals without writes:**
    - **CORE** — score with `extract-core`'s 5 criteria. Healthy yield 1-2 per post.
-   - **Snippet** — HOOK / ONE / PROOF / LESSON, near-verbatim. Score reuse, self-containment, voice, and overlap.
+   - **Teaching 부품** — Hook / Closing / Confession / Demo, 실제 문장 그대로. **recommendation-only.** Score reuse, self-containment, voice, and overlap.
 4. **Classify every proposal:** `LINK`, `NEW`, `MERGE`, `HOLD`, or `FLAG`, and name the existing atom/MOC relationship.
 5. **Persist one metadata-only candidate per source/action.** Never combine atom creation, source backfill, MOC wiring, VOICE changes, or cleanup in one candidate.
 6. **Show candidate codes and stop.** Natural-language choices such as "CORE 1 채택" are feedback only; they are not approval and trigger no write.
@@ -64,15 +64,17 @@ Candidate report shape:
 
 후보 생성 뒤 종료한다. 정확히 `CR-YYYYMMDD-NNNNNN 승인|보류|거절` 형식의 후보 ID별 메시지만 `core-review-approval`에 전달한다. 쉼표 목록, 범위, `전체 승인`, `다 적용`, 자연어 채택은 무효이며 blanket approval로 해석하지 않는다.
 
-`core-review-approval`이 현재 결정적으로 지원하는 `new_core`/`link_existing`/`fix_link` action만 그 스킬 내부 검증을 통과할 수 있다. Snippet 신설, `MERGE`, 포스트 부품표·`canon`·VOICE 수정처럼 지원되지 않는 제안은 `skill_drift`/해당 queue enum 후보로만 남기고 승인돼도 release/re-evaluation할 뿐 Vault를 변경하지 않는다. 이 스킬은 helper를 호출하거나 파일을 생성·수정·이동·삭제하지 않는다. **STOP.**
+`core-review-approval`이 현재 결정적으로 지원하는 `new_core`/`link_existing`/`fix_link` action만 그 스킬 내부 검증을 통과할 수 있다. Teaching 부품 신설, `MERGE`, 포스트 부품표·`canon`·VOICE 수정처럼 지원되지 않는 제안은 `skill_drift`/해당 queue enum 후보로만 남기고 승인돼도 release/re-evaluation할 뿐 Vault를 변경하지 않는다. 이 스킬은 helper를 호출하거나 파일을 생성·수정·이동·삭제하지 않는다. **STOP.**
+
+> `teaching_part` 제안이 recommendation-only인 것은 편의가 아니라 **설계이며 코드로 이중 강제된다**: ① `render-preview.py:67`의 `FORBIDDEN_TERMS = ("drift", "recommend_only", "unsupported apply")`가 해당 preview 렌더 자체를 거부한다. ② 실행 가능 후보로 승격을 시도해도 `apply-action.py`의 `if op != "create_core_with_backlink" or candidate_type != "new_core": raise ValidationError()` (L497-498)가 **apply 진입 전에** 지원되지 않는 op/candidate_type을 거부한다 — 부품 제안 shape은 `candidate_type: skill_drift`이므로 여기서 죽는다. 이 스킬은 어느 쪽도 우회하지 않는다.
 
 ## Proposed atom shape (review reference only)
 
 ```yaml
 candidate_type: skill_drift
 proposal:
-  atom_kind: snippet
-  snippet_type: hook
+  atom_kind: teaching_part
+  part_type: hook
   claim: "팔란티어와 Clay. 둘 다 잘 만들어서 이긴 회사가 아니다."
   source_note_path: 40_Channel_Packs/...
   planned_links:
@@ -100,4 +102,4 @@ This is candidate metadata, not a note template and not permission to create a f
 - 자연어 선택을 승인으로 간주함 → 무효, 변경 0건
 - 여러 후보를 한 번에 승인하려 함 → 후보 ID별 한 메시지만 허용
 - 새 atom, post, MOC, VOICE 파일을 직접 만지려 함 → 이 스킬 범위 밖
-- 지원되지 않는 Snippet/merge action을 직접 보완하려 함 → `core-review-approval` re-evaluation로 종료
+- 지원되지 않는 Teaching 부품/merge action을 직접 보완하려 함 → `core-review-approval` re-evaluation로 종료
