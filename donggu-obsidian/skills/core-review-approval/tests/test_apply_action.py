@@ -24,7 +24,7 @@ class ApplyActionTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        for name in ("10_Sources", "20_Core", "50_Channel_Packs", "60_MOCs"):
+        for name in ("10_Sources", "20_Core", "40_Channel_Packs", "50_MOCs"):
             (self.root / name).mkdir()
         self.source_rel = "10_Sources/source.md"
         self.source = self.root / self.source_rel
@@ -55,7 +55,7 @@ class ApplyActionTests(unittest.TestCase):
             "schema_version": 1,
             "template_version": 1,
             "core_path": "20_Core/CORE - A claim.md",
-            "moc_path": "60_MOCs/MOC - Topic.md",
+            "moc_path": "50_MOCs/MOC - Topic.md",
             "moc_sha256": "",
             "trace_field": "extracted_to",
         }
@@ -224,7 +224,7 @@ class ApplyActionTests(unittest.TestCase):
 
     def test_create_requires_new_core_and_fixed_root_trace_mapping(self):
         self.assert_validation(self.run_helper(self.core_envelope(candidate_type="fix_link")))
-        pack_rel = "50_Channel_Packs/post.md"
+        pack_rel = "40_Channel_Packs/post.md"
         pack = self.root / pack_rel
         pack_bytes = b"---\ntype: channel_pack\ndecomposed_to: []\n---\n\nPost\n"
         pack.write_bytes(pack_bytes)
@@ -244,7 +244,7 @@ class ApplyActionTests(unittest.TestCase):
         self.assertIn("template_version: 1", text)
         self.assertIn("A claim", text)
         self.assertIn("[[10_Sources/source]]", text)
-        self.assertIn("[[60_MOCs/MOC - Topic]]", text)
+        self.assertIn("[[50_MOCs/MOC - Topic]]", text)
         self.assertIn("[[20_Core/CORE - A claim]]", self.source.read_text(encoding="utf-8"))
         moc_text = (self.root / env["action"]["moc_path"]).read_text(encoding="utf-8")
         self.assertIn("## 연결된 CORE", moc_text)
@@ -255,7 +255,7 @@ class ApplyActionTests(unittest.TestCase):
 
     def test_create_appends_to_existing_moc_section_and_frontmatter_block_list(self):
         self.source.write_bytes(b"---\ntype: source\nextracted_to:\n  - \"[[20_Core/old]]\"\n---\nBody\n")
-        moc = self.root / "60_MOCs/MOC - Topic.md"
+        moc = self.root / "50_MOCs/MOC - Topic.md"
         moc.write_bytes("# Topic\n\n## 연결된 CORE\n\n- [[20_Core/old]]\n\n## Other\nText\n".encode("utf-8"))
         env = self.core_envelope(source_bytes=self.source.read_bytes())
         env["action"]["moc_sha256"] = sha(moc.read_bytes())
@@ -388,7 +388,7 @@ class ApplyActionTests(unittest.TestCase):
         self.assertLess(text.index("extracted_to:"), text.index("---", 4))
 
     def test_moc_heading_alias_and_canonical_link_duplicates(self):
-        moc = self.root / "60_MOCs/MOC - Topic.md"
+        moc = self.root / "50_MOCs/MOC - Topic.md"
         moc.write_text("# Topic\n\n## 💡 Core 연결\n\n- [[20_Core/old]]\n", encoding="utf-8")
         env = self.core_envelope()
         env["action"]["moc_sha256"] = sha(moc.read_bytes())

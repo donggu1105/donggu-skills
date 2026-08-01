@@ -181,7 +181,7 @@ class MinimalApprovalBehavioralTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.base = Path(self.tmp.name)
         self.vault = self.base / "vault"
-        for name in ("10_Sources", "20_Core", "40_Snippets", "50_Channel_Packs", "60_MOCs"):
+        for name in ("10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"):
             (self.vault / name).mkdir(parents=True)
         self.source_rel = "10_Sources/source.md"
         self.source_bytes = b"---\ntype: source\n---\n\n[[Broken]]\n"

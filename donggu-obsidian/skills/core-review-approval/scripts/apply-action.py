@@ -18,7 +18,7 @@ MAX_FILE = 8 * 1024 * 1024
 MAX_TEXT_FIELD = 64 * 1024
 MAX_TARGETS = 20
 JOURNAL = ".core-review-journal.json"
-ALLOWED_ROOTS = ("10_Sources", "20_Core", "40_Snippets", "50_Channel_Packs", "60_MOCs")
+ALLOWED_ROOTS = ("10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs")
 CANDIDATE_TYPES = {"new_core", "link_existing", "merge", "fix_link", "classify", "status_cleanup", "skill_drift"}
 ENVELOPE_KEYS = {
     "schema_version", "candidate_code", "candidate_type", "source_note_path",
@@ -496,7 +496,7 @@ def prepare(root: Path, env: Dict[str, object]) -> Tuple[Dict[str, PathRef], Dic
 
     if op != "create_core_with_backlink" or candidate_type != "new_core":
         raise ValidationError()
-    if source_root not in ("10_Sources", "50_Channel_Packs"):
+    if source_root not in ("10_Sources", "40_Channel_Packs"):
         raise ValidationError()
     exact_keys(action, CREATE_KEYS)
     if (type(action["schema_version"]) is not int or type(action["template_version"]) is not int or
@@ -506,7 +506,7 @@ def prepare(root: Path, env: Dict[str, object]) -> Tuple[Dict[str, PathRef], Dic
     if action["trace_field"] != expected_trace:
         raise ValidationError()
     core_rel, core_parts = safe_relative(action["core_path"], "20_Core")
-    moc_rel, moc_parts = safe_relative(action["moc_path"], "60_MOCs")
+    moc_rel, moc_parts = safe_relative(action["moc_path"], "50_MOCs")
     targets = env["target_note_paths"]
     if not isinstance(targets, list) or targets != sorted([core_rel, moc_rel]) or len(targets) != 2:
         raise ValidationError()
@@ -779,7 +779,7 @@ def cas_install(ref: PathRef, original: Optional[bytes], desired: bytes, stage: 
 
 
 def apply_changes(candidate_code: str, paths: Dict[str, PathRef], originals: Dict[str, Optional[bytes]], desired: Dict[str, bytes]) -> int:
-    order = sorted(desired, key=lambda rel: 0 if rel.startswith("20_Core/") else (1 if rel.startswith(("10_Sources/", "50_Channel_Packs/")) else 2))
+    order = sorted(desired, key=lambda rel: 0 if rel.startswith("20_Core/") else (1 if rel.startswith(("10_Sources/", "40_Channel_Packs/")) else 2))
     stages: Dict[str, str] = {}
     backups: Dict[str, Optional[str]] = {}
     journal_installed = False

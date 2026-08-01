@@ -36,7 +36,7 @@ One proven post → a FEW reusable atom proposals (CORE + 40_Snippets parts) wit
 2. **Search the vault first:**
    - `20_Core/` — existing claim coverage; prefer `LINK` over `NEW`
    - `40_Snippets/` — existing near-verbatim parts
-   - `60_MOCs/` — existing hub metadata; never create a new MOC here
+   - `50_MOCs/` — existing hub metadata; never create a new MOC here
 3. **Form draft proposals without writes:**
    - **CORE** — score with `extract-core`'s 5 criteria. Healthy yield 1-2 per post.
    - **Snippet** — HOOK / ONE / PROOF / LESSON, near-verbatim. Score reuse, self-containment, voice, and overlap.
@@ -49,7 +49,7 @@ Candidate report shape:
 ```text
 | candidate_code | candidate_type | proposal | existing relationship | planned single action |
 |---|---|---|---|---|
-| CR-YYYYMMDD-NNNNNN | new_core | "…동구 한 줄…" | [[60_MOCs/MOC - …]] 강화 | create_core_with_backlink |
+| CR-YYYYMMDD-NNNNNN | new_core | "…동구 한 줄…" | [[50_MOCs/MOC - …]] 강화 | create_core_with_backlink |
 ```
 
 ## Candidate handoff — mandatory STOP
@@ -74,9 +74,9 @@ proposal:
   atom_kind: snippet
   snippet_type: hook
   claim: "팔란티어와 Clay. 둘 다 잘 만들어서 이긴 회사가 아니다."
-  source_note_path: 50_Channel_Packs/...
+  source_note_path: 40_Channel_Packs/...
   planned_links:
-    - 60_MOCs/MOC - 해자.md
+    - 50_MOCs/MOC - 해자.md
 ```
 
 This is candidate metadata, not a note template and not permission to create a file.

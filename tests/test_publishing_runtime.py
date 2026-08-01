@@ -156,7 +156,7 @@ class PublishingRuntimeTests(unittest.TestCase):
             operation="publish",
             payload={"content": "hello", "image_urls": ["https://img.test/1.png"]},
             topic="demo",
-            note_path="50_Channel_Packs/1_SNS/Threads/Threads - demo.md",
+            note_path="40_Channel_Packs/1_SNS/Threads/Threads - demo.md",
             session_id=self.SESSION_ID,
             turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
         )
@@ -291,7 +291,7 @@ class PublishingRuntimeTests(unittest.TestCase):
         second = self.runtime.preview(
             channel="threads", operation="publish",
             payload={"content": "different", "image_urls": ["https://img.test/2.png"]},
-            topic="demo-2", note_path="50_Channel_Packs/1_SNS/Threads/Threads - demo-2.md",
+            topic="demo-2", note_path="40_Channel_Packs/1_SNS/Threads/Threads - demo-2.md",
             session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN,
             user_message_id=self.PREVIEW_MESSAGE_ID,
         )
@@ -321,7 +321,7 @@ class PublishingRuntimeTests(unittest.TestCase):
             plan = self.runtime.preview(
                 channel="maily", operation="publish",
                 payload={"title": f"Title {index}", "subtitle": "Subtitle", "content": "Body", "dry_run": False},
-                topic=f"mail-{index}", note_path=f"50_Channel_Packs/1_SNS/Maily/Maily - mail-{index}.md",
+                topic=f"mail-{index}", note_path=f"40_Channel_Packs/1_SNS/Maily/Maily - mail-{index}.md",
                 session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN,
                 user_message_id=self.PREVIEW_MESSAGE_ID,
             )
@@ -346,7 +346,7 @@ class PublishingRuntimeTests(unittest.TestCase):
         plan = self.runtime.preview(
             channel="maily", operation="publish",
             payload={"title": "Title", "subtitle": "Subtitle", "content": "Body", "dry_run": False},
-            topic="mail", note_path="50_Channel_Packs/1_SNS/Maily/Maily - mail.md",
+            topic="mail", note_path="40_Channel_Packs/1_SNS/Maily/Maily - mail.md",
             session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
         )
         self.runtime.approve(
@@ -387,7 +387,7 @@ class PublishingRuntimeTests(unittest.TestCase):
         plan = self.runtime.preview(
             channel="maily", operation="publish",
             payload={"title": "Title", "subtitle": "Subtitle", "content": "Body", "dry_run": True},
-            topic="mail-draft", note_path="50_Channel_Packs/1_SNS/Maily/Maily - mail.md",
+            topic="mail-draft", note_path="40_Channel_Packs/1_SNS/Maily/Maily - mail.md",
             session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
         )
         result = self.approve_and_dispatch(plan)

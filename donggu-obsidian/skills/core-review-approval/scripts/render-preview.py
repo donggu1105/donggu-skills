@@ -14,7 +14,7 @@ import unicodedata
 MAX_STDIN_BYTES = 1024 * 1024
 MAX_FRAGMENT = 500
 MAX_CONTENT = 1800
-ALLOWED_ROOTS = {"10_Sources", "20_Core", "40_Snippets", "50_Channel_Packs", "60_MOCs"}
+ALLOWED_ROOTS = {"10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"}
 INPUT_KEYS = {"candidate", "plan"}
 CANDIDATE_KEYS = {
     "candidate_code", "candidate_type", "source_note_path", "source_sha256",
@@ -353,14 +353,14 @@ def validate_candidate(value: object) -> Tuple[Dict[str, object], Dict[str, obje
             raise ValidationError()
     elif op == "create_core_with_backlink":
         exact_object(action, CREATE_KEYS)
-        if candidate_type != "new_core" or PurePosixPath(source).parts[0] not in {"10_Sources", "50_Channel_Packs"}:
+        if candidate_type != "new_core" or PurePosixPath(source).parts[0] not in {"10_Sources", "40_Channel_Packs"}:
             raise ValidationError()
         for field in ("schema_version", "template_version"):
             if type(action[field]) is not int or action[field] != 1:
                 raise ValidationError()
         claim = safe_display_text(candidate["claim"])
         core_path = safe_path(action["core_path"], "20_Core")
-        moc_path = safe_path(action["moc_path"], "60_MOCs")
+        moc_path = safe_path(action["moc_path"], "50_MOCs")
         validate_hash(action["moc_sha256"])
         trace_field = action["trace_field"]
         expected_trace = "extracted_to" if source.startswith("10_Sources/") else "decomposed_to"

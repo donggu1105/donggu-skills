@@ -56,7 +56,7 @@ class NativePluginPackageTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         base = Path(temporary.name)
         vault = base / "vault"
-        for name in ("10_Sources", "20_Core", "50_Channel_Packs", "60_MOCs"):
+        for name in ("10_Sources", "20_Core", "40_Channel_Packs", "50_MOCs"):
             (vault / name).mkdir(parents=True)
         source_rel = "10_Sources/source.md"
         source_bytes = b"---\ntype: source\nextracted_to: []\n---\n\n[[Broken]]\n"
@@ -339,7 +339,7 @@ class NativePluginPackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             vault = base / "vault"
-            for name in ("10_Sources", "20_Core", "50_Channel_Packs", "60_MOCs"):
+            for name in ("10_Sources", "20_Core", "40_Channel_Packs", "50_MOCs"):
                 (vault / name).mkdir(parents=True)
             source_rel = "10_Sources/source.md"
             source_bytes = b"---\ntype: source\nextracted_to: []\n---\n\n[[Broken]]\n"

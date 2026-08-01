@@ -27,8 +27,8 @@ YouTube를 기존 글의 영상 변환기가 아니라 **독립 제작 라인**�
 ```text
 Personal Branding/_GUIDES/SCHEMA.md
 Personal Branding/_GUIDES/CONTENT_PIPELINE.md
-Personal Branding/50_Channel_Packs/YouTube/INDEX - YouTube.md
-Personal Branding/50_Channel_Packs/YouTube/_anchors/
+Personal Branding/40_Channel_Packs/YouTube/INDEX - YouTube.md
+Personal Branding/40_Channel_Packs/YouTube/_anchors/
 ```
 
 상태·enum·완료 조건은 이 파일들이 정본이다. 스킬과 vault가 다르면 vault 정본을 따르고 스킬 수정 후보를 보고한다.

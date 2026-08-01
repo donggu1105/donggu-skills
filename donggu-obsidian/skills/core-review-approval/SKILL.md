@@ -118,7 +118,7 @@ exit 0의 JSON만 수용한다. exit 2면 Vault 변경 0건으로 종료하고 e
 - `replace`: candidate type `fix_link|link_existing`, action keys `op,schema_version,old,new`, old exact 1회, target snapshot 일치.
 - `create_core_with_backlink`: candidate type `new_core`, action keys `op,schema_version,template_version,core_path,moc_path,moc_sha256,trace_field`.
 
-허용 root는 `10_Sources`, `20_Core`, `40_Snippets`, `50_Channel_Packs`, `60_MOCs`다. `00_Inbox`, 절대경로, `..`, symlink, 비정규 파일, binary/non-UTF-8, source/MOC hash mismatch, existing new CORE는 거부한다. `recommend_only`, merge/classify/status cleanup과 action 외 변경은 release 후 새 후보가 필요하다.
+허용 root는 `10_Sources`, `20_Core`, `40_Snippets`, `40_Channel_Packs`, `50_MOCs`다. `00_Inbox`, 절대경로, `..`, symlink, 비정규 파일, binary/non-UTF-8, source/MOC hash mismatch, existing new CORE는 거부한다. `recommend_only`, merge/classify/status cleanup과 action 외 변경은 release 후 새 후보가 필요하다.
 
 ## Public report
 

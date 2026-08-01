@@ -96,7 +96,7 @@ created: <today YYYY-MM-DD>
 #source #video #<topics>
 ```
 
-**Before adding `[[CORE - …]]`/`[[MOC - …]]`**, list `Personal Branding/20_Core/` and `Personal Branding/60_MOCs/Topics/` and link only real filenames (baseline guessed MOC titles that didn't exist). `MOC - AX Bridge` is usually the home for AX/AI videos.
+**Before adding `[[CORE - …]]`/`[[MOC - …]]`**, list `Personal Branding/20_Core/` and `Personal Branding/50_MOCs/Topics/` and link only real filenames (baseline guessed MOC titles that didn't exist). `MOC - AX Bridge` is usually the home for AX/AI videos.
 
 ## Common mistakes (from baseline)
 | Mistake | Fix |

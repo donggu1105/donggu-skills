@@ -174,7 +174,7 @@ class PreviewRendererTests(unittest.TestCase):
             "schema_version": 1,
             "template_version": 1,
             "core_path": "20_Core/CORE - 검증은 실행의 일부다.md",
-            "moc_path": "60_MOCs/MOC - 검증.md",
+            "moc_path": "50_MOCs/MOC - 검증.md",
             "moc_sha256": "a" * 64,
             "trace_field": "extracted_to",
         }
@@ -498,7 +498,7 @@ class PreviewRendererTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             vault = base / "vault"
-            for root in ("10_Sources", "20_Core", "40_Snippets", "50_Channel_Packs", "60_MOCs"):
+            for root in ("10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"):
                 (vault / root).mkdir(parents=True)
             candidate = self.replace_candidate(
                 source_note_path="10_Sources/source.md",
@@ -544,14 +544,14 @@ class PreviewRendererTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             vault = base / "vault"
-            for root in ("10_Sources", "20_Core", "40_Snippets", "50_Channel_Packs", "60_MOCs"):
+            for root in ("10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"):
                 (vault / root).mkdir(parents=True)
 
             source_rel = "10_Sources/source-create.md"
             source = vault / source_rel
             source_bytes = b"---\ntype: source\nextracted_to: []\n---\n\nCreate source body.\n"
             source.write_bytes(source_bytes)
-            moc_rel = "60_MOCs/MOC - Creation.md"
+            moc_rel = "50_MOCs/MOC - Creation.md"
             moc = vault / moc_rel
             moc_bytes = b"---\ntype: moc\n---\n\n# Creation\n"
             moc.write_bytes(moc_bytes)
@@ -642,7 +642,7 @@ class PreviewRendererTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             vault = base / "vault"
-            for root in ("10_Sources", "20_Core", "40_Snippets", "50_Channel_Packs", "60_MOCs"):
+            for root in ("10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"):
                 (vault / root).mkdir(parents=True)
             (vault / "20_Core/Target.md").write_text("target\n", encoding="utf-8")
             runtime = module.CoreActionRuntime(
