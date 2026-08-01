@@ -14,7 +14,7 @@ import unicodedata
 MAX_STDIN_BYTES = 1024 * 1024
 MAX_FRAGMENT = 500
 MAX_CONTENT = 1800
-ALLOWED_ROOTS = {"10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"}
+ALLOWED_ROOTS = {"10_Sources", "20_Core", "40_Channel_Packs", "50_MOCs"}
 INPUT_KEYS = {"candidate", "plan"}
 CANDIDATE_KEYS = {
     "candidate_code", "candidate_type", "source_note_path", "source_sha256",

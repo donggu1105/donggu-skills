@@ -46,7 +46,7 @@ _ALLOWED_RECEIPT_STATES = {
     "planned", "applying", "reconciliation_required", "acknowledging", "completed", "revoked", "ambiguous",
 }
 _TERMINAL_APPLY_STATES = {"reconciliation_required", "completed", "revoked", "ambiguous"}
-_ALLOWED_VAULT_ROOTS = {"10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"}
+_ALLOWED_VAULT_ROOTS = {"10_Sources", "20_Core", "40_Channel_Packs", "50_MOCs"}
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 _NONBLOCK = getattr(os, "O_NONBLOCK", 0)

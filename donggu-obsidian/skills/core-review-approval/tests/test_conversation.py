@@ -498,7 +498,7 @@ class PreviewRendererTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             vault = base / "vault"
-            for root in ("10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"):
+            for root in ("10_Sources", "20_Core", "40_Channel_Packs", "50_MOCs"):
                 (vault / root).mkdir(parents=True)
             candidate = self.replace_candidate(
                 source_note_path="10_Sources/source.md",
@@ -544,7 +544,7 @@ class PreviewRendererTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             vault = base / "vault"
-            for root in ("10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"):
+            for root in ("10_Sources", "20_Core", "40_Channel_Packs", "50_MOCs"):
                 (vault / root).mkdir(parents=True)
 
             source_rel = "10_Sources/source-create.md"
@@ -642,7 +642,7 @@ class PreviewRendererTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             vault = base / "vault"
-            for root in ("10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"):
+            for root in ("10_Sources", "20_Core", "40_Channel_Packs", "50_MOCs"):
                 (vault / root).mkdir(parents=True)
             (vault / "20_Core/Target.md").write_text("target\n", encoding="utf-8")
             runtime = module.CoreActionRuntime(

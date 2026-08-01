@@ -18,7 +18,7 @@ MAX_FILE = 8 * 1024 * 1024
 MAX_TEXT_FIELD = 64 * 1024
 MAX_TARGETS = 20
 JOURNAL = ".core-review-journal.json"
-ALLOWED_ROOTS = ("10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs")
+ALLOWED_ROOTS = ("10_Sources", "20_Core", "40_Channel_Packs", "50_MOCs")
 CANDIDATE_TYPES = {"new_core", "link_existing", "merge", "fix_link", "classify", "status_cleanup", "skill_drift"}
 ENVELOPE_KEYS = {
     "schema_version", "candidate_code", "candidate_type", "source_note_path",

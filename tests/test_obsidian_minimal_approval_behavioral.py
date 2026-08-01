@@ -181,7 +181,7 @@ class MinimalApprovalBehavioralTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.base = Path(self.tmp.name)
         self.vault = self.base / "vault"
-        for name in ("10_Sources", "20_Core", "40_Snippets", "40_Channel_Packs", "50_MOCs"):
+        for name in ("10_Sources", "20_Core", "40_Channel_Packs", "50_MOCs"):
             (self.vault / name).mkdir(parents=True)
         self.source_rel = "10_Sources/source.md"
         self.source_bytes = b"---\ntype: source\n---\n\n[[Broken]]\n"
@@ -385,6 +385,26 @@ class MinimalApprovalBehavioralTests(unittest.TestCase):
             after_hashes_sha256=after_digest,
         )
         return applied, readback, ack
+
+    def test_snippets_root_is_rejected_at_plan_and_apply(self):
+        bad = dict(self.envelope)
+        bad["source_note_path"] = "40_Snippets/hook.md"
+        bad["target_note_paths"] = ["40_Snippets/hook.md"]
+        rejected = False
+        try:
+            plan = self.call("donggu_core_plan", {"vault_root": str(self.vault), "envelope": bad})
+            rejected = not plan.get("success", False)
+        except Exception:
+            rejected = True
+        self.assertTrue(rejected, "40_Snippets source must be rejected at plan")
+        proc = subprocess.run(
+            [sys.executable, str(HELPER), "--vault-root", str(self.vault), "--dry-run"],
+            input=json.dumps(bad, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertNotEqual(0, proc.returncode, "40_Snippets path must be rejected at apply")
 
     def test_exact_natural_preview_then_apply_reaches_registered_real_helper_once(self):
         plan, preview = self.finalize_preview()
