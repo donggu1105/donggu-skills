@@ -1,20 +1,20 @@
 ---
 name: writing-social-content
-description: Use when writing a text post for the user's Obsidian-vault SNS channels — Blog, LinkedIn, X/Twitter, Threads, or Maily newsletter — in the user's learned voice, including drafting a fresh post for a channel, writing the same topic for another channel, or formatting a note for publishing. Not for Instagram card images or short-form video.
+description: Use when writing a text post for the user's Obsidian-vault SNS channels — Blog, LinkedIn, Threads, or Maily newsletter — in the user's learned voice, including drafting a fresh post for a channel, writing the same topic for another channel, or formatting a note for publishing. Not for Instagram card images or short-form video.
 ---
 
 # Writing Social Content
 
 ## Overview
 
-사용자의 **텍스트 SNS 채널 전부**(Blog·LinkedIn·X·Threads·Maily)를 한 스킬로 작성한다. 작성 계보는 `origin`과 `adapt` 두 모드로 소유하되, 모든 최종 글은 목적 채널 VOICE에 맞춘 **channel-native 본문**이다. `derived_from`은 변환 계보만 기록하며 마스터/변형 위계를 만들지 않는다. 하나의 마스터 본문을 여러 채널에 기계적으로 발행하지 않는다. 핵심은 **voice-learning** — 그 채널의 정전·기존 발행 글에서 톤·종결·시그니처를 학습해 일관 유지. 채널 차이는 [채널 매트릭스]로 흡수하고, 작성 절차(retrieve→대화형→생성→저장)는 공통이다.
+사용자의 **텍스트 SNS 채널 전부**(Blog·LinkedIn·Threads·Maily)를 한 스킬로 작성한다. 작성 계보는 `origin`과 `adapt` 두 모드로 소유하되, 모든 최종 글은 목적 채널 VOICE에 맞춘 **channel-native 본문**이다. `derived_from`은 변환 계보만 기록하며 마스터/변형 위계를 만들지 않는다. 하나의 마스터 본문을 여러 채널에 기계적으로 발행하지 않는다. 핵심은 **voice-learning** — 그 채널의 정전·기존 발행 글에서 톤·종결·시그니처를 학습해 일관 유지. 채널 차이는 [채널 매트릭스]로 흡수하고, 작성 절차(retrieve→대화형→생성→저장)는 공통이다.
 
-**Core**: Socratic retrieve. 자동 자산(VOICE·CHANNEL_GUIDE·정전 글)은 강제, 선택 자산(GENRE·STRUCTURE·PROJECT·CORE)은 한 결정씩 물어본다.
+**Core**: Socratic retrieve. 자동 자산(VOICE·정전 글)은 강제, 선택 자산(GENRE·STRUCTURE·PROJECT·CORE)은 한 결정씩 물어본다.
 
 > **canon에서 배우는 건 보이스(톤·종결·시그니처·후크)지 내용·결론(CORE)이 아니다.** 새 소재는 기본 **채굴 모드** — 그 소재만의 새 앵글을 판다(기존 CORE로 수렴 금지, "얼마 전에 나는 ~썼다"式 자기 인용 금지). **수렴 모드**(기존 CORE 강화·연결)는 사용자가 명시할 때만. 매번 같은 코어로 수렴시키면 글이 다 똑같아지고 새 코어가 안 쌓인다 — 지금은 코어를 넓히는 단계라 채굴이 기본.
 
 ## When to Use
-- 텍스트 채널(blog·linkedin·x·threads·maily) 중 하나에 `origin` 모드로 첫 Channel Pack 작성
+- 텍스트 채널(blog·linkedin·threads·maily) 중 하나에 `origin` 모드로 첫 Channel Pack 작성
 - 기존 Channel Pack 하나를 읽고 `adapt` 모드로 다른 채널의 VOICE에 맞춰 새로 작성
 - 기존 노트를 발행 가능한 형식(`## 발행`/`## Draft`)으로 정형화
 
@@ -27,15 +27,12 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 
 | 채널 | VOICE 앵커 | 분량 | 톤 | 핵심 규칙 | 저장 / 발행 형식 |
 |---|---|---|---|---|---|
-| **blog** | `VOICE - Blog` (CHANNEL_GUIDE 없음) | 2,000~2,500자 | voice 학습 | GENRE×STRUCTURE, 롱폼 | `Blog/Blog - <t>.md` · tistory 발행 = 본문 그대로(첫 줄=제목) |
+| **blog** | `VOICE - Blog` | 2,000~2,500자 | voice 학습 | GENRE×STRUCTURE, 롱폼 | `Blog/Blog - <t>.md` · tistory 발행 = 본문 그대로(첫 줄=제목) |
 | **linkedin** | `VOICE - LinkedIn` | 1,200~1,400자 | 장르별(에세이 평서체/행사 존댓말) | 첫 3줄 후크(모바일 ~210자), 단문+줄바꿈, 끝 댓글유도, 링크는 첫 댓글 | `LinkedIn/...` · 발행 = `## Draft` 확정본 |
-| **x (ko)** | `VOICE - X` 한국어 풀 | 140자 / 스레드 | 명사형 건조 빌더 | "~함/~됨" 종결, Thread "1/N", 링크 첫 댓글 | `X/...` (`language: korean`) |
-| **x (en)** | `VOICE - X` 영어 풀 | 280자 / 스레드 | indie hacker | "I shipped X.", `#buildinpublic`, 스크린샷·데이터, "🧵" | `X/...` (`language: english`) |
 | **threads** | `VOICE - Threads` | 500자 / 5~7타래 | 친근 반말 | 5~7줄 짧은 호흡, 미완 끝맺음, 링크 첫 댓글 | `Threads/...` · 발행 = `## 발행`(아래) |
 | **maily** | `VOICE - Maily` | 뉴스레터 편지 | 편지체 | 인사 → `### 소제목` 본문 → "오늘 한 가지만" → 맺음 | `Maily/...` · 발행 = `## 발행`(아래) |
 
-> 경로 베이스: `Personal Branding/40_Channel_Packs/<채널>/`. 각 채널 `_anchors/`에 VOICE·CHANNEL_GUIDE. (WINNING_PATTERNS는 폐기 — 추상 combo가 글을 평균값으로 끌어당김. 보이스는 VOICE의 `canon:` 정전 글로 학습한다.)
-> ⚠️ x: 한국어/영어 풀은 **같은 시간 발행 금지**(SimClusters 다름).
+> 경로 베이스: `Personal Branding/40_Channel_Packs/<채널>/`. 각 채널 `_anchors/`에 `VOICE - <채널>.md` 하나. 운영 규칙은 VOICE 하단 `## 채널 운영 메모`. (WINNING_PATTERNS는 폐기 — 추상 combo가 글을 평균값으로 끌어당김. 보이스는 VOICE의 `canon:` 정전 글로 학습한다.)
 
 ## Workflow (공통)
 
@@ -45,12 +42,12 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 - `derived_from`은 lineage이지 master hierarchy가 아니다. 같은 주제의 각 최종 본문은 독립적으로 발행 가능한 channel-native 글이어야 한다.
 
 ### 1. 자동 retrieve (입력 없음)
-- 채널 `_anchors/`: **VOICE**(하드룰 + `canon:` 정전 글 목록) + **CHANNEL_GUIDE**(분량·알고리즘; blog는 없음)
+- 채널 `_anchors/`: **VOICE**(하드룰 + `canon:` 정전 글 목록 + 하단 `## 채널 운영 메모`)
 - **정전(canon) 글 우선 + 기존 발행 글 1~3개**: VOICE의 `canon:`을 먼저 읽고, 없으면 `<채널> - *.md`에서 최근/대표 글 → 종결 어미 비율·시그니처·후크를 학습. *이게 voice-learning의 핵심 — 추상 규칙만 보면 평균값으로 homogenize된다. 실제 글이 보이스의 기준.*
 
 ### 2. 대화형 (AskUserQuestion, 한 결정씩)
 채널 → 글 정보 → GENRE(회고/튜토리얼/인사이트/공지…) → STRUCTURE(BLUF/미괄식/PAS/Listicle…) → PROJECT 연결❓ → **CORE 모드❓ (매번 필수로 묻는다): 채굴(기본 — 기존 CORE 안 엮고 새 앵글) / 수렴(어떤 CORE를 엮을지 골라 강화). "어떤 코어를 쓸지, 아니면 안 쓸지"를 항상 확인한다.**
-(x = 언어 선택 / threads·x = 단일 vs 스레드)
+(threads = 단일 vs 스레드)
 
 ### 3. 생성
 - 매트릭스의 채널 규칙(분량·톤·핵심) 적용
@@ -69,7 +66,7 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
   derived_from: "[[optional exact source Channel Pack]]"
   related: ["[[other same-topic Channel Pack]]"]
   ```
-  `origin`이면 `derived_from`을 비우고, `adapt`이면 읽은 source Channel Pack 하나를 정확히 기록한다. `related`는 같은 주제의 대등한 Channel Pack 연결이다. x는 `language:`도 기록한다.
+  `origin`이면 `derived_from`을 비우고, `adapt`이면 읽은 source Channel Pack 하나를 정확히 기록한다. `related`는 같은 주제의 대등한 Channel Pack 연결이다.
 - **발행 채널이면 발행 형식 섹션까지** (아래)
 
 ## 발행 형식 (구 make-note 흡수 — 발행기가 읽는 정본)
@@ -139,4 +136,4 @@ description: Use when writing a text post for the user's Obsidian-vault SNS chan
 - vault health: `donggu-obsidian:checking-vault-health`
 
 ## 태그
-#sns #blog #linkedin #threads #x #maily #content-writing #voice-learning
+#sns #blog #linkedin #threads #maily #content-writing #voice-learning

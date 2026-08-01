@@ -25,8 +25,7 @@ YouTube를 기존 글의 영상 변환기가 아니라 **독립 제작 라인**�
 작업 전 vault에서 다음을 읽는다.
 
 ```text
-Personal Branding/_GUIDES/SCHEMA.md
-Personal Branding/_GUIDES/CONTENT_PIPELINE.md
+Personal Branding/_GUIDES/RULES.md
 Personal Branding/40_Channel_Packs/YouTube/INDEX - YouTube.md
 Personal Branding/40_Channel_Packs/YouTube/_anchors/
 ```
@@ -90,7 +89,6 @@ series:
 viewer_goal: acquire | retain | authority
 format: long | short
 production_effort: low | medium | high
-visibility: private
 evidence_labels: []
 decision_reason:
 ```
@@ -171,7 +169,7 @@ short_type: cutdown | rerecord | screen-first | standalone
 
 **최종 편집:** 내부 URL, 브라우저 탭, 알림, 파일명, 대시보드, 사용자 정보, API 키·토큰, 음성 속 고유명사.
 
-불명확하면 `visibility: restricted`를 유지하고 발행하지 않는다.
+공개 경계가 불명확하면 발행하지 않는다.
 
 ### 7. Publish and Review
 
@@ -196,15 +194,9 @@ YouTube Studio가 원시 지표 정본이다. vault에는 수치 복제가 아�
 | `merge` | 사실상 같은 CORE가 중복 | 병합된 canonical CORE 링크 |
 | `compose` | 새로움이 복수 CORE의 조합 | 2개 이상 CORE와 조합 논리 |
 
-`none`은 허용하지 않는다. 파생 Shorts가 부모와 같은 주장을 반복하면 새 CORE를 만들지 않고 부모의 `core_targets`를 참조한다. 독립 Shorts는 자체 환원을 수행한다.
+`none`은 허용하지 않는다. 파생 Shorts가 부모와 같은 주장을 반복하면 새 CORE를 만들지 않고 부모 Pack의 CORE 링크를 참조한다. 독립 Shorts는 자체 환원을 수행한다.
 
 frontmatter:
-
-```yaml
-core_action: create | update | merge | compose
-core_targets:
-  - "[[CORE - ...]]"
-```
 
 ## Completion Gate
 
@@ -219,7 +211,6 @@ core_targets:
 - [ ] 발행 후 회고 또는 아직 발행 전이라는 상태가 명확함
 - [ ] CORE action을 선택함
 - [ ] 대상 CORE를 실제 생성·수정·병합·연결함
-- [ ] `core_action`·`core_targets`가 채워짐
 - [ ] 완료 시에만 `status: reviewed`
 
 ## Common Mistakes
@@ -240,7 +231,7 @@ core_targets:
 - CORE 입력이 없다는 이유로 아이디어를 중단
 - Shorts 후보 판단 없이 Pack 완료
 - 고객 식별 가능 화면을 그대로 사용
-- `core_targets`가 비었는데 `status: reviewed`
+- CORE 환원 없이 `status: reviewed`
 
 이 중 하나라도 있으면 완료하지 말고 해당 게이트로 돌아간다.
 

@@ -66,7 +66,7 @@ Candidate report shape:
 
 `core-review-approval`이 현재 결정적으로 지원하는 `new_core`/`link_existing`/`fix_link` action만 그 스킬 내부 검증을 통과할 수 있다. Teaching 부품 신설, `MERGE`, 포스트 부품표·`canon`·VOICE 수정처럼 지원되지 않는 제안은 `skill_drift`/해당 queue enum 후보로만 남기고 승인돼도 release/re-evaluation할 뿐 Vault를 변경하지 않는다. 이 스킬은 helper를 호출하거나 파일을 생성·수정·이동·삭제하지 않는다. **STOP.**
 
-> `teaching_part` 제안이 recommendation-only인 것은 편의가 아니라 **설계이며 코드로 이중 강제된다**: ① `render-preview.py:67`의 `FORBIDDEN_TERMS = ("drift", "recommend_only", "unsupported apply")`가 해당 preview 렌더 자체를 거부한다. ② 실행 가능 후보로 승격을 시도해도 `apply-action.py`의 `if op != "create_core_with_backlink" or candidate_type != "new_core": raise ValidationError()` (L497-498)가 **apply 진입 전에** 지원되지 않는 op/candidate_type을 거부한다 — 부품 제안 shape은 `candidate_type: skill_drift`이므로 여기서 죽는다. 이 스킬은 어느 쪽도 우회하지 않는다.
+> `teaching_part` 제안이 recommendation-only인 것은 편의가 아니라 **설계이며 `core-review-approval`의 코드로 이중 강제된다**: ① preview 렌더러의 FORBIDDEN_TERMS 가드가 drift 계열 후보의 렌더 자체를 거부하고, ② 승격을 시도해도 apply 헬퍼의 op/candidate_type 허용목록(`create_core_with_backlink` + `new_core`만)이 apply 진입 전에 거부한다 — 부품 제안 shape은 `candidate_type: skill_drift`이므로 여기서 죽는다. 정확한 강제 지점은 `core-review-approval` 문서와 그 스크립트가 정본이다. 이 스킬은 어느 쪽도 우회하지 않는다.
 
 ## Proposed atom shape (review reference only)
 

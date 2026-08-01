@@ -22,7 +22,7 @@ publish-sns              = 발행               — 만들지도 쓰지도 않�
 
 | Skill | 호출 | 사용 시점 | Output |
 |---|---|---|---|
-| **writing-social-content** | `donggu-sns:writing-social-content` | 텍스트 채널 글 작성 — Blog·LinkedIn·X·Threads·Maily (각 채널 독립, voice-learning + 발행 형식) | `<채널> - <title>.md` |
+| **writing-social-content** | `donggu-sns:writing-social-content` | 텍스트 채널 글 작성 — Blog·LinkedIn·Threads·Maily (각 채널 독립, voice-learning + 발행 형식) | `<채널> - <title>.md` |
 | **make-insta-card-news** | `donggu-sns:make-insta-card-news` | Instagram 카드뉴스 이미지 (DESIGN.md 기반) | 1080×1350 PNG 세트 |
 | **make-shorts** | `donggu-sns:make-shorts` | 세로 숏폼 영상 (뉴스→CapCut 9:16) | CapCut 드래프트 |
 | **youtube** | `donggu-sns:youtube` | YouTube 독립 아이디어 → transcript·thumbnail 전문 스킬 라우팅 → Longform + Shorts Pack → 회고 → CORE 환원 | Obsidian 영상 Pack |
@@ -38,7 +38,7 @@ publish-sns              = 발행               — 만들지도 쓰지도 않�
     ▼
 ┌────────────────────────────────────┐
 │  writing-social-content            │  채널 택1 (각 채널 독립)
-│  └ 채널 매트릭스 + voice-learning  │  Blog · LinkedIn · X · Threads · Maily
+│  └ 채널 매트릭스 + voice-learning  │  Blog · LinkedIn · Threads · Maily
 └──────────────┬─────────────────────┘     (같은 스킬, 채널만 바꿈 / 마스터 없음)
                │  발행 형식(`## 발행`/`## Draft`)으로 저장
                ▼
@@ -55,13 +55,12 @@ YouTube 채널 운영 → youtube (baoyu transcript + thumbnail design 라우팅
 
 ## 🎤 Voice 시스템 (writing-social-content)
 
-채널마다 *고유 voice 자산*(VOICE·CHANNEL_GUIDE)과 **정전(canon) 글**을 학습해 일관 유지 — 같은 채널엔 같은 톤, 쓸수록 voice 정착:
+채널마다 *고유 voice 자산*(VOICE)과 **정전(canon) 글**을 학습해 일관 유지 — 같은 채널엔 같은 톤, 쓸수록 voice 정착:
 
 ```
 Personal Branding/40_Channel_Packs/<channel>/
 ├── _anchors/
-│   ├── CHANNEL_GUIDE - <channel>.md     📜 룰 (분량·후크·알고리즘; Blog는 없음)
-│   └── VOICE - <channel>.md             🎤 하드룰 + 정전(canon) 글 포인터 (보이스는 실제 글로 학습)
+│   └── VOICE - <channel>.md             🎤 하드룰 + 정전(canon) 글 포인터 + 하단 `## 채널 운영 메모` (보이스는 실제 글로 학습)
 └── <channel> - <title>.md               📝 발행 글
 ```
 
@@ -75,12 +74,13 @@ Personal Branding/40_Channel_Packs/<channel>/
 Personal Branding/
 ├── 40_Channel_Packs/
 │   ├── INDEX - Channels.md           도메인 매뉴얼
-│   ├── Blog/ LinkedIn/ X/ Threads/ Maily/   (각 _anchors/ + 발행 글)
+│   ├── Blog/ LinkedIn/ Threads/ Maily/ YouTube/   (각 _anchors/ + 발행 글)
 │   └── Instagram/               (make-insta-card-news 카드)
 ├── 20_Core/                     atomic claims (CORE 인용 시)
-├── 40_Snippets/                 후크·교훈·격언 (옵션)
-└── 60_Projects/                 프로젝트 메타 (옵션)
+└── 60_Projects/                 프로젝트 메타 + Teaching/ 강의 재사용 부품 (옵션)
 ```
+
+정본: vault `Personal Branding/_GUIDES/RULES.md` — 폴더 지도·프론트매터·status enum이 이 스킬 문서와 다르면 볼트를 따른다.
 
 자세한 path·frontmatter 스키마: vault `Personal Branding/40_Channel_Packs/INDEX - Channels.md`
 
