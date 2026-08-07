@@ -42,12 +42,16 @@ class FakeContext:
     def __init__(self):
         self.tools = []
         self.hooks = []
+        self.skills = []
 
     def register_tool(self, **kwargs):
         self.tools.append(kwargs)
 
     def register_hook(self, name, callback):
         self.hooks.append((name, callback))
+
+    def register_skill(self, name, path, description=""):
+        self.skills.append((name, path, description))
 
 
 class NativePluginPackageTests(unittest.TestCase):
@@ -221,7 +225,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-obsidian", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("1.9.0", claude["version"])
+        self.assertEqual("1.9.1", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_obsidian_latest_user_lookup_reads_past_first_fifty_messages(self):

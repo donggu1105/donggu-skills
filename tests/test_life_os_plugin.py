@@ -37,12 +37,20 @@ class FakeContext:
     def __init__(self):
         self.tools = []
         self.hooks = []
+        self.skills = []
 
     def register_tool(self, **kwargs):
         self.tools.append(kwargs)
 
     def register_hook(self, name, callback):
         self.hooks.append((name, callback))
+
+    def register_skill(self, name, path, description=""):
+        self.skills.append({
+            "name": name,
+            "path": path,
+            "description": description,
+        })
 
 
 class LifeOSPluginTests(unittest.TestCase):
@@ -73,6 +81,19 @@ class LifeOSPluginTests(unittest.TestCase):
         })
         self._default_modules.start()
         self.addCleanup(self._default_modules.stop)
+
+    def test_register_exposes_exact_life_os_plugin_skill(self):
+        context = FakeContext()
+
+        self.package.register(context)
+
+        self.assertEqual(["life-os"], [item["name"] for item in context.skills])
+        registration = context.skills[0]
+        skill_path = ROOT / "donggu-obsidian" / "skills" / "life-os" / "SKILL.md"
+        self.assertEqual(skill_path, Path(registration["path"]))
+        self.assertTrue(skill_path.is_file())
+        self.assertIn("Daily", registration["description"])
+        self.assertGreaterEqual(len(registration["description"].strip()), 20)
 
     @staticmethod
     def discord_event(

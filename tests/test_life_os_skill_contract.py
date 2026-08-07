@@ -267,7 +267,10 @@ class LifeOSSkillContractTests(unittest.TestCase):
             "allowed_channels", "hermes cron create", "hermes cron edit",
             "hermes cron list --all", 'hermes cron run "$LIFE_OS_CRON_JOB_ID"',
             'hermes cron runs "$LIFE_OS_CRON_JOB_ID" --limit 5',
-            '--deliver "discord:${LIFE_OS_CHANNEL_ID}"', "--skill life-os",
+            'skill: donggu-obsidian:life-os',
+            '--deliver "discord:${LIFE_OS_CHANNEL_ID}"',
+            "--skill donggu-obsidian:life-os",
+            'skill_view("donggu-obsidian:life-os")',
             '--workdir \"$LIFE_OS_VAULT_ROOT\"',
         ):
             self.assertIn(token, plugin)

@@ -56,12 +56,20 @@ class FakeContext:
     def __init__(self):
         self.tools = []
         self.hooks = []
+        self.skills = []
 
     def register_tool(self, **kwargs):
         self.tools.append(kwargs)
 
     def register_hook(self, name, callback):
         self.hooks.append((name, callback))
+
+    def register_skill(self, name, path, description=""):
+        self.skills.append({
+            "name": name,
+            "path": path,
+            "description": description,
+        })
 
 
 class LedgerOrderError(RuntimeError):

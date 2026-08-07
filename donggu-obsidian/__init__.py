@@ -1,6 +1,8 @@
 """Hermes registration entrypoint for the dual-harness donggu Obsidian package."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from .tools import (
     ACK_SCHEMA,
     APPLY_SCHEMA,
@@ -84,4 +86,9 @@ def register(ctx) -> None:
             description=description,
             emoji=emoji,
         )
+    ctx.register_skill(
+        name="life-os",
+        path=Path(__file__).parent / "skills" / "life-os" / "SKILL.md",
+        description="Record and resume Life OS Daily check-ins and captures.",
+    )
     ctx.register_hook("pre_gateway_dispatch", capture_trusted_discord_turn)

@@ -48,12 +48,12 @@ discord:
     - "<life-os-channel-id>"
   channel_skill_bindings:
     - id: "<life-os-channel-id>"
-      skill: life-os
+      skill: donggu-obsidian:life-os
   channel_prompts:
     "<life-os-channel-id>": >-
-      Use only the life-os skill and its native tools in this channel. Never use
-      generic filesystem tools as fallback, and never expose internal paths,
-      credentials, IDs, or tool state.
+      Use only the donggu-obsidian:life-os skill and its native tools in this
+      channel. Never use generic filesystem tools as fallback, and never expose
+      internal paths, credentials, IDs, or tool state.
 ```
 
 기존 `discord` 설정을 통째로 교체하지 않는다. 기존 global `require_mention` 값은 보존하고,
@@ -61,7 +61,11 @@ discord:
 추가한다. `allowed_channels`가 없으면 계속 생략하고, 이미 있으면 기존 항목을 보존한 채
 `<life-os-channel-id>`만 추가한다. 설정 후 `hermes config check`로 검증한다.
 
-22시 체크인은 `Asia/Seoul` 기준 cron `0 22 * * *`으로 `life-os` skill과 `donggu_life_os_start_daily`를 호출한다. 기존 active 상태를 초기화하거나 두 번째 reminder를 만들지 않고, pending question 또는 이미 완료됐다는 결과만 전달한다.
+Hermes plugin skill은 일반 `hermes skills list`나 system prompt 인덱스에 노출되지 않는다.
+`ctx.register_skill()`로 등록된 정규 이름 `donggu-obsidian:life-os`를 명시 로드하며,
+진단할 때는 `skill_view("donggu-obsidian:life-os")` 결과의 `success`를 확인한다.
+
+22시 체크인은 `Asia/Seoul` 기준 cron `0 22 * * *`으로 `donggu-obsidian:life-os` skill과 `donggu_life_os_start_daily`를 호출한다. 기존 active 상태를 초기화하거나 두 번째 reminder를 만들지 않고, pending question 또는 이미 완료됐다는 결과만 전달한다.
 
 아래 recipe는 대상 Vault root에서 실행한다. placeholder를 로컬 값으로 바꾸고, 기존 exact-name
 job이 있으면 그 ID를 `LIFE_OS_CRON_JOB_ID`에 넣는다. 없으면 create 출력의 `Created job:` 뒤
@@ -71,7 +75,7 @@ job이 있으면 그 ID를 `LIFE_OS_CRON_JOB_ID`에 넣는다. 없으면 create 
 LIFE_OS_VAULT_ROOT="$(pwd)"
 LIFE_OS_CHANNEL_ID="<life-os-channel-id>"
 LIFE_OS_CRON_NAME='Life OS 데일리 체크인 (22:00)'
-LIFE_OS_CRON_PROMPT='Use the life-os skill. Call donggu_life_os_start_daily for the current KST date. Return only its pending question; if completed, return 오늘 Daily 기록은 이미 완료됐어요.'
+LIFE_OS_CRON_PROMPT='Use the donggu-obsidian:life-os skill. Call donggu_life_os_start_daily for the current KST date. Return only its pending question; if completed, return 오늘 Daily 기록은 이미 완료됐어요.'
 
 life_os_cron_ids() {
   python3 -c '
@@ -98,7 +102,7 @@ case "$LIFE_OS_CRON_MATCH_COUNT" in
     LIFE_OS_CRON_CREATE="$(hermes cron create '0 22 * * *' "$LIFE_OS_CRON_PROMPT" \
       --name "$LIFE_OS_CRON_NAME" \
       --deliver "discord:${LIFE_OS_CHANNEL_ID}" \
-      --skill life-os \
+      --skill donggu-obsidian:life-os \
       --workdir "$LIFE_OS_VAULT_ROOT")"
     LIFE_OS_CRON_JOB_ID="$(printf '%s\n' "$LIFE_OS_CRON_CREATE" | \
       sed -nE 's/.*Created job:[[:space:]]*([0-9a-f]{12}).*/\1/p')"
@@ -114,7 +118,7 @@ hermes cron edit "$LIFE_OS_CRON_JOB_ID" \
   --prompt "$LIFE_OS_CRON_PROMPT" \
   --name "$LIFE_OS_CRON_NAME" \
   --deliver "discord:${LIFE_OS_CHANNEL_ID}" \
-  --skill life-os \
+  --skill donggu-obsidian:life-os \
   --workdir "$LIFE_OS_VAULT_ROOT"
 
 LIFE_OS_CRON_LIST="$(hermes cron list --all)"
