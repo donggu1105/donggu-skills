@@ -153,6 +153,36 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertTrue(any(path.is_symlink() and path.readlink() == outside for path in residuals))
         self.assertEqual(b"outside note bytes", outside.read_bytes())
 
+    def test_new_note_rejects_identical_hardlink_replaced_before_verification_open(self):
+        directory = self.base / "note-identical-hardlink"
+        directory.mkdir()
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, directory_fd)
+        destination = directory / "note.md"
+        intended = b"intended note\n"
+        outside = self.base / "outside-identical-note"
+        outside.write_bytes(intended)
+        outside.chmod(0o600)
+        outside_identity = outside.stat()
+        real_open = life_os._open_verified_temp_at
+
+        def replace_then_open(parent_fd, name, descriptor, digest, kind):
+            os.unlink(name, dir_fd=parent_fd)
+            os.link(outside, name, dst_dir_fd=parent_fd)
+            return real_open(parent_fd, name, descriptor, digest, kind)
+
+        with mock.patch.object(life_os, "_open_verified_temp_at", side_effect=replace_then_open):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+                self.runtime._atomic_publish_note_at(
+                    directory_fd, destination.name, intended.decode(), None,
+                )
+
+        self.assertFalse(destination.exists())
+        self.assertTrue(os.path.samestat(outside_identity, outside.stat()))
+        self.assertEqual(intended, outside.read_bytes())
+        residuals = list(directory.iterdir())
+        self.assertTrue(any(os.path.samestat(outside_identity, path.stat()) for path in residuals))
+
     def test_existing_note_rejects_temp_regular_file_replaced_before_replace(self):
         directory = self.base / "existing-note-regular-replacement"
         directory.mkdir()
@@ -235,6 +265,50 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(b"outside update bytes", outside.read_bytes())
         state_recovery = list(self.runtime.state_namespace.iterdir())
         self.assertTrue(any(path.is_file() and path.read_bytes() == original for path in state_recovery))
+
+    def test_existing_note_rejects_identical_hardlink_replaced_before_verification_open(self):
+        directory = self.base / "existing-note-identical-hardlink"
+        directory.mkdir()
+        destination = directory / "note.md"
+        original = b"original note bytes\n"
+        destination.write_bytes(original)
+        destination.chmod(0o600)
+        original_identity = destination.stat()
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, directory_fd)
+        expected = self.runtime._read_text_snapshot_at(
+            directory_fd,
+            destination.name,
+            unavailable="note unavailable",
+            nonregular="note nonregular",
+            unreadable="note unreadable",
+        )
+        self.assertIsNotNone(expected)
+        intended = b"intended update\n"
+        outside = self.base / "outside-identical-update"
+        outside.write_bytes(intended)
+        outside.chmod(0o600)
+        outside_identity = outside.stat()
+        real_open = life_os._open_verified_temp_at
+
+        def replace_then_open(parent_fd, name, descriptor, digest, kind):
+            os.unlink(name, dir_fd=parent_fd)
+            os.link(outside, name, dst_dir_fd=parent_fd)
+            return real_open(parent_fd, name, descriptor, digest, kind)
+
+        with mock.patch.object(life_os, "_open_verified_temp_at", side_effect=replace_then_open):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+                self.runtime._atomic_publish_note_at(
+                    directory_fd, destination.name, intended.decode(), expected,
+                )
+
+        self.assertTrue(os.path.samestat(original_identity, destination.stat()))
+        self.assertFalse(os.path.samestat(outside_identity, destination.stat()))
+        self.assertEqual(original, destination.read_bytes())
+        self.assertTrue(os.path.samestat(outside_identity, outside.stat()))
+        self.assertEqual(intended, outside.read_bytes())
+        residuals = [path for path in directory.iterdir() if path != destination]
+        self.assertTrue(any(os.path.samestat(outside_identity, path.stat()) for path in residuals))
 
     def test_new_daily_hard_death_after_exclusive_rename_is_idempotent_on_retry(self):
         day = date(2026, 8, 7)
@@ -1317,6 +1391,36 @@ class LifeOSRuntimeTests(unittest.TestCase):
         ]
         self.assertTrue(any(path.is_symlink() and path.readlink() == outside for path in residuals))
         self.assertEqual(b"outside attachment bytes", outside.read_bytes())
+
+    def test_attachment_rejects_identical_hardlink_replaced_before_verification_open(self):
+        intended = b"intended attachment"
+        source = self.base / "attachment-identical-source.bin"
+        source.write_bytes(intended)
+        descriptor = os.open(source, os.O_RDONLY)
+        self.addCleanup(os.close, descriptor)
+        destination = self.runtime.attachments_root / "A001 - identical.bin"
+        outside = self.base / "outside-identical-attachment"
+        outside.write_bytes(intended)
+        outside.chmod(0o600)
+        outside_identity = outside.stat()
+        real_open = life_os._open_verified_temp_at
+
+        def replace_then_open(parent_fd, name, descriptor, digest, kind):
+            os.unlink(name, dir_fd=parent_fd)
+            os.link(outside, name, dst_dir_fd=parent_fd)
+            return real_open(parent_fd, name, descriptor, digest, kind)
+
+        with mock.patch.object(life_os, "_open_verified_temp_at", side_effect=replace_then_open):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
+                self.runtime._atomic_copy_verified(
+                    descriptor, destination, hashlib.sha256(intended).hexdigest(),
+                )
+
+        self.assertFalse(destination.exists())
+        self.assertTrue(os.path.samestat(outside_identity, outside.stat()))
+        self.assertEqual(intended, outside.read_bytes())
+        residuals = list(self.runtime.attachments_root.iterdir())
+        self.assertTrue(any(os.path.samestat(outside_identity, path.stat()) for path in residuals))
 
     def test_attachment_post_rename_fsync_failure_has_no_residual_temp(self):
         source = self.base / "attachment-fsync-failure.bin"

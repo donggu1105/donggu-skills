@@ -305,33 +305,37 @@ def _file_sha256_at(directory_fd: int, name: str) -> str:
 
 
 def _open_verified_temp_at(
-    directory_fd: int, name: str, digest: str, kind: str,
-) -> tuple[int, _TempIdentity]:
-    descriptor = -1
+    directory_fd: int, name: str, descriptor: int, digest: str, kind: str,
+) -> _TempIdentity:
     try:
-        descriptor = os.open(
-            name, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=directory_fd,
-        )
         before = os.fstat(descriptor)
+        path_before = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
         if (
             not stat.S_ISREG(before.st_mode)
             or before.st_uid != os.geteuid()
             or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_nlink != 1
+            or not os.path.samestat(before, path_before)
         ):
             raise OSError()
         actual_digest = _file_sha256_fd(descriptor)
         after = os.fstat(descriptor)
+        path_after = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
         before_identity = (
             before.st_dev, before.st_ino, before.st_size,
-            before.st_mtime_ns, before.st_ctime_ns,
+            before.st_mtime_ns, before.st_ctime_ns, before.st_nlink,
         )
         after_identity = (
             after.st_dev, after.st_ino, after.st_size,
-            after.st_mtime_ns, after.st_ctime_ns,
+            after.st_mtime_ns, after.st_ctime_ns, after.st_nlink,
         )
-        if before_identity != after_identity or actual_digest != digest:
+        if (
+            before_identity != after_identity
+            or not os.path.samestat(after, path_after)
+            or actual_digest != digest
+        ):
             raise OSError()
-        return descriptor, _TempIdentity(
+        return _TempIdentity(
             device=after.st_dev,
             inode=after.st_ino,
             size=after.st_size,
@@ -340,16 +344,15 @@ def _open_verified_temp_at(
             sha256=actual_digest,
         )
     except (LifeOSError, OSError):
-        if descriptor >= 0:
-            os.close(descriptor)
         raise LifeOSError(f"temporary {kind} changed before publication") from None
 
 
 def _published_temp_matches(
-    directory_fd: int, name: str, expected: _TempIdentity,
+    directory_fd: int, name: str, source_descriptor: int, expected: _TempIdentity,
 ) -> bool:
     descriptor = -1
     try:
+        source_before = os.fstat(source_descriptor)
         descriptor = os.open(
             name, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=directory_fd,
         )
@@ -358,19 +361,27 @@ def _published_temp_matches(
             not stat.S_ISREG(before.st_mode)
             or before.st_uid != os.geteuid()
             or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_nlink != 1
             or before.st_dev != expected.device
             or before.st_ino != expected.inode
             or before.st_size != expected.size
+            or not os.path.samestat(source_before, before)
         ):
             return False
         actual_digest = _file_sha256_fd(descriptor)
         after = os.fstat(descriptor)
+        source_after = os.fstat(source_descriptor)
+        path_after = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
         return (
             before.st_dev == after.st_dev
             and before.st_ino == after.st_ino
             and before.st_size == after.st_size
             and before.st_mtime_ns == after.st_mtime_ns
             and before.st_ctime_ns == after.st_ctime_ns
+            and before.st_nlink == after.st_nlink == source_after.st_nlink == 1
+            and os.path.samestat(source_before, source_after)
+            and os.path.samestat(source_after, after)
+            and os.path.samestat(after, path_after)
             and after.st_mtime_ns == expected.mtime_ns
             and actual_digest == expected.sha256
         )
@@ -1000,7 +1011,6 @@ class LifeOSRuntime:
         if destination.parent != self.attachments_root:
             raise LifeOSError("attachment destination conflicts with an existing file")
         descriptor = -1
-        verification_descriptor = -1
         temp_name = ""
         try:
             with self._attachments_directory() as directory_fd:
@@ -1009,7 +1019,7 @@ class LifeOSRuntime:
                     try:
                         descriptor = os.open(
                             candidate,
-                            os.O_CREAT | os.O_EXCL | os.O_WRONLY | _NOFOLLOW,
+                            os.O_CREAT | os.O_EXCL | os.O_RDWR | _NOFOLLOW,
                             0o600,
                             dir_fd=directory_fd,
                         )
@@ -1021,8 +1031,7 @@ class LifeOSRuntime:
                     raise OSError("temporary attachment allocation failed")
                 hasher = hashlib.sha256()
                 os.lseek(source_descriptor, 0, os.SEEK_SET)
-                with os.fdopen(descriptor, "wb", closefd=True) as output_stream:
-                    descriptor = -1
+                with os.fdopen(descriptor, "wb", closefd=False) as output_stream:
                     total = 0
                     for chunk in iter(lambda: os.read(source_descriptor, 1024 * 1024), b""):
                         total += len(chunk)
@@ -1034,8 +1043,8 @@ class LifeOSRuntime:
                     os.fsync(output_stream.fileno())
                 if hasher.hexdigest() != digest:
                     raise LifeOSError("cache attachment changed while being copied")
-                verification_descriptor, temp_identity = _open_verified_temp_at(
-                    directory_fd, temp_name, digest, "attachment",
+                temp_identity = _open_verified_temp_at(
+                    directory_fd, temp_name, descriptor, digest, "attachment",
                 )
                 try:
                     _exclusive_rename_at(directory_fd, temp_name, destination.name)
@@ -1043,7 +1052,7 @@ class LifeOSRuntime:
                     raise LifeOSError("attachment destination conflicts with an existing file") from None
                 temp_name = ""
                 if not _published_temp_matches(
-                    directory_fd, destination.name, temp_identity,
+                    directory_fd, destination.name, descriptor, temp_identity,
                 ):
                     _quarantine_published_entry(
                         directory_fd, destination.name, "attachment",
@@ -1056,8 +1065,6 @@ class LifeOSRuntime:
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
-            if verification_descriptor >= 0:
-                os.close(verification_descriptor)
 
     @staticmethod
     def _text_with_attachments(text: str, attachments: Sequence[StoredAttachment]) -> str:
@@ -1206,7 +1213,6 @@ class LifeOSRuntime:
     ) -> None:
         data = text.encode("utf-8")
         descriptor = -1
-        verification_descriptor = -1
         temp_name = ""
         recovery_name = ""
         try:
@@ -1215,7 +1221,7 @@ class LifeOSRuntime:
                 try:
                     descriptor = os.open(
                         candidate,
-                        os.O_CREAT | os.O_EXCL | os.O_WRONLY | _NOFOLLOW,
+                        os.O_CREAT | os.O_EXCL | os.O_RDWR | _NOFOLLOW,
                         0o600,
                         dir_fd=directory_fd,
                     )
@@ -1225,14 +1231,14 @@ class LifeOSRuntime:
                     continue
             if descriptor < 0:
                 raise OSError("temporary note allocation failed")
-            with os.fdopen(descriptor, "wb", closefd=True) as stream:
-                descriptor = -1
+            with os.fdopen(descriptor, "wb", closefd=False) as stream:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-            verification_descriptor, temp_identity = _open_verified_temp_at(
+            temp_identity = _open_verified_temp_at(
                 directory_fd,
                 temp_name,
+                descriptor,
                 hashlib.sha256(data).hexdigest(),
                 "note",
             )
@@ -1242,7 +1248,9 @@ class LifeOSRuntime:
                 except FileExistsError:
                     raise _ConcurrentMutation from None
                 temp_name = ""
-                if not _published_temp_matches(directory_fd, name, temp_identity):
+                if not _published_temp_matches(
+                    directory_fd, name, descriptor, temp_identity,
+                ):
                     _quarantine_published_entry(directory_fd, name, "note")
                 os.fsync(directory_fd)
             else:
@@ -1263,7 +1271,9 @@ class LifeOSRuntime:
                     dst_dir_fd=directory_fd,
                 )
                 temp_name = ""
-                if not _published_temp_matches(directory_fd, name, temp_identity):
+                if not _published_temp_matches(
+                    directory_fd, name, descriptor, temp_identity,
+                ):
                     _quarantine_published_entry(directory_fd, name, "note")
                 os.fsync(directory_fd)
                 self._remove_note_recovery_backup(recovery_name)
@@ -1275,8 +1285,6 @@ class LifeOSRuntime:
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
-            if verification_descriptor >= 0:
-                os.close(verification_descriptor)
 
     def _write_note_recovery_backup(self, name: str, expected: _TextSnapshot) -> str:
         if not name or "/" in name or "\x00" in name:
