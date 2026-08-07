@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -36,6 +37,8 @@ _PLACEHOLDER = "%%Your Record%%"
 _ALLOWED_STATUSES = {"not_started", "active", "paused", "completed"}
 _DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_ATTACHMENT_NAME = re.compile(r"^A(\d{3,}) - (.+)$")
+_DEFAULT_MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
 
 
 class LifeOSError(Exception):
@@ -53,6 +56,14 @@ class WorkflowState:
     follow_up_count: int
     pending_follow_up: dict[str, Any] | None
     last_message_key: str | None
+
+
+@dataclass(frozen=True)
+class StoredAttachment:
+    number: int
+    path: Path
+    sha256: str
+    wikilink: str
 
 
 @dataclass(frozen=True)
@@ -154,12 +165,44 @@ def _canonical_state(state: WorkflowState) -> str:
     return json.dumps(asdict(state), ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    descriptor = -1
+    try:
+        before = path.lstat()
+        if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+            raise LifeOSError("cache attachment must be a non-symlink regular file")
+        descriptor = os.open(path, os.O_RDONLY | _NOFOLLOW)
+        if not os.path.samestat(before, os.fstat(descriptor)):
+            raise LifeOSError("cache attachment changed during validation")
+        with os.fdopen(descriptor, "rb", closefd=True) as stream:
+            descriptor = -1
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except LifeOSError:
+        raise
+    except OSError:
+        raise LifeOSError("cache attachment is unavailable") from None
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    return digest.hexdigest()
+
+
 class LifeOSRuntime:
     """Owns Daily creation and mutations inside one explicit Markdown block."""
 
     QUESTIONS = QUESTIONS
 
-    def __init__(self, *, vault_root: Path, state_root: Path, timezone: ZoneInfo):
+    def __init__(
+        self,
+        *,
+        vault_root: Path,
+        state_root: Path,
+        timezone: ZoneInfo,
+        cache_roots: Sequence[Path] | None = None,
+        max_attachment_bytes: int | None = None,
+    ):
         if not isinstance(timezone, ZoneInfo) or timezone.key != "Asia/Seoul":
             raise LifeOSError("Timezone must be Asia/Seoul")
         self.timezone = timezone
@@ -167,6 +210,29 @@ class LifeOSRuntime:
         self.life_root = _checked_child(self.vault_root, "Life OS")
         self.periodic_root = _checked_child(self.life_root, "0. PeriodicNotes")
         self.template_root = _checked_child(self.periodic_root, "Templates")
+        hermes_home = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser()
+        self.cache_roots = (
+            tuple(Path(root).expanduser() for root in cache_roots)
+            if cache_roots is not None
+            else tuple(
+                Path(os.environ.get(variable, str(hermes_home / relative))).expanduser()
+                for variable, relative in (
+                    ("IMAGE_CACHE_DIR", "cache/images"),
+                    ("AUDIO_CACHE_DIR", "cache/audio"),
+                    ("DOCUMENT_CACHE_DIR", "cache/documents"),
+                )
+            )
+        )
+        if max_attachment_bytes is not None:
+            if isinstance(max_attachment_bytes, bool) or not isinstance(max_attachment_bytes, int) or max_attachment_bytes < 0:
+                raise LifeOSError("maximum attachment bytes is invalid")
+            self.max_attachment_bytes = max_attachment_bytes
+        else:
+            raw_limit = os.environ.get("DISCORD_MAX_ATTACHMENT_BYTES")
+            try:
+                self.max_attachment_bytes = max(0, int(raw_limit)) if raw_limit not in {None, ""} else _DEFAULT_MAX_ATTACHMENT_BYTES
+            except ValueError:
+                self.max_attachment_bytes = _DEFAULT_MAX_ATTACHMENT_BYTES
         external_state_root = _checked_external_state_root(self.vault_root, state_root)
         self.state_root = _prepare_private_state_root(external_state_root)
         template = self._template_path()
@@ -255,18 +321,18 @@ class LifeOSRuntime:
     ) -> dict[str, Any]:
         if operation not in {"answer", "skip", "pause", "resume", "capture", "free_record"}:
             raise LifeOSError("unsupported Life OS operation")
-        if attachment_paths:
-            raise LifeOSError("attachments are not supported yet")
         text = self._checked_message(message_text)
         key = self._checked_message_key(message_key)
         selected = target_date or self.resolve_target_date()
         with self._mutation_lock():
             if operation == "capture":
-                return self._append_capture(selected, text, key)
+                return self._append_capture(selected, text, key, attachment_paths)
             path = self._ensure_daily(selected)
             document, state = self._read_or_install_block(path, selected)
             if self._message_already_committed(document.content, key):
                 return self._result(path, state, duplicate=True)
+            stored = self._store_attachments(attachment_paths)
+            text = self._text_with_attachments(text, stored)
             document, state = self._apply_operation(
                 document,
                 state,
@@ -378,7 +444,9 @@ class LifeOSRuntime:
         _document, state = self._parse_block(text, selected)
         return state
 
-    def _append_capture(self, selected: date, text: str, key: str) -> dict[str, Any]:
+    def _append_capture(
+        self, selected: date, text: str, key: str, attachment_paths: Sequence[Path],
+    ) -> dict[str, Any]:
         path = self.capture_path(selected)
         with self._capture_directory() as directory_fd:
             document = self._read_capture_at(directory_fd, path.name)
@@ -387,9 +455,196 @@ class LifeOSRuntime:
                     return {"path": str(path), "date": selected.isoformat(), "status": "captured", "duplicate": True}
             else:
                 document = f"# Capture — {selected.isoformat()}\n\n"
+            stored = self._store_attachments(attachment_paths)
+            text = self._text_with_attachments(text, stored)
             entry = self._timestamped_entry("Capture", text, key)
             self._atomic_replace_at(directory_fd, path.name, document + entry)
         return {"path": str(path), "date": selected.isoformat(), "status": "captured", "duplicate": False}
+
+    @property
+    def attachments_root(self) -> Path:
+        return self.life_root / "Attachments"
+
+    def _store_attachments(self, paths: Sequence[Path]) -> tuple[StoredAttachment, ...]:
+        return tuple(self._store_one_attachment(Path(path)) for path in paths)
+
+    def _store_one_attachment(self, source: Path) -> StoredAttachment:
+        checked = self._checked_cache_file(source)
+        digest = _file_sha256(checked)
+        existing = self._attachment_by_hash(digest)
+        if existing is not None:
+            return existing
+        number = self._next_attachment_number()
+        filename = f"A{number:03d} - {self._readable_name(checked.name)}"
+        destination = self.attachments_root / filename
+        self._atomic_copy_verified(checked, destination, digest)
+        return StoredAttachment(
+            number=number,
+            path=destination,
+            sha256=digest,
+            wikilink=f"[[Life OS/Attachments/{filename}]]",
+        )
+
+    def _checked_cache_file(self, source: Path) -> Path:
+        path = source.expanduser()
+        if not path.is_absolute():
+            raise LifeOSError("cache attachment path must be absolute")
+        matching_root = None
+        relative_parts: tuple[str, ...] = ()
+        for candidate in self.cache_roots:
+            root = Path(candidate).expanduser()
+            try:
+                relative = path.relative_to(root)
+            except ValueError:
+                continue
+            if ".." in relative.parts:
+                continue
+            matching_root = root
+            relative_parts = relative.parts
+            break
+        if matching_root is None:
+            raise LifeOSError("cache attachment path is outside allowed cache roots")
+        try:
+            root_info = matching_root.lstat()
+            if stat.S_ISLNK(root_info.st_mode) or not stat.S_ISDIR(root_info.st_mode):
+                raise LifeOSError("cache attachment root must be a non-symlink directory")
+            current = matching_root
+            for name in relative_parts[:-1]:
+                current = current / name
+                info = current.lstat()
+                if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                    raise LifeOSError("cache attachment ancestry must contain only directories")
+            info = path.lstat()
+        except LifeOSError:
+            raise
+        except OSError:
+            raise LifeOSError("cache attachment is unavailable") from None
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise LifeOSError("cache attachment must be a non-symlink regular file")
+        if self.max_attachment_bytes and info.st_size > self.max_attachment_bytes:
+            raise LifeOSError("cache attachment exceeds the configured size limit")
+        return path
+
+    def _prepare_attachments_root(self) -> Path:
+        path = self.attachments_root
+        try:
+            path.mkdir(mode=0o755, exist_ok=True)
+            info = path.lstat()
+        except OSError:
+            raise LifeOSError("attachment directory is unavailable") from None
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise LifeOSError("attachment directory must be a non-symlink directory")
+        return path
+
+    def _attachment_by_hash(self, digest: str) -> StoredAttachment | None:
+        root = self.attachments_root
+        if not root.exists():
+            return None
+        self._prepare_attachments_root()
+        try:
+            entries = tuple(root.iterdir())
+        except OSError:
+            raise LifeOSError("attachment directory is unreadable") from None
+        for path in entries:
+            match = _ATTACHMENT_NAME.fullmatch(path.name)
+            try:
+                info = path.lstat()
+            except OSError:
+                raise LifeOSError("stored attachment is unavailable") from None
+            if match is None or stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                continue
+            if _file_sha256(path) == digest:
+                return StoredAttachment(
+                    number=int(match.group(1)),
+                    path=path,
+                    sha256=digest,
+                    wikilink=f"[[Life OS/Attachments/{path.name}]]",
+                )
+        return None
+
+    def _next_attachment_number(self) -> int:
+        root = self._prepare_attachments_root()
+        highest = 0
+        try:
+            for path in root.iterdir():
+                match = _ATTACHMENT_NAME.fullmatch(path.name)
+                if match is not None:
+                    highest = max(highest, int(match.group(1)))
+        except OSError:
+            raise LifeOSError("attachment directory is unreadable") from None
+        return highest + 1
+
+    @staticmethod
+    def _readable_name(source_name: str) -> str:
+        stem, extension = os.path.splitext(source_name)
+        if stem.lower().startswith("uuid-"):
+            stem = stem[5:]
+        stem = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]+', " ", stem)
+        stem = re.sub(r"\s+", " ", stem).strip(" .-") or "attachment"
+        extension = re.sub(r"[^A-Za-z0-9]", "", extension).lower()
+        return f"{stem[:120]}{('.' + extension) if extension else ''}"
+
+    def _atomic_copy_verified(self, source: Path, destination: Path, digest: str) -> None:
+        root = self._prepare_attachments_root()
+        if destination.parent != root or destination.exists():
+            raise LifeOSError("attachment destination conflicts with an existing file")
+        descriptor = -1
+        source_descriptor = -1
+        temp_name = ""
+        try:
+            source_info = source.lstat()
+            if stat.S_ISLNK(source_info.st_mode) or not stat.S_ISREG(source_info.st_mode):
+                raise LifeOSError("cache attachment must remain a non-symlink regular file")
+            source_descriptor = os.open(source, os.O_RDONLY | _NOFOLLOW)
+            if not os.path.samestat(source_info, os.fstat(source_descriptor)):
+                raise LifeOSError("cache attachment changed while being opened")
+            descriptor, temp_name = tempfile.mkstemp(prefix=".life-os-attachment-", dir=str(root))
+            hasher = hashlib.sha256()
+            with os.fdopen(source_descriptor, "rb", closefd=True) as input_stream, os.fdopen(
+                descriptor, "wb", closefd=True,
+            ) as output_stream:
+                source_descriptor = -1
+                descriptor = -1
+                total = 0
+                for chunk in iter(lambda: input_stream.read(1024 * 1024), b""):
+                    total += len(chunk)
+                    if self.max_attachment_bytes and total > self.max_attachment_bytes:
+                        raise LifeOSError("cache attachment exceeds the configured size limit")
+                    output_stream.write(chunk)
+                    hasher.update(chunk)
+                output_stream.flush()
+                os.fsync(output_stream.fileno())
+            if hasher.hexdigest() != digest:
+                raise LifeOSError("cache attachment changed while being copied")
+            if destination.exists():
+                raise LifeOSError("attachment destination conflicts with an existing file")
+            os.replace(temp_name, destination)
+            temp_name = ""
+            directory_fd = os.open(root, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except LifeOSError:
+            raise
+        except OSError:
+            raise LifeOSError("attachment could not be committed atomically") from None
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if source_descriptor >= 0:
+                os.close(source_descriptor)
+            if temp_name:
+                try:
+                    os.unlink(temp_name)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _text_with_attachments(text: str, attachments: Sequence[StoredAttachment]) -> str:
+        if not attachments:
+            return text
+        return text + "\n" + "\n".join(attachment.wikilink for attachment in attachments)
 
     @contextmanager
     def _capture_directory(self) -> Iterator[int]:
@@ -769,4 +1024,4 @@ class LifeOSRuntime:
         return result
 
 
-__all__ = ["LifeOSError", "LifeOSRuntime", "WorkflowState"]
+__all__ = ["LifeOSError", "LifeOSRuntime", "StoredAttachment", "WorkflowState"]

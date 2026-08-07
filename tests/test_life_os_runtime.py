@@ -50,6 +50,10 @@ class LifeOSRuntimeTests(unittest.TestCase):
             vault_root=self.vault,
             state_root=self.base / "state",
             timezone=ZoneInfo("Asia/Seoul"),
+            cache_roots=tuple(
+                self.base / "cache" / kind for kind in ("images", "audio", "documents")
+            ),
+            max_attachment_bytes=32 * 1024 * 1024,
         )
 
     def test_start_daily_renders_known_snapshot_and_preserves_template_blocks(self):
@@ -293,6 +297,263 @@ class LifeOSRuntimeTests(unittest.TestCase):
         capture_text = Path(first_capture["path"]).read_text(encoding="utf-8")
         self.assertEqual(1, capture_text.count("첫 캡처"))
         self.assertNotIn("다른 내용", capture_text)
+
+    def test_attachment_numbering_hash_reuse_and_direct_links(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        first = cache / "uuid-report.PDF"
+        first.write_bytes(b"same bytes")
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        result = self.runtime.record(
+            "answer", message_text="첨부했어", message_key="s3:1",
+            attachment_paths=[first], target_date=day,
+        )
+        stored = self.vault / "Life OS/Attachments/A001 - report.pdf"
+        self.assertEqual(b"same bytes", stored.read_bytes())
+        self.assertIn("[[Life OS/Attachments/A001 - report.pdf]]", Path(result["path"]).read_text())
+        duplicate = cache / "another-name.pdf"
+        duplicate.write_bytes(b"same bytes")
+        self.runtime.record(
+            "answer", message_text="같은 파일", message_key="s3:2",
+            attachment_paths=[duplicate], target_date=day,
+        )
+        self.assertEqual([stored], list((self.vault / "Life OS/Attachments").iterdir()))
+
+    def test_runtime_accepts_explicit_temporary_attachment_policy(self):
+        roots = (self.base / "explicit-cache/documents",)
+        runtime = LifeOSRuntime(
+            vault_root=self.vault,
+            state_root=self.base / "explicit-state",
+            timezone=ZoneInfo("Asia/Seoul"),
+            cache_roots=roots,
+            max_attachment_bytes=1234,
+        )
+        self.assertEqual(roots, runtime.cache_roots)
+        self.assertEqual(1234, runtime.max_attachment_bytes)
+
+    def test_rejects_symlink_cache_path_and_preserves_pending_question(self):
+        outside = self.base / "outside.pdf"
+        outside.write_bytes(b"secret")
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        link = cache / "link.pdf"
+        link.symlink_to(outside)
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        with self.assertRaisesRegex(life_os.LifeOSError, "cache attachment"):
+            self.runtime.record(
+                "answer", message_text="첨부", message_key="s4:1",
+                attachment_paths=[link], target_date=day,
+            )
+        self.assertEqual(1, self.runtime.status(day)["next_question"])
+
+    def test_attachment_cache_type_size_and_path_validation_is_fail_closed(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        outside = self.base / "outside.pdf"
+        outside.write_bytes(b"outside")
+        oversized = cache / "large.pdf"
+        oversized.write_bytes(b"12345")
+        fifo = cache / "pipe.pdf"
+        os.mkfifo(fifo)
+        self.runtime.max_attachment_bytes = 4
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+
+        for index, source in enumerate((outside, oversized, fifo), start=1):
+            with self.subTest(source=source.name):
+                with self.assertRaisesRegex(life_os.LifeOSError, "cache attachment"):
+                    self.runtime.record(
+                        "answer", message_text="invalid", message_key=f"security:{index}",
+                        attachment_paths=[source], target_date=day,
+                    )
+                self.assertEqual(1, self.runtime.status(day)["next_question"])
+        self.assertFalse((self.vault / "Life OS/Attachments").exists())
+
+    def test_attachment_rejects_file_swapped_to_symlink_between_hash_and_copy(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        source = cache / "uuid-race.pdf"
+        outside = self.base / "outside-race.pdf"
+        source.write_bytes(b"same bytes")
+        outside.write_bytes(b"same bytes")
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        real_hash = life_os._file_sha256
+
+        def hash_then_swap(path):
+            digest = real_hash(path)
+            path.unlink()
+            path.symlink_to(outside)
+            return digest
+
+        with mock.patch.object(life_os, "_file_sha256", side_effect=hash_then_swap):
+            with self.assertRaisesRegex(life_os.LifeOSError, "cache attachment"):
+                self.runtime.record(
+                    "answer", message_text="race", message_key="race:1",
+                    attachment_paths=[source], target_date=day,
+                )
+        self.assertEqual(1, self.runtime.status(day)["next_question"])
+        attachments = self.vault / "Life OS/Attachments"
+        self.assertFalse(attachments.exists() and any(attachments.iterdir()))
+
+    def test_attachment_rejects_parent_traversal_spelled_under_cache_root(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        outside = self.base / "outside-traversal.pdf"
+        outside.write_bytes(b"outside")
+        traversal = cache / ".." / ".." / outside.name
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "cache attachment"):
+            self.runtime.record(
+                "answer", message_text="traversal", message_key="traversal:1",
+                attachment_paths=[traversal], target_date=day,
+            )
+        self.assertEqual(1, self.runtime.status(day)["next_question"])
+
+    def test_attachment_name_is_sanitized_and_conflicting_destination_is_rejected(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        source = cache / "uuid-Quarter\nReport: Q3.PDF"
+        source.write_bytes(b"quarterly")
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        self.runtime.record(
+            "answer", message_text="report", message_key="name:1",
+            attachment_paths=[source], target_date=day,
+        )
+        stored = self.vault / "Life OS/Attachments/A001 - Quarter Report Q3.pdf"
+        self.assertEqual(b"quarterly", stored.read_bytes())
+
+        conflict_source = cache / "uuid-other.txt"
+        conflict_source.write_bytes(b"other")
+        conflict = self.vault / "Life OS/Attachments/A002 - other.txt"
+        conflict.write_bytes(b"occupied")
+        with mock.patch.object(self.runtime, "_next_attachment_number", return_value=2):
+            with self.assertRaises(life_os.LifeOSError):
+                self.runtime.record(
+                    "answer", message_text="conflict", message_key="name:2",
+                    attachment_paths=[conflict_source], target_date=day,
+                )
+        self.assertEqual(b"occupied", conflict.read_bytes())
+        self.assertEqual(2, self.runtime.status(day)["next_question"])
+
+    def test_attachment_rename_crash_is_recovered_by_hash_on_retry(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        source = cache / "uuid-crash.pdf"
+        source.write_bytes(b"recover me")
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        real_replace = life_os.os.replace
+        failed = False
+
+        def fail_after_attachment_rename(source_path, destination_path, *args, **kwargs):
+            nonlocal failed
+            result = real_replace(source_path, destination_path, *args, **kwargs)
+            if Path(destination_path).parent == self.runtime.attachments_root and not failed:
+                failed = True
+                raise OSError("injected post-attachment-rename crash")
+            return result
+
+        with mock.patch.object(life_os.os, "replace", side_effect=fail_after_attachment_rename):
+            with self.assertRaises(life_os.LifeOSError):
+                self.runtime.record(
+                    "answer", message_text="first try", message_key="crash:attachment",
+                    attachment_paths=[source], target_date=day,
+                )
+        self.assertEqual(1, self.runtime.status(day)["next_question"])
+
+        retry = cache / "uuid-retry.pdf"
+        retry.write_bytes(b"recover me")
+        result = self.runtime.record(
+            "answer", message_text="first try", message_key="crash:attachment",
+            attachment_paths=[retry], target_date=day,
+        )
+        attachment_names = [path.name for path in self.runtime.attachments_root.iterdir()]
+        self.assertEqual(["A001 - crash.pdf"], attachment_names)
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertEqual(1, text.count("[[Life OS/Attachments/A001 - crash.pdf]]"))
+        self.assertFalse(any(name.startswith(".life-os-") for name in attachment_names))
+
+    def test_note_rename_crash_reuses_attachment_and_commits_once_on_retry(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        source = cache / "uuid-note-crash.pdf"
+        source.write_bytes(b"note recovery")
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        note_path = self.runtime.daily_path(day)
+        original = note_path.read_text(encoding="utf-8")
+        real_replace = life_os.os.replace
+
+        def fail_before_note_rename(source_path, destination_path, *args, **kwargs):
+            if Path(destination_path) == note_path:
+                raise OSError("injected pre-note-rename crash")
+            return real_replace(source_path, destination_path, *args, **kwargs)
+
+        with mock.patch.object(life_os.os, "replace", side_effect=fail_before_note_rename):
+            with self.assertRaises(life_os.LifeOSError):
+                self.runtime.record(
+                    "answer", message_text="note try", message_key="crash:note",
+                    attachment_paths=[source], target_date=day,
+                )
+        self.assertEqual(original, note_path.read_text(encoding="utf-8"))
+
+        result = self.runtime.record(
+            "answer", message_text="note try", message_key="crash:note",
+            attachment_paths=[source], target_date=day,
+        )
+        self.assertEqual(["A001 - note-crash.pdf"], [path.name for path in self.runtime.attachments_root.iterdir()])
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertEqual(1, text.count("%% life-os-message: crash:note %%"))
+        self.assertEqual(1, text.count("[[Life OS/Attachments/A001 - note-crash.pdf]]"))
+
+    def test_concurrent_records_are_serialized_with_sequential_attachments(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        sources = []
+        for index in range(8):
+            source = cache / f"uuid-item-{index}.txt"
+            source.write_bytes(f"attachment {index}".encode())
+            sources.append(source)
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        barrier = threading.Barrier(8)
+        errors = []
+
+        def record(index):
+            try:
+                barrier.wait()
+                self.runtime.record(
+                    "free_record", message_text=f"concurrent {index}",
+                    message_key=f"thread:{index}", attachment_paths=[sources[index]],
+                    target_date=day,
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=record, args=(index,)) for index in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(5)
+
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual([], errors)
+        text = self.runtime.daily_path(day).read_text(encoding="utf-8")
+        for index in range(8):
+            self.assertEqual(1, text.count(f"%% life-os-message: thread:{index} %%"))
+        state_match = life_os._STATE_PATTERN.search(text)
+        self.assertIsNotNone(state_match)
+        json.loads(state_match.group(1))
+        numbers = sorted(
+            int(path.name.split(" ", 1)[0][1:]) for path in self.runtime.attachments_root.iterdir()
+        )
+        self.assertEqual(list(range(1, 9)), numbers)
 
     def test_target_date_prefers_unfinished_yesterday_until_today_starts(self):
         class FixedDateTime(life_os.datetime):
