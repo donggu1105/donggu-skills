@@ -111,7 +111,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-sns", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("2.7.3", claude["version"])
+        self.assertEqual("2.7.4", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_sns_registers_exact_native_tool_surface(self):

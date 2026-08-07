@@ -51,8 +51,8 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 | 채널 | 기본 분량 | 보이스 | 핵심 구조 | 출력 계약 |
 |---|---:|---|---|---|
 | **Blog** | 2,000~2,500자 | 주장·에세이=평서체, 행사·후기=정중 존댓말 | 리드 → 소제목 3~6개 → 구체적 판단 | 1행 제목 + Markdown 본문 |
-| **LinkedIn** | 1,200~1,400자 | 에세이=평서체, 행사·공지=존댓말 | 첫 3줄 후크 → 사실 → 주장 → 근거 → 현재 판단 | 본문 1개 + 수동 첫 댓글 링크 |
-| **Threads** | 단일 ≤500자 | 친근한 반말·평어 | 5~7개 짧은 호흡, 한 주장, 답글 유도 | 본문 1개 + 수동 첫 댓글 링크 |
+| **LinkedIn** | 1,200~1,400자 | 에세이=평서체, 행사·공지=존댓말 | 첫 3줄 후크 → 사실 → 주장 → 근거 → 현재 판단 | 본문 1개 |
+| **Threads** | 단일 ≤500자 | 친근한 반말·평어 | 5~7개 짧은 호흡, 한 주장, 답글 유도 | 본문 1개 |
 | **Maily** | 편지 1통 | 정중한 편지체 | 제목·부제목 → 짧은 인사 → 본론 → 질문·맺음 | 1행 제목 / 2행 부제목 / 빈 줄 / 본문 |
 
 세부 규칙은 표가 아니라 각 채널 reference가 정본이다. 표와 reference가 충돌하면 reference를 따른다.
@@ -117,9 +117,9 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 
 ### 8. 전달
 
-- authoring-only: 채널별 확정 초안과 필요한 수동 첫 댓글 링크를 분리해 보여준다.
-- 파일 저장 요청: 본문과 `manual_first_comment_url`을 분리해 target-native 파일 도구에 넘긴다. LinkedIn·Threads의 외부 URL은 canonical body 밖의 `## 수동 첫 댓글` 섹션에 보존한다. 이 스킬은 그 외 경로·schema·frontmatter를 소유하지 않는다.
-- 게시 요청: `publish-sns`의 preview·approval 절차로 넘긴다. 현재 발행 payload가 첫 댓글을 지원하지 않으면 URL을 조용히 버리지 말고 수동 후속 단계로 명시한다. 이 스킬은 게시하지 않는다.
+- authoring-only: 채널별 확정 초안만 보여준다.
+- 파일 저장 요청: 확정 본문을 target-native 파일 도구에 넘긴다. 이 스킬은 경로·schema·frontmatter를 소유하지 않는다.
+- 게시 요청: `publish-sns`의 preview·approval 절차로 넘긴다. LinkedIn·Threads 초안의 외부 URL은 제거하고 본문 계약을 다시 검수한다. 이 스킬은 게시하지 않는다.
 
 ## Common Mistakes
 
@@ -128,7 +128,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 | reference를 읽지 않고 매트릭스만 보고 작성 | 공통 보이스 + 요청 채널 reference를 반드시 읽는다. |
 | 논지 잠금 전에 기존 글 예시부터 읽기 | 근거 장부와 현재 논지를 먼저 잠근 뒤 요청 채널 examples만 읽는다. |
 | 예시의 문장·사례·결론을 재사용 | register·리듬·전환·종결 방식만 추출하고 내용은 현재 source에서만 가져온다. |
-| LinkedIn·Threads 외부 URL을 본문에 합치기 | URL은 `manual_first_comment_url`로 분리하고 저장 시 `## 수동 첫 댓글` 섹션에 보존한다. |
+| LinkedIn·Threads 외부 URL을 본문에 합치기 | URL을 제거하고 본문 URL 0개를 다시 검수한다. |
 | 외부 보이스 문서나 과거 글을 자동 조회 | 금지. 스킬 내부 reference가 작성 규칙의 정본이다. |
 | 기존 글을 길이만 바꿔 재사용 | 채널별 독자·호흡·구조로 다시 쓴다. |
 | 과거 관점이나 익숙한 결론으로 수렴 | 현재 source에서 새 논지를 잠근다. |

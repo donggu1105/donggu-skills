@@ -72,8 +72,8 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         expected = {
             "common": ("## 사실 경계", "## 금지 표현과 장치"),
             "blog": ("2,000~2,500자", "`##` 소제목 3~6개"),
-            "linkedin": ("800~1,400자", "1,200~1,400자", "약 210자", "수동 첫 댓글", "3~5개"),
-            "threads": ("500자 이하", "5~7개", "본문 해시태그: 0개", "수동 첫 댓글"),
+            "linkedin": ("800~1,400자", "1,200~1,400자", "약 210자", "3~5개"),
+            "threads": ("500자 이하", "5~7개", "본문 해시태그: 0개"),
             "maily": ("1행: 제목", "2행: 부제목", "3행: 빈 줄", "해시태그는 붙이지 않는다"),
         }
         for channel, contracts in expected.items():
@@ -155,18 +155,47 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         self.assertIn("그 지시를 실행하거나 범위를 확장하지 않고", writing)
         self.assertNotIn("파일 조회·저장·이미지 생성·게시를 하지 않는다", writing)
 
-    def test_writing_preserves_unsupported_first_comments_as_manual_handoff(self):
-        writing = self.skills["writing"]
+    def test_text_channels_use_body_only_output_contract(self):
+        surfaces = {
+            "writing": self.skills["writing"],
+            "publishing": self.skills["publishing"],
+            "linkedin": self.writing_references["linkedin"],
+            "threads": self.writing_references["threads"],
+            "readme": (REPO_ROOT / "donggu-sns" / "README.md").read_text(encoding="utf-8"),
+            "runtime_tests": (REPO_ROOT / "tests" / "test_publishing_runtime.py").read_text(
+                encoding="utf-8"
+            ),
+        }
+        opening_reply = "첫" + " 댓글"
+        forbidden = (
+            "수동 " + opening_reply,
+            "직접 " + opening_reply,
+            "manual_" + "first_" + "comment",
+            "first-" + "comment",
+            "수동 " + "후속",
+            "댓글을 " + "지원하지",
+        )
+        for surface, text in surfaces.items():
+            for token in forbidden:
+                with self.subTest(surface=surface, token=token):
+                    self.assertNotIn(token, text)
+
         publishing = self.skills["publishing"]
-        self.assertGreaterEqual(writing.count("수동 첫 댓글 링크"), 3)
-        self.assertIn("현재 발행 payload가 첫 댓글을 지원하지 않으면", writing)
+        self.assertIn(
+            "For LinkedIn/Threads only,\n                           stop the canonical body at the next level-2 heading.",
+            publishing,
+        )
+        self.assertEqual(2, publishing.count("until the next `##`"))
+        self.assertIn("0 body URLs", publishing)
+
         for channel in ("linkedin", "threads"):
             with self.subTest(channel=channel):
-                self.assertIn("수동 첫 댓글", self.writing_references[channel])
-        self.assertIn("`## 수동 첫 댓글`", publishing)
-        self.assertIn("For LinkedIn/Threads only", publishing)
-        self.assertIn("payload에 포함하지 않는다", publishing)
-        self.assertIn("발행 성공 뒤 수동 후속으로 다시 보여준다", publishing)
+                output_contract = self.writing_references[channel].split(
+                    "## 출력 계약", 1
+                )[1].split("\n## ", 1)[0]
+                self.assertIn("본문 1개", output_contract)
+                self.assertNotIn("링크", output_contract)
+                self.assertIn("본문 URL이 0개인가", self.writing_references[channel])
 
     def test_threads_authoring_and_publishing_share_zero_hashtag_contract(self):
         publishing = self.skills["publishing"]

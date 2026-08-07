@@ -541,23 +541,6 @@ class PublishingRuntimeTests(unittest.TestCase):
                         user_message_id=self.PREVIEW_MESSAGE_ID,
                     )
 
-        with self.assertRaisesRegex(
-            self.module.ValidationError, "closed channel contract"
-        ):
-            self.runtime.preview(
-                channel="threads",
-                operation="publish",
-                payload={
-                    "content": "본문",
-                    "manual_first_comment_url": "https://example.com",
-                },
-                topic="contract",
-                note_path="note.md",
-                session_id="stateless-contract",
-                turn_id="stateless-turn",
-                user_message_id=self.PREVIEW_MESSAGE_ID,
-            )
-
         self.assertEqual([], list((Path(self.tmp.name) / "receipts").glob("*.json")))
 
         valid = self.runtime.preview(
