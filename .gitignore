@@ -9,3 +9,4 @@ node_modules/
 .vscode/
 __pycache__/
 .worktrees/
+.superpowers/sdd/progress.md
