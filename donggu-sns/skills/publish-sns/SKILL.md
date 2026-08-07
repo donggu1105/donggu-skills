@@ -32,11 +32,14 @@ Content *formats* are NOT defined here — each channel's note structure is owne
      │      video = make-shorts), save the note
      │     (`status: draft`), then continue at step 2 with the new note.
      │
-     └─ note EXISTS ──► 2. Extract body per channel (see table) — `## 발행` section is the
-                           canonical body. NEVER take "everything after frontmatter";
-                           strategy/notes/checklist sections must not leak into a post.
+     └─ note EXISTS ──► 2. Extract body per channel (see table). For LinkedIn/Threads only,
+                           stop the canonical body at the next level-2 heading and read an
+                           optional `## 수동 첫 댓글` URL separately; never include it in payload.
+                           NEVER take "everything after frontmatter"; strategy/notes/checklist
+                           sections must not leak into a post.
   3. PREVIEW + APPROVAL GATE (mandatory): show title + body (or structure + first paragraphs
-     + char count) and ask. Proceed ONLY on an explicit "올려"-class approval.
+     + char count) and ask. Show any manual first-comment URL in a separate non-payload box.
+     Proceed ONLY on an explicit "올려"-class approval.
      State whether the post will include images. For threads/instagram, if the `## 발행`
      section has no `![[image]]` embeds the post goes out TEXT-ONLY — say so and confirm
      that's intended (offer to source/render images) before firing. Never silently drop
@@ -57,7 +60,8 @@ Content *formats* are NOT defined here — each channel's note structure is owne
      publication-complete event.
      `reconciliation_required` means the external mutation succeeded but the ledger did not;
      never retry publication automatically. Reconcile the returned URL/post_id first.
-  6. Report per-channel success/failure + URLs. Update note frontmatter `status: published`
+  6. Report per-channel success/failure + URLs. If a manual first-comment URL exists,
+     발행 성공 뒤 수동 후속으로 다시 보여준다. Update note frontmatter `status: published`
      only when at least one real publish succeeded and its ledger write completed. A dry-run-only
      result leaves the note status unchanged.
 ```
@@ -89,9 +93,24 @@ harness-specific scripts.
 |---|---|---|---|
 | tistory | first line = title, markdown body as-is — **but run blog-image prep first** (see below) | `category`? (default 프로덕트 엔지니어), `tags` array | vault `TEMPLATE - Blog 발행 틀` |
 | maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is — **blog-image prep first if it has `![[embeds]]`** | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
-| threads | `## 발행` text = `content` verbatim; `![[image]]` embeds → `image_urls` in order | ≤500 chars (warn if over), 1 hashtag max | **writing-social-content** |
-| linkedin | `## Draft` final version | `content` only | writing-social-content |
+| threads | `## 발행` text until the next `##` = `content`; `![[image]]` embeds → `image_urls`; optional `## 수동 첫 댓글` is separate | ≤500 chars, 0 hashtags, 0 body URLs; native preview rejects overlength, hashtags, and unambiguous URL strings | **writing-social-content** |
+| linkedin | `## Draft` final version until the next `##`; optional `## 수동 첫 댓글` is separate | `content` only, 0 body URLs; native preview rejects unambiguous URL strings | writing-social-content |
 | instagram | card texts in note → self-contained HTML → render webhook → `image_urls` + `caption` | 1 img=single, 2–10=carousel | **make-insta-card-news** (Mode B) |
+
+### Manual first-comment handoff (LinkedIn · Threads)
+
+When an external source URL should be posted manually after the main post, persist it outside the canonical body:
+
+```markdown
+## 수동 첫 댓글
+https://example.com/source
+```
+
+- The section is optional and contains exactly one source-matching HTTPS URL.
+- Extract it separately, show it beside the preview, and **payload에 포함하지 않는다**.
+- A restarted publishing flow reloads the URL from this section instead of conversation memory.
+- After a completed real publish, show the URL again with a clear “직접 첫 댓글로 게시” action. The native adapter does not post comments.
+- If the canonical Threads/LinkedIn body contains an external URL, STOP; do not silently move or drop it. Correct the draft and re-preview.
 
 ### Images (blog: tistory · maily — inline body images)
 
@@ -143,6 +162,8 @@ Delete flow: adapter preview resolves the latest active ledger row → show topi
 
 - About to POST a pub webhook without having shown a preview *and* received explicit approval in this conversation → STOP, preview first. "The note already says status:draft and user said 올려줘 by topic" is NOT approval of the body.
 - Extracted body = whole note after frontmatter → STOP, use the channel's section (`## 발행` / `## Draft`).
+- Threads body is over 500자를 넘거나 해시태그·본문 URL을 포함함, or LinkedIn body contains a URL → STOP before preview; move only the source URL to `## 수동 첫 댓글` through an explicit draft correction.
+- A saved LinkedIn/Threads draft has a source URL but no `## 수동 첫 댓글` handoff → STOP; do not rely on conversation memory.
 - No note found and you're about to ask the user for a filename → STOP, offer to create the draft via the matching writing-social-content / make-* skill instead.
 - post_id from conversation memory → STOP, SELECT from the ledger.
 - maily without a subtitle line, or real-send without the second confirmation → STOP.

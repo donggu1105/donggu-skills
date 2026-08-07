@@ -1,101 +1,115 @@
 # donggu-sns
 
-> SNS content authoring skill collection — part of [`donggu-skills`](../) marketplace.
+> Portable SNS authoring and gated publishing — part of [`donggu-skills`](../) marketplace.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
 [![Skills](https://img.shields.io/badge/skills-7-green)](#-skills)
-[![Compatible](https://img.shields.io/badge/Obsidian-PKM-purple)](#-vault-가정)
 
-옵시디언 vault 기반 SNS 작성·발행. **텍스트는 voice-learning 한 스킬**로, **아티팩트(카드·영상)와 발행은 전용 스킬**로 분리.
-
----
-
-## 🧭 경계 — 말 / 물건 / 발행
-
-```
-writing-social-content   = 말 (보이스 대본)   — 글자만 쓴다
-make-*                   = 물건 (카드·영상)   — 대본을 쓰지 않는다
-publish-sns              = 발행               — 만들지도 쓰지도 않는다
-```
-
-## 📚 Skills
-
-| Skill | 호출 | 사용 시점 | Output |
-|---|---|---|---|
-| **writing-social-content** | `donggu-sns:writing-social-content` | 텍스트 채널 글 작성 — Blog·LinkedIn·Threads·Maily (각 채널 독립, voice-learning + 발행 형식) | `<채널> - <title>.md` |
-| **make-insta-card-news** | `donggu-sns:make-insta-card-news` | Instagram 카드뉴스 이미지 (DESIGN.md 기반) | 1080×1350 PNG 세트 |
-| **make-shorts** | `donggu-sns:make-shorts` | 세로 숏폼 영상 (뉴스→CapCut 9:16) | CapCut 드래프트 |
-| **youtube** | `donggu-sns:youtube` | YouTube 독립 아이디어 → transcript·thumbnail 전문 스킬 라우팅 → Longform + Shorts Pack → 회고 → CORE 환원 | Obsidian 영상 Pack |
-| **publish-sns** | `donggu-sns:publish-sns` | tistory·maily·threads·linkedin·instagram 발행/삭제 | 발행 + Supabase 레저 |
+Blog·LinkedIn·Threads·Maily 텍스트 작성, Instagram·Shorts 아티팩트 생성, YouTube 기획, 외부 채널 발행을 역할별 스킬로 분리한다.
 
 ---
 
-## 🔁 사용 흐름
+## 경계 — 말 / 물건 / 발행
 
+```text
+writing-social-content   = 말       — 글자만 작성
+make-*                   = 물건     — 카드·영상 아티팩트 생성
+youtube                  = 영상 기획 — Longform + Shorts Pack
+publish-sns              = 발행     — 승인 뒤 외부 채널 반영
 ```
-[새 이벤트]
-    │
-    ▼
-┌────────────────────────────────────┐
-│  writing-social-content            │  채널 택1 (각 채널 독립)
-│  └ 채널 매트릭스 + voice-learning  │  Blog · LinkedIn · Threads · Maily
-└──────────────┬─────────────────────┘     (같은 스킬, 채널만 바꿈 / 마스터 없음)
-               │  발행 형식(`## 발행`/`## Draft`)으로 저장
-               ▼
-┌────────────────────────────────────┐
-│  publish-sns                       │  채널 발행 + 레저 기록
-└────────────────────────────────────┘
 
-이미지가 필요하면 → make-insta-card-news (카드)
-영상이 필요하면   → make-shorts (세로 숏폼)
-YouTube 채널 운영 → youtube (baoyu transcript + thumbnail design 라우팅 + Longform/Shorts Pack + CORE 환원)
-```
+## Skills
+
+| Skill | 사용 시점 | Output |
+|---|---|---|
+| **writing-social-content** | Blog·LinkedIn·Threads·Maily 텍스트 작성·변환 | 채널별 확정 초안 |
+| **make-insta-card-news** | Instagram 카드뉴스 이미지 | 1080×1350 PNG 세트 |
+| **make-shorts** | 세로 숏폼 영상 | CapCut 드래프트 |
+| **youtube** | YouTube Longform + Shorts Pack 기획·회고 | 영상 Pack |
+| **publish-sns** | tistory·maily·threads·linkedin·instagram 발행·삭제 | 발행 결과 + ledger |
+| **get-stock-image** | 스톡 이미지 검색·저장 | 이미지 파일 |
+| **get-ai-image** | 로컬 생성 이미지 | 이미지 파일 |
 
 ---
 
-## 🎤 Voice 시스템 (writing-social-content)
+## 텍스트 작성 구조
 
-채널마다 *고유 voice 자산*(VOICE)과 **정전(canon) 글**을 학습해 일관 유지 — 같은 채널엔 같은 톤, 쓸수록 voice 정착:
+`writing-social-content`는 하나의 라우터와 스킬 내부 reference로 동작한다.
 
+```text
+writing-social-content/
+├── SKILL.md
+└── references/
+    ├── common-voice.md
+    ├── blog.md
+    ├── examples-blog.md
+    ├── linkedin.md
+    ├── examples-linkedin.md
+    ├── threads.md
+    ├── examples-threads.md
+    ├── maily.md
+    └── examples-maily.md
 ```
-Personal Branding/40_Channel_Packs/<channel>/
-├── _anchors/
-│   └── VOICE - <channel>.md             🎤 하드룰 + 정전(canon) 글 포인터 + 하단 `## 채널 운영 메모` (보이스는 실제 글로 학습)
-└── <channel> - <title>.md               📝 발행 글
+
+```text
+사용자 source·URL·브리프
+        ↓
+common-voice + 요청 채널 규칙
+        ↓
+근거 장부 + 채널별 논지 잠금
+        ↓
+요청 채널의 번들된 문체 예시로 톤 캘리브레이션
+        ↓
+채널별 독립 초안
 ```
 
-채널별 분량·톤 차이는 writing-social-content의 **채널 매트릭스** 한 표로 관리.
+- 공통 보이스와 요청받은 채널 규칙만 먼저 읽는다.
+- 현재 논지를 잠근 뒤 요청 채널의 기존 발행 글 발췌만 문체 예시로 읽는다.
+- 발췌의 사실·사례·결론은 재사용하지 않는다.
+- 외부 보이스 문서, 과거 글, 특정 Vault 경로를 런타임에 요구하지 않는다.
+- 현재 source가 내용의 정본이다.
+- 다른 채널 문장을 길이만 바꿔 재사용하지 않는다.
+- Blog·LinkedIn·Threads·Maily를 별도 스킬로 쪼개지 않는다.
+
+## 작성 이후
+
+```text
+텍스트 확정
+├── 파일 저장 요청 → target-native 파일 도구
+├── 이미지 요청    → get-stock-image / get-ai-image
+├── 카드 요청      → make-insta-card-news
+├── 영상 요청      → youtube / make-shorts
+└── 게시 요청      → publish-sns preview·approval
+```
+
+`writing-social-content`는 저장 경로, schema, frontmatter, 이미지, 게시를 소유하지 않는다. 저장 대상이 Obsidian이어도 해당 Vault의 규칙은 저장 단계에서만 적용한다.
+
+LinkedIn·Threads의 외부 URL은 본문과 분리한 `manual_first_comment_url`로 넘긴다. 저장 단계는 이를 canonical body 밖의 `## 수동 첫 댓글` 섹션에 보존하고, `publish-sns`는 발행 성공 뒤 직접 게시할 URL로 다시 보여준다.
 
 ---
 
-## 📂 vault 가정
+## 발행 안전 경계
 
-```
-Personal Branding/
-├── 40_Channel_Packs/
-│   ├── INDEX - Channels.md           도메인 매뉴얼
-│   ├── Blog/ LinkedIn/ Threads/ Maily/ YouTube/   (각 _anchors/ + 발행 글)
-│   └── Instagram/               (make-insta-card-news 카드)
-├── 20_Core/                     atomic claims (CORE 인용 시)
-└── 60_Projects/                 프로젝트 메타 + Teaching/ 강의 재사용 부품 (옵션)
-```
-
-정본: vault `Personal Branding/_GUIDES/RULES.md` — 폴더 지도·프론트매터·status enum이 이 스킬 문서와 다르면 볼트를 따른다.
-
-자세한 path·frontmatter 스키마: vault `Personal Branding/40_Channel_Packs/INDEX - Channels.md`
+- 실제 외부 게시·수정·삭제는 `publish-sns`만 수행한다.
+- preview와 사용자 승인 없이 게시하지 않는다.
+- Maily 실제 발송은 별도 2차 확인이 필요하다.
+- native preview는 Threads 500자 초과·해시태그·명백한 본문 URL 문자열과 LinkedIn의 명백한 본문 URL 문자열을 거부한다.
+- LinkedIn·Threads 첫 댓글은 자동 발행하지 않고 `## 수동 첫 댓글`에서 재개 가능한 수동 후속으로 보존한다.
+- 외부 결과는 ledger read-back까지 확인한다.
 
 ---
 
-## 🛠 의존성
+## Dependencies
 
-- 옵시디언 REST API + MCP (vault retrieve용)
-- Claude Code (AskUserQuestion + 글 생성)
+- 텍스트 작성: 추가 런타임 의존성 없음
 - YouTube research: `baoyu-youtube-transcript`; thumbnail design/QA: `youtube-thumbnail-design`
-- make-shorts: `edge-tts`, `pyCapCut` / make-insta-card-news: Playwright 또는 headless render api
+- make-shorts: `edge-tts`, `pyCapCut`
+- make-insta-card-news: Playwright 또는 headless render API
+- publishing adapter: `SNS_WEBHOOK_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 
 ---
 
-## 🔗 관련
+## Related
 
 - 마켓플레이스: [donggu-skills](../)
-- 짝 도메인: [donggu-obsidian](../donggu-obsidian/) (vault 운영 의례)
+- Vault 운영: [donggu-obsidian](../donggu-obsidian/)

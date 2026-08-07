@@ -14,7 +14,7 @@ description: "Use when a blog or SNS post needs an AI-generated image such as a 
 저장·임베드·발행(대표이미지 포함)은 기존 파이프라인이 그대로 처리한다.
 
 ## When to Use
-- 블로그 대표이미지·문단 삽화를 **스톡 말고 AI로** 만들고 싶을 때 (`blog` 한정 — 다른 채널은 [[writing-social-content]]의 채널 규칙)
+- 블로그 대표이미지·문단 삽화를 **스톡 말고 AI로** 만들고 싶을 때 (`blog` 한정 — 다른 채널은 해당 아티팩트 전문 스킬 사용)
 - **When NOT:** 카드뉴스/캐러셀 → `make-insta-card-news` · **글자(한글) 박힌 이미지** → AI는 텍스트 약함, 카드로 · 동구님이 직접 찍은 결과물이 있으면 그게 1순위
 
 ## 백엔드
@@ -67,7 +67,7 @@ ComfyUI는 **호스트 네이티브로 GPU**를 쓴다(맥 Docker는 GPU 패스�
 - 미설정 시 스킬 기본값은 `127.0.0.1:8188`. compose 변경은 n8n 컨테이너 재기동 후 반영.
 
 ## 블로그 파이프라인 통합
-[[writing-social-content]]의 "블로그 이미지 배치"에서 **소스 선택**: stock(`get-stock-image`) | ai(이 스킬). 나머지(vault 저장 위치·임베드·hero=대표이미지)는 동일. 저장 경로·파일명 규칙도 그대로(`_img/<슬러그>/hero.jpg` 등) — `prepare_blog_images`가 업로드·치환, 발행기가 hero를 대표이미지로 올린다.
+이미지 준비 단계에서 **소스 선택**: stock(`get-stock-image`) | ai(이 스킬). 저장 위치·임베드·대표이미지 계약은 저장·발행 파이프라인이 소유한다. `prepare_blog_images`가 기존 로컬 임베드를 업로드·치환하고, 발행기가 hero를 대표이미지로 올린다. `writing-social-content`는 이미지 배치나 경로를 소유하지 않는다.
 
 ## Common Mistakes
 | 실수 | 수정 |
