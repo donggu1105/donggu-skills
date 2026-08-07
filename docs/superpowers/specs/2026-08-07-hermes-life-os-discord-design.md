@@ -148,7 +148,8 @@ when absent, and returns the pending question. It is idempotent:
 
 - `not_started` becomes `active` at question 1;
 - `active` returns the current pending question without resetting answers;
-- `paused` remains paused unless the operation explicitly requests resume;
+- `paused` becomes `active` because an explicit start resumes a paused Daily
+  without resetting answers or the pending question;
 - `completed` returns completion and never starts a second check-in.
 
 ### `donggu_life_os_record`
@@ -162,11 +163,16 @@ characters, and is ignored after the two-follow-up limit.
 For Hermes turns, a `pre_gateway_dispatch` hook captures only normalized text
 from the real Discord message before gateway preparation and binds it to the
 Discord message, platform, chat, user, thread, and profile identities. The
-native handler requires an exact match with Hermes session context and uses
+hook and native handlers require the exact configured `life-os` Discord
+channel binding and an exact match with Hermes session context. Cron may call only
+`donggu_life_os_start_daily` when its Discord auto-delivery target is that
+channel; status and record are forbidden from cron. The record handler uses
 `SessionDB` only to identify the persisted user row ID; persisted prepared
 content, model-supplied answer text, and model-supplied Discord IDs are not
 trusted. The session, row, platform, and source identities form the durable
-native idempotency key. Attachment paths remain model-selected because
+native idempotency key. The matching captured turn remains reserved until the
+runtime call succeeds and JSON serialization completes; failure releases it
+so a retry derives the same key. Attachment paths remain model-selected because
 Hermes exposes media paths in the current prompt, but the runtime accepts only
 regular, non-symlink files beneath the active Hermes image, audio, or document
 cache roots.
@@ -323,6 +329,9 @@ commits the note link. No private manifest is needed in the attachment folder.
 - A trusted Hermes key derived from session, row, platform, and source
   identities appears once in the bounded record block. A private per-Vault
   claim binds that key to one operation and target across Daily and Capture.
+- A hook-captured trusted turn is atomically reserved during SessionDB lookup,
+  runtime mutation, and result serialization. Concurrent use fails closed;
+  success commits the reservation and failure releases it for retry.
 - Reprocessing the same message returns the prior result without adding text,
   advancing state, or copying another attachment.
 - Attachment identity is content hash, not a temporary cache filename.

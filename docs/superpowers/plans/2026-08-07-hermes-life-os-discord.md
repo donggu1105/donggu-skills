@@ -728,22 +728,25 @@ Run the following with the Hermes virtualenv Python. It loads the bot token into
 
 ```python
 from dotenv import dotenv_values
-import json
 from pathlib import Path
-import urllib.request
+import requests
 
 token = str(dotenv_values(Path.home() / ".hermes/.env").get("DISCORD_BOT_TOKEN") or "")
 if not token:
     raise SystemExit("Discord credential is unavailable")
 
 def request(method, path, body=None):
-    data = None if body is None else json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        "https://discord.com/api/v10" + path, data=data, method=method,
-        headers={"Authorization": "Bot " + token, "Content-Type": "application/json"},
+    response = requests.request(
+        method, "https://discord.com/api/v10" + path, json=body,
+        headers={
+            "Authorization": "Bot " + token,
+            "Content-Type": "application/json",
+            "User-Agent": "Hermes-Agent (https://github.com/NousResearch/hermes-agent)",
+        },
+        timeout=20,
     )
-    with urllib.request.urlopen(req, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
+    response.raise_for_status()
+    return response.json()
 
 guilds = [g for g in request("GET", "/users/@me/guilds") if g.get("name") == "대장간"]
 if len(guilds) != 1:
@@ -765,9 +768,16 @@ channel = matches[0] if matches else request(
     {"name": "life-os", "type": 0, "parent_id": parent_id,
      "topic": "Life OS Daily check-in · Hermes Agent"},
 )
-if channel.get("parent_id") != parent_id or channel.get("name") != "life-os":
-    raise SystemExit("created channel failed verification")
-print(channel["id"])
+readback = request("GET", f"/channels/{channel['id']}")
+if (
+    readback.get("guild_id") != guild["id"]
+    or readback.get("type") != 0
+    or readback.get("parent_id") != parent_id
+    or readback.get("name") != "life-os"
+):
+    raise SystemExit("channel readback failed verification")
+# This successful GET proves the bot can view the channel.
+print(readback["id"])
 ```
 
 Expected: one decimal channel ID; no token or other credential appears.

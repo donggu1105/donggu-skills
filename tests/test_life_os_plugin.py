@@ -5,11 +5,13 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import tempfile
 import threading
 import time
 import types
 import unittest
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +51,27 @@ class LifeOSPluginTests(unittest.TestCase):
         self.tools = importlib.import_module(self.module_name + ".tools")
         if hasattr(self.tools, "_TRUSTED_TURNS"):
             self.tools._TRUSTED_TURNS.clear()
+        self.hermes_config = {
+            "discord": {
+                "channel_skill_bindings": [{"id": "456", "skill": "life-os"}],
+            },
+        }
+        hermes_cli = types.ModuleType("hermes_cli")
+        hermes_cli.__path__ = []
+        gateway = types.ModuleType("gateway")
+        gateway.__path__ = []
+        self._default_modules = mock.patch.dict(sys.modules, {
+            "hermes_cli": hermes_cli,
+            "hermes_cli.config": types.SimpleNamespace(
+                load_config_readonly=lambda: self.hermes_config,
+            ),
+            "gateway": gateway,
+            "gateway.session_context": types.SimpleNamespace(
+                get_session_env=self.session_context(),
+            ),
+        })
+        self._default_modules.start()
+        self.addCleanup(self._default_modules.stop)
 
     @staticmethod
     def discord_event(
@@ -84,9 +107,12 @@ class LifeOSPluginTests(unittest.TestCase):
         return FakeDiscordMessage, event
 
     @staticmethod
-    def session_context(*, message_id="123", chat_id="456", user_id="789", session_id="session-1"):
+    def session_context(
+        *, platform="discord", message_id="123", chat_id="456", user_id="789",
+        session_id="session-1",
+    ):
         values = {
-            "HERMES_SESSION_PLATFORM": "discord",
+            "HERMES_SESSION_PLATFORM": platform,
             "HERMES_SESSION_CHAT_ID": chat_id,
             "HERMES_SESSION_USER_ID": user_id,
             "HERMES_SESSION_THREAD_ID": "",
@@ -94,6 +120,26 @@ class LifeOSPluginTests(unittest.TestCase):
             "HERMES_SESSION_MESSAGE_ID": message_id,
             "HERMES_SESSION_ID": session_id,
             "HERMES_SESSION_KEY": "agent:main:discord:456:789",
+            "HERMES_CRON_SESSION": "",
+            "HERMES_CRON_AUTO_DELIVER_PLATFORM": "",
+            "HERMES_CRON_AUTO_DELIVER_CHAT_ID": "",
+        }
+        return lambda name, default="": values.get(name, default)
+
+    @staticmethod
+    def cron_context(*, marker="1", platform="discord", chat_id="456"):
+        values = {
+            "HERMES_SESSION_PLATFORM": "",
+            "HERMES_SESSION_CHAT_ID": "",
+            "HERMES_SESSION_USER_ID": "",
+            "HERMES_SESSION_THREAD_ID": "",
+            "HERMES_SESSION_PROFILE": "",
+            "HERMES_SESSION_MESSAGE_ID": "",
+            "HERMES_SESSION_ID": "",
+            "HERMES_SESSION_KEY": "",
+            "HERMES_CRON_SESSION": marker,
+            "HERMES_CRON_AUTO_DELIVER_PLATFORM": platform,
+            "HERMES_CRON_AUTO_DELIVER_CHAT_ID": chat_id,
         }
         return lambda name, default="": values.get(name, default)
 
@@ -172,7 +218,140 @@ class LifeOSPluginTests(unittest.TestCase):
         self.assertTrue(status["success"])
         self.assertTrue(started["success"])
         runtime.status.assert_called_once_with(date(2026, 8, 7))
-        runtime.start_daily.assert_called_once_with(None)
+        runtime.start_daily.assert_called_once_with(None, resume=True)
+
+    def test_origin_guard_rejects_wrong_discord_channel_for_hook_and_all_handlers(self):
+        runtime = mock.Mock()
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        discord_type, event = self.discord_event(chat_id="999")
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 25, "role": "user", "content": "prepared"}]
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            record = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertFalse(record["success"])
+
+        wrong_context = types.SimpleNamespace(
+            get_session_env=self.session_context(chat_id="999"),
+        )
+        with mock.patch.dict(sys.modules, {"gateway.session_context": wrong_context}):
+            status = json.loads(self.tools.handle_life_os_status({}))
+            start = json.loads(self.tools.handle_life_os_start_daily({}))
+            wrong_record = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertFalse(status["success"])
+        self.assertFalse(start["success"])
+        self.assertFalse(wrong_record["success"])
+        runtime.status.assert_not_called()
+        runtime.start_daily.assert_not_called()
+        runtime.record.assert_not_called()
+
+    def test_origin_guard_allows_only_exact_cron_start_delivery(self):
+        runtime = mock.Mock()
+        runtime.start_daily.return_value = {"status": "active"}
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        with mock.patch.dict(sys.modules, {
+            "gateway.session_context": types.SimpleNamespace(
+                get_session_env=self.cron_context(),
+            ),
+        }):
+            allowed = json.loads(self.tools.handle_life_os_start_daily({}))
+            denied_status = json.loads(self.tools.handle_life_os_status({}))
+            denied_record = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertTrue(allowed["success"])
+        self.assertFalse(denied_status["success"])
+        self.assertFalse(denied_record["success"])
+        runtime.start_daily.assert_called_once_with(None, resume=True)
+        runtime.status.assert_not_called()
+        runtime.record.assert_not_called()
+
+        for context in (
+            self.cron_context(marker="true"),
+            self.cron_context(platform="slack"),
+            self.cron_context(chat_id="999"),
+        ):
+            with self.subTest(context=context):
+                runtime.reset_mock()
+                with mock.patch.dict(sys.modules, {
+                    "gateway.session_context": types.SimpleNamespace(get_session_env=context),
+                }):
+                    denied = json.loads(self.tools.handle_life_os_start_daily({}))
+                self.assertFalse(denied["success"])
+                runtime.start_daily.assert_not_called()
+
+        cron = self.cron_context()
+        mixed_values = {
+            "HERMES_SESSION_PLATFORM": "discord",
+            "HERMES_SESSION_CHAT_ID": "456",
+        }
+        mixed_context = lambda name, default="": mixed_values.get(name, cron(name, default))
+        with mock.patch.dict(sys.modules, {
+            "gateway.session_context": types.SimpleNamespace(get_session_env=mixed_context),
+        }):
+            denied = json.loads(self.tools.handle_life_os_start_daily({}))
+        self.assertFalse(denied["success"])
+        runtime.start_daily.assert_not_called()
+
+    def test_origin_guard_rejects_invalid_and_duplicate_life_os_bindings(self):
+        runtime = mock.Mock()
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        invalid_bindings = (
+            "not-a-list",
+            [{"id": "456", "skill": "life-os"}, {"id": "456", "skill": "other"}],
+            [{"id": "456", "skill": "life-os"}, {"id": "999", "skill": "life-os"}],
+            [{"id": "456", "skills": ["life-os", "other"]}],
+        )
+        for bindings in invalid_bindings:
+            with self.subTest(bindings=bindings):
+                self.hermes_config["discord"]["channel_skill_bindings"] = bindings
+                denied = json.loads(self.tools.handle_life_os_start_daily({}))
+                self.assertFalse(denied["success"])
+        for config in (None, [], {"discord": None}):
+            with self.subTest(config=config):
+                self.hermes_config = config
+                denied = json.loads(self.tools.handle_life_os_start_daily({}))
+                self.assertFalse(denied["success"])
+        runtime.start_daily.assert_not_called()
+
+    def test_origin_guard_accepts_exact_single_item_skills_binding(self):
+        runtime = mock.Mock()
+        runtime.status.return_value = {"status": "active"}
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        self.hermes_config["discord"]["channel_skill_bindings"] = [
+            {"id": "456", "skills": ["life-os"]},
+        ]
+        result = json.loads(self.tools.handle_life_os_status({}))
+        self.assertTrue(result["success"])
+        runtime.status.assert_called_once_with(None)
+
+    def test_cron_start_resumes_a_paused_daily(self):
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            vault = base / "vault"
+            template = vault / "Life OS/0. PeriodicNotes/Templates/Daily.md"
+            template.parent.mkdir(parents=True)
+            template.write_text("## Daily Record\n%%Your Record%%\n", encoding="utf-8")
+            runtime = self.tools.LifeOSRuntime(
+                vault_root=vault,
+                state_root=base / "state",
+                timezone=ZoneInfo("Asia/Seoul"),
+                cache_roots=(),
+                max_attachment_bytes=1024,
+            )
+            day = date(2026, 8, 7)
+            runtime.start_daily(day)
+            runtime.record("pause", message_text="그만", message_key="cron:pause", target_date=day)
+            setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+            with mock.patch.dict(sys.modules, {
+                "gateway.session_context": types.SimpleNamespace(
+                    get_session_env=self.cron_context(),
+                ),
+            }):
+                result = json.loads(self.tools.handle_life_os_start_daily({"date": "2026-08-07"}))
+        self.assertTrue(result["success"])
+        self.assertEqual("active", result["status"])
 
     def test_record_handler_uses_only_hook_captured_discord_text(self):
         self.assertTrue(hasattr(self.tools, "capture_trusted_discord_turn"))
@@ -465,6 +644,157 @@ class LifeOSPluginTests(unittest.TestCase):
         self.assertTrue(first["success"])
         self.assertFalse(second["success"])
         self.assertEqual(1, runtime.record.call_count)
+
+    def test_trusted_turn_retries_after_transient_session_db_failure(self):
+        runtime = mock.Mock()
+        runtime.record.return_value = {"status": "active"}
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        discord_type, event = self.discord_event()
+        fake_db = mock.Mock()
+        fake_db.get_messages.side_effect = [
+            RuntimeError("database busy"),
+            [{"id": 26, "role": "user", "content": "prepared"}],
+        ]
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            first = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+            second = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertFalse(first["success"])
+        self.assertTrue(second["success"])
+        self.assertEqual(1, runtime.record.call_count)
+
+    def test_trusted_turn_retries_runtime_failure_with_same_message_key(self):
+        runtime = mock.Mock()
+        runtime.record.side_effect = [self.tools.LifeOSError("transient"), {"status": "active"}]
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        discord_type, event = self.discord_event()
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 27, "role": "user", "content": "prepared"}]
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            first = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+            second = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertFalse(first["success"])
+        self.assertTrue(second["success"])
+        self.assertEqual(2, runtime.record.call_count)
+        keys = [call.kwargs["message_key"] for call in runtime.record.call_args_list]
+        self.assertEqual(keys[0], keys[1])
+
+    def test_trusted_turn_reservation_allows_only_one_concurrent_runtime_call(self):
+        entered = threading.Event()
+        release = threading.Event()
+        runtime = mock.Mock()
+
+        def blocked_record(*_args, **_kwargs):
+            entered.set()
+            release.wait(2)
+            return {"status": "active"}
+
+        runtime.record.side_effect = blocked_record
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        discord_type, event = self.discord_event()
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 28, "role": "user", "content": "prepared"}]
+        results = []
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            first = threading.Thread(
+                target=lambda: results.append(json.loads(
+                    self.tools.handle_life_os_record({"operation": "answer"}),
+                )),
+            )
+            first.start()
+            self.assertTrue(entered.wait(1))
+            results.append(json.loads(self.tools.handle_life_os_record({"operation": "answer"})))
+            release.set()
+            first.join(2)
+        self.assertFalse(first.is_alive())
+        self.assertEqual(1, runtime.record.call_count)
+        self.assertEqual([False, True], sorted(result["success"] for result in results))
+
+    def test_trusted_turn_cache_never_exceeds_limit_when_all_entries_are_reserved(self):
+        cache = self.tools._TrustedTurnCache()
+        identities = [(str(index),) for index in range(self.tools._TRUSTED_TURN_LIMIT)]
+        for identity in identities:
+            cache.put(identity, "captured")
+            cache.reserve(identity)
+        cache.put(("overflow",), "must not be retained")
+        self.assertEqual(self.tools._TRUSTED_TURN_LIMIT, len(cache._turns))
+        with self.assertRaises(self.tools.CoreRuntimeError):
+            cache.reserve(("overflow",))
+
+    def test_trusted_turn_release_refreshes_ttl_for_retry(self):
+        cache = self.tools._TrustedTurnCache()
+        identity = ("retry",)
+        cache.put(identity, "captured")
+        cache.reserve(identity)
+        _captured_at, text, reserved = cache._turns[identity]
+        cache._turns[identity] = (
+            time.monotonic() - self.tools._TRUSTED_TURN_TTL_SECONDS - 1,
+            text,
+            reserved,
+        )
+        cache.release(identity)
+        self.assertEqual("captured", cache.reserve(identity))
+
+    def test_trusted_turn_retries_after_note_commit_before_claim_commit(self):
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            vault = base / "vault"
+            template = vault / "Life OS/0. PeriodicNotes/Templates/Daily.md"
+            template.parent.mkdir(parents=True)
+            template.write_text("## Daily Record\n%%Your Record%%\n", encoding="utf-8")
+            runtime = self.tools.LifeOSRuntime(
+                vault_root=vault,
+                state_root=base / "state",
+                timezone=ZoneInfo("Asia/Seoul"),
+                cache_roots=(),
+                max_attachment_bytes=1024,
+            )
+            setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+            discord_type, event = self.discord_event()
+            fake_db = mock.Mock()
+            fake_db.get_messages.return_value = [{"id": 29, "role": "user", "content": "prepared"}]
+            original_commit = runtime._commit_global_claim
+            original_record = runtime.record
+            failed = False
+            keys = []
+
+            def fail_once(*args, **kwargs):
+                nonlocal failed
+                if not failed:
+                    failed = True
+                    raise self.tools.LifeOSError("post-note claim failure")
+                return original_commit(*args, **kwargs)
+
+            def track_record(*args, **kwargs):
+                keys.append(kwargs["message_key"])
+                return original_record(*args, **kwargs)
+
+            with mock.patch.dict(sys.modules, {
+                "discord": types.SimpleNamespace(Message=discord_type),
+                "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+            }), mock.patch.object(runtime, "_commit_global_claim", side_effect=fail_once), mock.patch.object(
+                runtime, "record", side_effect=track_record,
+            ):
+                self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+                first = json.loads(self.tools.handle_life_os_record({"operation": "free_record"}))
+                second = json.loads(self.tools.handle_life_os_record({"operation": "free_record"}))
+            note = runtime.daily_path(date.today()).read_text(encoding="utf-8")
+        self.assertFalse(first["success"])
+        self.assertTrue(second["success"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(keys[0], keys[1])
+        self.assertEqual(1, note.count("오늘 산책했어"))
 
     def test_life_os_runtime_singleton_is_separate_and_thread_safe(self):
         core_runtime = object()

@@ -477,7 +477,7 @@ class LifeOSRuntime:
             )
 
         if operation == "resume":
-            if follow_up_question is not None or state.status != "paused":
+            if follow_up_question is not None or state.status not in {"active", "paused"}:
                 raise LifeOSError("Daily workflow cannot be resumed")
             entry = self._control_entry("Resumed", text, key)
             return replace(document, content=document.content + entry), replace(

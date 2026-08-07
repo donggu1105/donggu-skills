@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from contextlib import contextmanager
 from datetime import date
 import hashlib
 import json
 from pathlib import Path
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 from .runtime import (
     CoreActionRuntime,
@@ -32,7 +33,7 @@ _ATTACHMENT_ONLY_TEXT = "첨부 파일"
 class _TrustedTurnCache:
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._turns: OrderedDict[tuple[str, ...], tuple[float, str]] = OrderedDict()
+        self._turns: OrderedDict[tuple[str, ...], tuple[float, str, bool]] = OrderedDict()
 
     def clear(self) -> None:
         with self._lock:
@@ -42,26 +43,50 @@ class _TrustedTurnCache:
         now = time.monotonic()
         with self._lock:
             self._prune(now)
-            self._turns[identity] = (now, text)
+            existing = self._turns.get(identity)
+            if existing is not None and existing[2]:
+                return
+            if existing is None and len(self._turns) >= _TRUSTED_TURN_LIMIT:
+                evicted = next(
+                    (key for key, (_captured_at, _text, reserved) in self._turns.items() if not reserved),
+                    None,
+                )
+                if evicted is None:
+                    return
+                del self._turns[evicted]
+            self._turns[identity] = (now, text, False)
             self._turns.move_to_end(identity)
-            while len(self._turns) > _TRUSTED_TURN_LIMIT:
-                self._turns.popitem(last=False)
 
-    def consume(self, identity: tuple[str, ...]) -> str:
+    def reserve(self, identity: tuple[str, ...]) -> str:
         now = time.monotonic()
         with self._lock:
             self._prune(now)
-            captured = self._turns.pop(identity, None)
-        if captured is None:
-            raise CoreRuntimeError("trusted Discord turn is unavailable or mismatched")
-        return captured[1]
+            captured = self._turns.get(identity)
+            if captured is None or captured[2]:
+                raise CoreRuntimeError("trusted Discord turn is unavailable or mismatched")
+            self._turns[identity] = (captured[0], captured[1], True)
+            return captured[1]
+
+    def commit(self, identity: tuple[str, ...]) -> None:
+        with self._lock:
+            captured = self._turns.get(identity)
+            if captured is not None and captured[2]:
+                del self._turns[identity]
+
+    def release(self, identity: tuple[str, ...]) -> None:
+        with self._lock:
+            captured = self._turns.get(identity)
+            if captured is not None and captured[2]:
+                self._turns[identity] = (time.monotonic(), captured[1], False)
 
     def _prune(self, now: float) -> None:
-        while self._turns:
-            _identity, (captured_at, _text) = next(iter(self._turns.items()))
-            if now - captured_at <= _TRUSTED_TURN_TTL_SECONDS:
-                break
-            self._turns.popitem(last=False)
+        expired = [
+            identity
+            for identity, (captured_at, _text, reserved) in self._turns.items()
+            if not reserved and now - captured_at > _TRUSTED_TURN_TTL_SECONDS
+        ]
+        for identity in expired:
+            del self._turns[identity]
 
 
 _TRUSTED_TURNS = _TrustedTurnCache()
@@ -147,6 +172,84 @@ def _turn_identity(
     return values
 
 
+def _life_os_channel_id() -> str:
+    try:
+        from hermes_cli.config import load_config_readonly
+
+        config = load_config_readonly()
+    except Exception as exc:
+        raise CoreRuntimeError("Life OS Discord channel binding is unavailable") from exc
+    if not isinstance(config, dict):
+        raise CoreRuntimeError("Life OS Discord channel binding is invalid")
+    discord_config = config.get("discord")
+    if not isinstance(discord_config, dict):
+        raise CoreRuntimeError("Life OS Discord channel binding is invalid")
+    bindings = discord_config.get("channel_skill_bindings")
+    if not isinstance(bindings, list):
+        raise CoreRuntimeError("Life OS Discord channel binding is invalid")
+    seen_ids: set[str] = set()
+    life_os_ids: list[str] = []
+    for binding in bindings:
+        if not isinstance(binding, dict):
+            raise CoreRuntimeError("Life OS Discord channel binding is invalid")
+        raw_id = binding.get("id")
+        channel_id = str(raw_id).strip() if not isinstance(raw_id, bool) else ""
+        if not channel_id or channel_id in seen_ids:
+            raise CoreRuntimeError("Life OS Discord channel binding is invalid")
+        seen_ids.add(channel_id)
+        has_skill = "skill" in binding
+        has_skills = "skills" in binding
+        if has_skill == has_skills:
+            raise CoreRuntimeError("Life OS Discord channel binding is invalid")
+        configured = binding.get("skill") if has_skill else binding.get("skills")
+        if has_skill:
+            if not isinstance(configured, str) or not configured.strip():
+                raise CoreRuntimeError("Life OS Discord channel binding is invalid")
+            skills = [configured.strip()]
+        else:
+            if (
+                not isinstance(configured, list)
+                or not configured
+                or any(not isinstance(item, str) or not item.strip() for item in configured)
+            ):
+                raise CoreRuntimeError("Life OS Discord channel binding is invalid")
+            skills = [item.strip() for item in configured]
+        if not skills or len(set(skills)) != len(skills):
+            raise CoreRuntimeError("Life OS Discord channel binding is invalid")
+        if skills == ["life-os"]:
+            life_os_ids.append(channel_id)
+        elif "life-os" in skills:
+            raise CoreRuntimeError("Life OS Discord channel binding is invalid")
+    if len(life_os_ids) != 1:
+        raise CoreRuntimeError("exactly one Life OS Discord channel binding is required")
+    return life_os_ids[0]
+
+
+def _authorize_life_os_call(operation: str) -> None:
+    try:
+        from gateway.session_context import get_session_env
+    except Exception as exc:
+        raise CoreRuntimeError("trusted Hermes session context is required") from exc
+    channel_id = _life_os_channel_id()
+    cron_marker = get_session_env("HERMES_CRON_SESSION", "")
+    if cron_marker:
+        if (
+            cron_marker != "1"
+            or operation != "start"
+            or get_session_env("HERMES_SESSION_PLATFORM", "") != ""
+            or get_session_env("HERMES_SESSION_CHAT_ID", "") != ""
+            or get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM", "").strip().lower() != "discord"
+            or get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID", "") != channel_id
+        ):
+            raise CoreRuntimeError("Life OS cron origin is not authorized")
+        return
+    if (
+        get_session_env("HERMES_SESSION_PLATFORM", "").strip().lower() != "discord"
+        or get_session_env("HERMES_SESSION_CHAT_ID", "") != channel_id
+    ):
+        raise CoreRuntimeError("Life OS Discord origin is not authorized")
+
+
 def _message_type_name(value: Any) -> str:
     return str(getattr(value, "value", value) or "").strip().lower()
 
@@ -183,12 +286,15 @@ def capture_trusted_discord_turn(*, event: Any, gateway: Any, **_kwargs: Any) ->
 
         raw = event.raw_message
         source = event.source
+        life_os_channel_id = _life_os_channel_id()
         if not isinstance(raw, discord.Message):
             return None
         platform = _platform_name(source.platform)
         message_id = str(event.message_id or "")
         if (
             platform != "discord"
+            or str(source.chat_id or "") != life_os_channel_id
+            or str(raw.channel.id) != life_os_channel_id
             or message_id != str(raw.id)
             or message_id != str(source.message_id or "")
             or str(source.user_id or "") != str(raw.author.id)
@@ -216,7 +322,8 @@ def capture_trusted_discord_turn(*, event: Any, gateway: Any, **_kwargs: Any) ->
     return None
 
 
-def _trusted_life_os_turn() -> tuple[int, str, str]:
+@contextmanager
+def _trusted_life_os_turn() -> Iterator[tuple[int, str, str]]:
     try:
         from gateway.session_context import get_session_env
     except Exception as exc:
@@ -243,24 +350,30 @@ def _trusted_life_os_turn() -> tuple[int, str, str]:
     session_key = context["HERMES_SESSION_KEY"]
     if not session_id or not session_key:
         raise CoreRuntimeError("trusted Hermes session context is required")
-    message_text = _TRUSTED_TURNS.consume(identity)
-    row_id = _latest_user_row_id(session_id)
-    key_material = json.dumps(
-        {
-            "chat_id": identity[1],
-            "message_id": identity[5],
-            "platform": identity[0],
-            "row_id": row_id,
-            "session_id": session_id,
-            "session_key": identity[6],
-            "user_id": identity[2],
-        },
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    message_key = "hermes-discord:" + hashlib.sha256(key_material.encode("utf-8")).hexdigest()
-    return row_id, message_text, message_key
+    message_text = _TRUSTED_TURNS.reserve(identity)
+    try:
+        row_id = _latest_user_row_id(session_id)
+        key_material = json.dumps(
+            {
+                "chat_id": identity[1],
+                "message_id": identity[5],
+                "platform": identity[0],
+                "row_id": row_id,
+                "session_id": session_id,
+                "session_key": identity[6],
+                "user_id": identity[2],
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        message_key = "hermes-discord:" + hashlib.sha256(key_material.encode("utf-8")).hexdigest()
+        yield row_id, message_text, message_key
+    except BaseException:
+        _TRUSTED_TURNS.release(identity)
+        raise
+    else:
+        _TRUSTED_TURNS.commit(identity)
 
 
 def _receipt_schema(name: str, description: str) -> Dict[str, Any]:
@@ -478,6 +591,7 @@ def handle_ack(args: dict, **_kwargs) -> str:
 
 def handle_life_os_status(args: dict, **_kwargs) -> str:
     try:
+        _authorize_life_os_call("status")
         return _ok(_life_os_runtime().status(_optional_iso_date(args.get("date"))))
     except (CoreRuntimeError, LifeOSError, ValueError, TypeError) as exc:
         return _error(exc)
@@ -485,22 +599,26 @@ def handle_life_os_status(args: dict, **_kwargs) -> str:
 
 def handle_life_os_start_daily(args: dict, **_kwargs) -> str:
     try:
-        return _ok(_life_os_runtime().start_daily(_optional_iso_date(args.get("date"))))
+        _authorize_life_os_call("start")
+        return _ok(_life_os_runtime().start_daily(
+            _optional_iso_date(args.get("date")), resume=True,
+        ))
     except (CoreRuntimeError, LifeOSError, ValueError, TypeError) as exc:
         return _error(exc)
 
 
 def handle_life_os_record(args: dict, **kwargs) -> str:
     try:
-        _row_id, message_text, message_key = _trusted_life_os_turn()
-        result = _life_os_runtime().record(
-            str(args.get("operation") or ""),
-            message_text=message_text,
-            message_key=message_key,
-            attachment_paths=tuple(Path(value) for value in args.get("attachment_paths") or ()),
-            follow_up_question=args.get("follow_up_question"),
-            target_date=_optional_iso_date(args.get("date")),
-        )
-        return _ok(result)
+        _authorize_life_os_call("record")
+        with _trusted_life_os_turn() as (_row_id, message_text, message_key):
+            result = _life_os_runtime().record(
+                str(args.get("operation") or ""),
+                message_text=message_text,
+                message_key=message_key,
+                attachment_paths=tuple(Path(value) for value in args.get("attachment_paths") or ()),
+                follow_up_question=args.get("follow_up_question"),
+                target_date=_optional_iso_date(args.get("date")),
+            )
+            return _ok(result)
     except (CoreRuntimeError, LifeOSError, ValueError, TypeError) as exc:
         return _error(exc)

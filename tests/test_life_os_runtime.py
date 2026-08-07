@@ -194,6 +194,33 @@ class LifeOSRuntimeTests(unittest.TestCase):
             )
         self.assertEqual("completed", result["status"])
 
+    def test_resume_is_explicitly_idempotent_while_already_active(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        first = self.runtime.record(
+            "resume", message_text="이어서 하자", message_key="resume:active", target_date=day,
+        )
+        second = self.runtime.record(
+            "resume", message_text="이어서 하자", message_key="resume:active", target_date=day,
+        )
+        self.assertEqual("active", first["status"])
+        self.assertTrue(second["duplicate"])
+        text = self.runtime.daily_path(day).read_text(encoding="utf-8")
+        self.assertEqual(1, text.count("%% life-os-message: resume:active %%"))
+
+    def test_explicit_start_resumes_paused_daily_without_resetting_progress(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        self.runtime.record(
+            "answer", message_text="첫 답", message_key="start-resume:answer", target_date=day,
+        )
+        self.runtime.record(
+            "pause", message_text="그만", message_key="start-resume:pause", target_date=day,
+        )
+        resumed = self.runtime.start_daily(day, resume=True)
+        self.assertEqual("active", resumed["status"])
+        self.assertEqual(2, resumed["next_question"])
+
     def test_question_five_follow_up_keeps_active_until_follow_up_is_committed(self):
         day = date(2026, 8, 7)
         self.runtime.start_daily(day)

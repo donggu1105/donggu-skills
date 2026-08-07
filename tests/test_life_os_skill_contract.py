@@ -12,6 +12,8 @@ SKILL = ROOT / "donggu-obsidian" / "skills" / "life-os" / "SKILL.md"
 CLI = SKILL.parent / "scripts" / "life-os.py"
 ROOT_README = ROOT / "README.md"
 PLUGIN_README = ROOT / "donggu-obsidian" / "README.md"
+DESIGN = ROOT / "docs/superpowers/specs/2026-08-07-hermes-life-os-discord-design.md"
+PLAN = ROOT / "docs/superpowers/plans/2026-08-07-hermes-life-os-discord.md"
 
 
 class LifeOSSkillContractTests(unittest.TestCase):
@@ -123,6 +125,35 @@ class LifeOSSkillContractTests(unittest.TestCase):
         ):
             with self.subTest(contract=contract):
                 self.assertIn(contract, text)
+
+    def test_skill_and_design_declare_origin_and_resume_boundaries(self):
+        skill = SKILL.read_text(encoding="utf-8")
+        design = DESIGN.read_text(encoding="utf-8")
+        for phrase in (
+            "exact configured `life-os` Discord channel binding",
+            "Cron may call only `donggu_life_os_start_daily`",
+            "status and record are forbidden from cron",
+            "reserved until the runtime call succeeds",
+            "explicit start resumes a paused Daily",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, skill + "\n" + design)
+
+    def test_discord_bootstrap_uses_requests_hermes_user_agent_and_get_readback(self):
+        plan = PLAN.read_text(encoding="utf-8")
+        for phrase in (
+            "import requests",
+            '"User-Agent": "Hermes-Agent (https://github.com/NousResearch/hermes-agent)"',
+            "requests.request(",
+            'readback = request("GET", f"/channels/{channel[\'id\']}")',
+            'readback.get("guild_id") != guild["id"]',
+            'readback.get("type") != 0',
+            'readback.get("parent_id") != parent_id',
+            'readback.get("name") != "life-os"',
+            "successful GET proves the bot can view the channel",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, plan)
 
     def test_cli_status_start_and_record_use_shared_runtime(self):
         status = self.run_cli("status", "--date", "2026-08-07")

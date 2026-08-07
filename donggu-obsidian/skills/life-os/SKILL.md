@@ -22,7 +22,9 @@ Support Daily and Capture only.
 4. Return only the tool's next question or completion summary.
 5. Never use generic filesystem tools as a fallback when a native tool fails.
 
-For an explicit Daily start, call `donggu_life_os_start_daily` once and return its question. Treat the state embedded in the Daily note as the durable workflow state. Never defer a Vault mutation to private cache or batch answers for a later write.
+The hook and all native tools accept live turns only from the exact configured `life-os` Discord channel binding. Cron may call only `donggu_life_os_start_daily` when its Discord auto-delivery target is that same channel; status and record are forbidden from cron. A captured trusted turn is reserved until the runtime call succeeds and its JSON result is serialized, then committed; failures release it for a same-key retry.
+
+For an explicit Daily start, call `donggu_life_os_start_daily` once and return its question. An explicit start resumes a paused Daily without resetting its answers or pending question. Treat the state embedded in the Daily note as the durable workflow state. Never defer a Vault mutation to private cache or batch answers for a later write.
 
 ### Exact record calls
 
