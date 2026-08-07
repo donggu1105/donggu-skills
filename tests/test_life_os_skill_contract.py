@@ -88,6 +88,26 @@ class LifeOSSkillContractTests(unittest.TestCase):
         ):
             self.assertIn(phrase, text)
 
+    def test_skill_declares_exact_record_calls_and_trusted_handler_boundary(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for operation in ("answer", "skip", "pause", "resume", "capture", "free_record"):
+            with self.subTest(operation=operation):
+                self.assertIn(
+                    f'`donggu_life_os_record(operation="{operation}")`',
+                    text,
+                )
+        for contract in (
+            "Every `donggu_life_os_record` call requires `operation`",
+            "Add `follow_up_question` only to an `answer` call",
+            "Add `attachment_paths` only when the latest turn includes attachments",
+            "Add `date` only for an explicit target date",
+            "Never pass `control`, `text`, `message_text`, `message_key`, or `session_id`",
+            "reads the latest trusted persisted user turn from Hermes `SessionDB`",
+            "constructs the trusted key from the Hermes session ID and persisted message row ID",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, text)
+
     def test_cli_status_start_and_record_use_shared_runtime(self):
         status = self.run_cli("status", "--date", "2026-08-07")
         self.assertEqual(0, status.returncode, status.stderr)

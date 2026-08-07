@@ -22,7 +22,20 @@ Keep conversation state in the target Daily note. Ask one question at a time and
 4. Return only the tool's next question or completion summary.
 5. Never use generic filesystem tools as a fallback when a native tool fails.
 
-For an explicit Daily start, call `donggu_life_os_start_daily` once and return its question. For a normal message with no active check-in, record a `free Daily record`; do not start the sequence. Treat the state embedded in the Daily note as the durable workflow state. Never defer a Vault mutation to private cache or batch answers for a later write.
+For an explicit Daily start, call `donggu_life_os_start_daily` once and return its question. Treat the state embedded in the Daily note as the durable workflow state. Never defer a Vault mutation to private cache or batch answers for a later write.
+
+### Exact record calls
+
+Every `donggu_life_os_record` call requires `operation`. Select exactly one call for the latest turn:
+
+- Pending answer → `donggu_life_os_record(operation="answer")`.
+- `건너뛰기` → `donggu_life_os_record(operation="skip")`.
+- `그만` → `donggu_life_os_record(operation="pause")`.
+- `이어서 하자` → `donggu_life_os_record(operation="resume")`.
+- `일단 기록해줘` → `donggu_life_os_record(operation="capture")`.
+- Normal message with no active check-in → `donggu_life_os_record(operation="free_record")`; create a free Daily record without starting the sequence.
+
+Add `follow_up_question` only to an `answer` call when proposing one short follow-up. Add `attachment_paths` only when the latest turn includes attachments. Add `date` only for an explicit target date such as yesterday. Never pass `control`, `text`, `message_text`, `message_key`, or `session_id`. The native handler reads the latest trusted persisted user turn from Hermes `SessionDB` and constructs the trusted key from the Hermes session ID and persisted message row ID.
 
 Ask these fixed questions individually, in order:
 
@@ -33,13 +46,6 @@ Ask these fixed questions individually, in order:
 5. 내일 가장 중요한 한 가지는?
 
 After each answer, optionally propose one short, non-recursive follow-up and pass it with that same record call. Ask 최대 2개 follow-ups across the check-in. Return the committed next question only; never send several questions together.
-
-Map controls exactly:
-
-- `건너뛰기` → `skip`; commit it and return the next question.
-- `그만` → `pause`; commit it and stop asking.
-- `이어서 하자` → `resume`; commit it and return the pending question.
-- `일단 기록해줘` → `capture`; append immediately without starting Daily.
 
 Pass agent-visible attachment paths to `donggu_life_os_record`. A Hermes cache path is input only: let the native runtime copy the actual file into `Life OS/Attachments/` and link that Vault attachment. Never write a cache path, URL, wrapper note, manifest, or attachment subdirectory.
 
