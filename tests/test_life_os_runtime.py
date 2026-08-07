@@ -8,6 +8,7 @@ import stat
 import sys
 import tempfile
 import threading
+import types
 import unittest
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -332,6 +333,84 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(roots, runtime.cache_roots)
         self.assertEqual(1234, runtime.max_attachment_bytes)
 
+    def test_default_attachment_policy_uses_canonical_legacy_cache_at_record_time(self):
+        legacy = self.base / "legacy_document_cache"
+        legacy.mkdir()
+        source = legacy / "uuid-legacy.pdf"
+        source.write_bytes(b"legacy")
+        calls = []
+
+        def get_hermes_dir(new_subpath, old_name):
+            calls.append((new_subpath, old_name))
+            return legacy if new_subpath == "cache/documents" else self.base / new_subpath
+
+        module = types.SimpleNamespace(get_hermes_dir=get_hermes_dir)
+        with mock.patch.dict(sys.modules, {"hermes_constants": module}):
+            runtime = LifeOSRuntime(
+                vault_root=self.vault,
+                state_root=self.base / "legacy-state",
+                timezone=ZoneInfo("Asia/Seoul"),
+            )
+            day = date(2026, 8, 7)
+            runtime.start_daily(day)
+            runtime.record(
+                "answer", message_text="legacy", message_key="legacy:1",
+                attachment_paths=[source], target_date=day,
+            )
+
+        self.assertEqual(
+            [
+                ("cache/images", "image_cache"),
+                ("cache/audio", "audio_cache"),
+                ("cache/documents", "document_cache"),
+            ],
+            calls,
+        )
+        self.assertEqual(
+            b"legacy",
+            (self.vault / "Life OS/Attachments/A001 - legacy.pdf").read_bytes(),
+        )
+
+    def test_default_attachment_policy_tracks_active_profile_change_at_record_time(self):
+        first_cache = self.base / "profiles/first/cache/documents"
+        second_cache = self.base / "profiles/second/cache/documents"
+        first_cache.mkdir(parents=True)
+        second_cache.mkdir(parents=True)
+        first = first_cache / "uuid-first.pdf"
+        second = second_cache / "uuid-second.pdf"
+        first.write_bytes(b"first")
+        second.write_bytes(b"second")
+        active = {"documents": first_cache}
+
+        def get_hermes_dir(new_subpath, old_name):
+            del old_name
+            kind = new_subpath.rsplit("/", 1)[-1]
+            return active.get(kind, self.base / "profiles/first" / new_subpath)
+
+        module = types.SimpleNamespace(get_hermes_dir=get_hermes_dir)
+        with mock.patch.dict(sys.modules, {"hermes_constants": module}):
+            runtime = LifeOSRuntime(
+                vault_root=self.vault,
+                state_root=self.base / "profile-state",
+                timezone=ZoneInfo("Asia/Seoul"),
+            )
+            day = date(2026, 8, 7)
+            runtime.start_daily(day)
+            runtime.record(
+                "answer", message_text="first", message_key="profile:1",
+                attachment_paths=[first], target_date=day,
+            )
+            active["documents"] = second_cache
+            runtime.record(
+                "answer", message_text="second", message_key="profile:2",
+                attachment_paths=[second], target_date=day,
+            )
+
+        self.assertEqual(
+            ["A001 - first.pdf", "A002 - second.pdf"],
+            sorted(path.name for path in runtime.attachments_root.iterdir()),
+        )
+
     def test_rejects_symlink_cache_path_and_preserves_pending_question(self):
         outside = self.base / "outside.pdf"
         outside.write_bytes(b"secret")
@@ -441,6 +520,70 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(b"occupied", conflict.read_bytes())
         self.assertEqual(2, self.runtime.status(day)["next_question"])
 
+    def test_attachment_name_removes_obsidian_wikilink_delimiters(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        source = cache / "uuid-Quarter]]#Report^Q3|alias.PDF"
+        source.write_bytes(b"safe link")
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+
+        result = self.runtime.record(
+            "answer", message_text="safe", message_key="wikilink:1",
+            attachment_paths=[source], target_date=day,
+        )
+
+        stored = self.vault / "Life OS/Attachments/A001 - Quarter Report Q3 alias.pdf"
+        self.assertEqual(b"safe link", stored.read_bytes())
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("[[Life OS/Attachments/A001 - Quarter Report Q3 alias.pdf]]", text)
+        self.assertNotIn("#Report", text)
+
+    def test_attachment_write_rejects_life_root_replaced_by_symlink(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        source = cache / "uuid-escape.pdf"
+        source.write_bytes(b"must stay")
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        external = self.base / "external-life"
+        (self.vault / "Life OS").rename(external)
+        (self.vault / "Life OS").symlink_to(external, target_is_directory=True)
+
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.record(
+                "answer", message_text="escape", message_key="ancestor:1",
+                attachment_paths=[source], target_date=day,
+            )
+
+        attachments = external / "Attachments"
+        self.assertFalse(attachments.exists() and any(attachments.iterdir()))
+
+    def test_attachment_publish_never_replaces_racing_conflict(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        source = cache / "uuid-conflict.pdf"
+        source.write_bytes(b"new bytes")
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        destination = self.vault / "Life OS/Attachments/A001 - conflict.pdf"
+        real_link = life_os.os.link
+
+        def occupy_then_link(source_name, destination_name, *args, **kwargs):
+            destination.parent.mkdir(exist_ok=True)
+            destination.write_bytes(b"racing bytes")
+            return real_link(source_name, destination_name, *args, **kwargs)
+
+        with mock.patch.object(life_os.os, "link", side_effect=occupy_then_link):
+            with self.assertRaises(life_os.LifeOSError):
+                self.runtime.record(
+                    "answer", message_text="conflict", message_key="conflict:race",
+                    attachment_paths=[source], target_date=day,
+                )
+
+        self.assertEqual(b"racing bytes", destination.read_bytes())
+        self.assertEqual(1, self.runtime.status(day)["next_question"])
+
     def test_attachment_rename_crash_is_recovered_by_hash_on_retry(self):
         cache = self.base / "cache/documents"
         cache.mkdir(parents=True)
@@ -448,18 +591,18 @@ class LifeOSRuntimeTests(unittest.TestCase):
         source.write_bytes(b"recover me")
         day = date(2026, 8, 7)
         self.runtime.start_daily(day)
-        real_replace = life_os.os.replace
         failed = False
 
         def fail_after_attachment_rename(source_path, destination_path, *args, **kwargs):
             nonlocal failed
-            result = real_replace(source_path, destination_path, *args, **kwargs)
-            if Path(destination_path).parent == self.runtime.attachments_root and not failed:
+            result = real_link(source_path, destination_path, *args, **kwargs)
+            if not failed:
                 failed = True
                 raise OSError("injected post-attachment-rename crash")
             return result
 
-        with mock.patch.object(life_os.os, "replace", side_effect=fail_after_attachment_rename):
+        real_link = life_os.os.link
+        with mock.patch.object(life_os.os, "link", side_effect=fail_after_attachment_rename):
             with self.assertRaises(life_os.LifeOSError):
                 self.runtime.record(
                     "answer", message_text="first try", message_key="crash:attachment",
