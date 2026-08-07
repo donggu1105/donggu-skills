@@ -74,6 +74,163 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertTrue(updated.endswith("<!-- life-os:record:end -->" + suffix))
         self.assertIn("산책을 했다", updated)
 
+    def test_questions_followups_pause_resume_and_completion(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        first = self.runtime.record(
+            "answer", message_text="회의가 길었다", message_key="s1:1",
+            follow_up_question="무엇이 가장 힘들었나?", target_date=day,
+        )
+        self.assertEqual("무엇이 가장 힘들었나?", first["question"])
+        second = self.runtime.record(
+            "answer", message_text="결정이 계속 바뀐 점", message_key="s1:2",
+            target_date=day,
+        )
+        self.assertEqual(2, second["next_question"])
+        paused = self.runtime.record(
+            "pause", message_text="그만", message_key="s1:3", target_date=day,
+        )
+        self.assertEqual("paused", paused["status"])
+        resumed = self.runtime.record(
+            "resume", message_text="이어서 하자", message_key="s1:4", target_date=day,
+        )
+        self.assertEqual("active", resumed["status"])
+        for index in range(2, 6):
+            result = self.runtime.record(
+                "answer", message_text=f"답변 {index}", message_key=f"s1:{index + 3}",
+                target_date=day,
+            )
+        self.assertEqual("completed", result["status"])
+
+    def test_capture_appends_timestamped_entry_without_starting_daily(self):
+        result = self.runtime.record(
+            "capture", message_text="책 아이디어", message_key="s2:1",
+            target_date=date(2026, 8, 7),
+        )
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("# Capture — 2026-08-07", text)
+        self.assertIn("책 아이디어", text)
+        self.assertFalse(self.runtime.daily_path(date(2026, 8, 7)).exists())
+
+    def test_followups_are_durable_bounded_and_non_recursive(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.record(
+                "answer", message_text="첫 답", message_key="follow:invalid",
+                follow_up_question=" " * 10, target_date=day,
+            )
+        first = self.runtime.record(
+            "answer", message_text="첫 답", message_key="follow:1",
+            follow_up_question="  첫 꼬리질문?  ", target_date=day,
+        )
+        self.assertEqual(
+            {"for_question": 1, "question": "첫 꼬리질문?"},
+            first["pending_follow_up"],
+        )
+        restored = self.runtime.status(day)
+        self.assertEqual(first["pending_follow_up"], restored["pending_follow_up"])
+        no_recursion = self.runtime.record(
+            "answer", message_text="꼬리 답", message_key="follow:2",
+            follow_up_question="이 질문은 생성되지 않음", target_date=day,
+        )
+        self.assertIsNone(no_recursion["pending_follow_up"])
+        self.assertEqual(1, no_recursion["follow_up_count"])
+
+        second = self.runtime.record(
+            "answer", message_text="둘째 답", message_key="follow:3",
+            follow_up_question="둘째 꼬리질문?", target_date=day,
+        )
+        self.assertEqual(2, second["follow_up_count"])
+        self.runtime.record(
+            "skip", message_text="건너뛰기", message_key="follow:4", target_date=day,
+        )
+        limited = self.runtime.record(
+            "answer", message_text="셋째 답", message_key="follow:5",
+            follow_up_question="x" * 301, target_date=day,
+        )
+        self.assertEqual(2, limited["follow_up_count"])
+        self.assertIsNone(limited["pending_follow_up"])
+
+    def test_skip_and_free_record_preserve_question_progress(self):
+        day = date(2026, 8, 7)
+        free = self.runtime.record(
+            "free_record", message_text="자유 기록", message_key="free:1",
+            target_date=day,
+        )
+        self.assertEqual("not_started", free["status"])
+        self.assertEqual(1, free["next_question"])
+        text = Path(free["path"]).read_text(encoding="utf-8")
+        self.assertIn("— Free Record", text)
+
+        self.runtime.start_daily(day)
+        skipped = self.runtime.record(
+            "skip", message_text="건너뛰기", message_key="free:2", target_date=day,
+        )
+        self.assertEqual([1], skipped["skipped"])
+        self.assertEqual(2, skipped["next_question"])
+
+    def test_daily_and_capture_message_keys_are_idempotent(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        self.runtime.record(
+            "answer", message_text="첫 답", message_key="daily:1", target_date=day,
+        )
+        current = self.runtime.record(
+            "answer", message_text="둘째 답", message_key="daily:2", target_date=day,
+        )
+        duplicate = self.runtime.record(
+            "answer", message_text="다른 내용", message_key="daily:1", target_date=day,
+        )
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(current["next_question"], duplicate["next_question"])
+
+        first_capture = self.runtime.record(
+            "capture", message_text="첫 캡처", message_key="capture:1", target_date=day,
+        )
+        self.runtime.record(
+            "capture", message_text="둘째 캡처", message_key="capture:2", target_date=day,
+        )
+        duplicate_capture = self.runtime.record(
+            "capture", message_text="다른 내용", message_key="capture:1", target_date=day,
+        )
+        self.assertTrue(duplicate_capture["duplicate"])
+        capture_text = Path(first_capture["path"]).read_text(encoding="utf-8")
+        self.assertEqual(1, capture_text.count("첫 캡처"))
+        self.assertNotIn("다른 내용", capture_text)
+
+    def test_target_date_prefers_unfinished_yesterday_until_today_starts(self):
+        class FixedDateTime(life_os.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 7, 12, 0, tzinfo=tz)
+
+        yesterday = date(2026, 8, 6)
+        today = date(2026, 8, 7)
+        self.runtime.start_daily(yesterday)
+        with mock.patch.object(life_os, "datetime", FixedDateTime):
+            self.assertEqual(yesterday, self.runtime.resolve_target_date())
+            self.assertEqual(yesterday.isoformat(), self.runtime.status()["date"])
+            self.assertEqual(yesterday, self.runtime.resolve_target_date("yesterday"))
+            self.runtime.start_daily(today)
+            self.assertEqual(today, self.runtime.resolve_target_date())
+
+    def test_completed_yesterday_is_not_reopened_implicitly(self):
+        class FixedDateTime(life_os.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 7, 12, 0, tzinfo=tz)
+
+        yesterday = date(2026, 8, 6)
+        self.runtime.start_daily(yesterday)
+        for index in range(1, 6):
+            self.runtime.record(
+                "answer", message_text=f"답 {index}", message_key=f"complete:{index}",
+                target_date=yesterday,
+            )
+        with mock.patch.object(life_os, "datetime", FixedDateTime):
+            self.assertEqual(date(2026, 8, 7), self.runtime.resolve_target_date())
+
     def test_runtime_and_environment_reject_non_kst_timezones_without_creating_state(self):
         direct_state = self.base / "direct-state"
         with self.assertRaises(life_os.LifeOSError):
@@ -117,6 +274,27 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 with self.assertRaises(life_os.LifeOSError):
                     self.runtime.status(day)
                 path.write_text(original, encoding="utf-8")
+
+    def test_status_rejects_boolean_follow_up_question_reference(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        self.runtime.record(
+            "answer", message_text="첫 답", message_key="tamper:1",
+            follow_up_question="꼬리질문?", target_date=day,
+        )
+        path = self.runtime.daily_path(day)
+        original = path.read_text(encoding="utf-8")
+        state_match = life_os._STATE_PATTERN.search(original)
+        self.assertIsNotNone(state_match)
+        payload = json.loads(state_match.group(1))
+        payload["pending_follow_up"]["for_question"] = True
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        path.write_text(
+            original[:state_match.start(1)] + raw + original[state_match.end(1):],
+            encoding="utf-8",
+        )
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.status(day)
 
     def test_existing_state_root_requires_private_mode_and_current_owner_without_chmod(self):
         permissive = self.base / "permissive-state"

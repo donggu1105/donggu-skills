@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import fcntl
 import json
 import os
@@ -26,6 +26,7 @@ QUESTIONS = (
 _START = "<!-- life-os:record:start -->"
 _END = "<!-- life-os:record:end -->"
 _STATE_PREFIX = "%% life-os-state: "
+_MESSAGE_PREFIX = "%% life-os-message: "
 _STATE_PATTERN = re.compile(r"(?m)^%% life-os-state: ([^\r\n]+) %%(?:\r?\n|$)")
 _SNAPSHOT_LINE = re.compile(r"(?m)^<% LifeOS\.Project\.snapshot\(\) %>(?:\r?\n|$)")
 _TEMPLATE_EXPRESSION = re.compile(r"<%.*?%>", re.DOTALL)
@@ -198,8 +199,28 @@ class LifeOSRuntime:
             raise LifeOSError("Daily date is invalid")
         return self.periodic_root / f"{value:%Y}" / "Daily" / f"{value:%m}" / f"{value:%Y-%m-%d}.md"
 
+    def capture_path(self, value: date) -> Path:
+        if not isinstance(value, date):
+            raise LifeOSError("Capture date is invalid")
+        return self.life_root / "-1. Capture" / f"{value:%Y-%m-%d}.md"
+
+    def resolve_target_date(self, command: str | None = None) -> date:
+        if command not in {None, "yesterday"}:
+            raise LifeOSError("unsupported Life OS date command")
+        today = datetime.now(self.timezone).date()
+        if command == "yesterday":
+            return today - timedelta(days=1)
+        today_state = self._optional_state(today)
+        if today_state and today_state.status in {"active", "paused", "completed"}:
+            return today
+        yesterday = today - timedelta(days=1)
+        old_state = self._optional_state(yesterday)
+        if old_state and old_state.status in {"active", "paused"}:
+            return yesterday
+        return today
+
     def status(self, target_date: date | None = None) -> dict[str, Any]:
-        selected = target_date or datetime.now(self.timezone).date()
+        selected = target_date or self.resolve_target_date()
         with self._mutation_lock():
             path = self.daily_path(selected)
             if not path.exists():
@@ -231,39 +252,172 @@ class LifeOSRuntime:
         follow_up_question: str | None = None,
         target_date: date | None = None,
     ) -> dict[str, Any]:
-        if operation != "answer":
+        if operation not in {"answer", "skip", "pause", "resume", "capture", "free_record"}:
             raise LifeOSError("unsupported Life OS operation")
-        if attachment_paths or follow_up_question is not None:
-            raise LifeOSError("attachments and follow-ups are not supported yet")
+        if attachment_paths:
+            raise LifeOSError("attachments are not supported yet")
         text = self._checked_message(message_text)
         key = self._checked_message_key(message_key)
-        selected = target_date or datetime.now(self.timezone).date()
+        selected = target_date or self.resolve_target_date()
         with self._mutation_lock():
+            if operation == "capture":
+                return self._append_capture(selected, text, key)
             path = self._ensure_daily(selected)
             document, state = self._read_or_install_block(path, selected)
-            if state.status == "not_started":
-                state = replace(state, status="active")
-            if state.status != "active" or state.next_question is None:
-                raise LifeOSError("Daily workflow is not accepting an answer")
-            question_number = state.next_question
-            answered = tuple(sorted((*state.answered, question_number)))
-            next_question = question_number + 1 if question_number < len(self.QUESTIONS) else None
-            status = "active" if next_question is not None else "completed"
-            entry = (
-                f"#### {question_number}. {self.QUESTIONS[question_number - 1]}\n"
-                f"{text}\n"
-                f"%% life-os-message: {key} %%\n\n"
-            )
-            state = replace(
+            if self._message_already_committed(document.content, key):
+                return self._result(path, state, duplicate=True)
+            document, state = self._apply_operation(
+                document,
                 state,
-                status=status,
-                next_question=next_question,
-                answered=answered,
-                last_message_key=key,
+                operation,
+                text,
+                key,
+                follow_up_question=follow_up_question,
             )
-            document = replace(document, content=document.content + entry)
             self._commit_document(path, self._render(document, state))
             return self._result(path, state)
+
+    def _apply_operation(
+        self,
+        document: _Document,
+        state: WorkflowState,
+        operation: str,
+        text: str,
+        key: str,
+        *,
+        follow_up_question: str | None,
+    ) -> tuple[_Document, WorkflowState]:
+        if operation == "free_record":
+            if follow_up_question is not None:
+                raise LifeOSError("follow-up requires a core answer")
+            entry = self._timestamped_entry("Free Record", text, key)
+            return replace(document, content=document.content + entry), replace(state, last_message_key=key)
+
+        if operation == "pause":
+            if follow_up_question is not None or state.status != "active":
+                raise LifeOSError("Daily workflow cannot be paused")
+            entry = self._control_entry("Paused", text, key)
+            return replace(document, content=document.content + entry), replace(
+                state, status="paused", last_message_key=key,
+            )
+
+        if operation == "resume":
+            if follow_up_question is not None or state.status != "paused":
+                raise LifeOSError("Daily workflow cannot be resumed")
+            entry = self._control_entry("Resumed", text, key)
+            return replace(document, content=document.content + entry), replace(
+                state, status="active", last_message_key=key,
+            )
+
+        if state.pending_follow_up is not None:
+            if operation == "skip":
+                response = "건너뛰기"
+            else:
+                response = text
+            pending = state.pending_follow_up
+            entry = (
+                f"##### Follow-up: {pending['question']}\n"
+                f"{response}\n"
+                f"%% life-os-message: {key} %%\n\n"
+            )
+            return replace(document, content=document.content + entry), replace(
+                state, pending_follow_up=None, last_message_key=key,
+            )
+
+        if state.status == "not_started":
+            state = replace(state, status="active")
+        if state.status != "active" or state.next_question is None:
+            raise LifeOSError("Daily workflow is not accepting a response")
+
+        question_number = state.next_question
+        if operation == "skip":
+            if follow_up_question is not None:
+                raise LifeOSError("follow-up requires a core answer")
+            answered = state.answered
+            skipped = tuple(sorted((*state.skipped, question_number)))
+            response = "건너뛰기"
+        else:
+            answered = tuple(sorted((*state.answered, question_number)))
+            skipped = state.skipped
+            response = text
+        next_question = question_number + 1 if question_number < len(self.QUESTIONS) else None
+        status = "active" if next_question is not None else "completed"
+        pending_follow_up = None
+        follow_up_count = state.follow_up_count
+        if operation == "answer" and follow_up_question is not None and follow_up_count < 2:
+            question = self._checked_follow_up(follow_up_question)
+            pending_follow_up = {"for_question": question_number, "question": question}
+            follow_up_count += 1
+        entry = (
+            f"#### {question_number}. {self.QUESTIONS[question_number - 1]}\n"
+            f"{response}\n"
+            f"%% life-os-message: {key} %%\n\n"
+        )
+        next_state = replace(
+            state,
+            status=status,
+            next_question=next_question,
+            answered=answered,
+            skipped=skipped,
+            follow_up_count=follow_up_count,
+            pending_follow_up=pending_follow_up,
+            last_message_key=key,
+        )
+        return replace(document, content=document.content + entry), next_state
+
+    def _optional_state(self, selected: date) -> WorkflowState | None:
+        path = self.daily_path(selected)
+        if not path.exists():
+            return None
+        text = self._read_document(path)
+        if text.count(_START) == 0 and text.count(_END) == 0 and _STATE_PREFIX not in text:
+            return None
+        _document, state = self._parse_block(text, selected)
+        return state
+
+    def _append_capture(self, selected: date, text: str, key: str) -> dict[str, Any]:
+        path = self.capture_path(selected)
+        if path.exists():
+            try:
+                info = path.lstat()
+                if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                    raise LifeOSError("Capture note must be a non-symlink file")
+                document = path.read_bytes().decode("utf-8")
+            except LifeOSError:
+                raise
+            except (OSError, UnicodeError):
+                raise LifeOSError("Capture note is unreadable") from None
+            if self._message_already_committed(document, key):
+                return {"path": str(path), "date": selected.isoformat(), "status": "captured", "duplicate": True}
+        else:
+            self._prepare_capture_parent()
+            document = f"# Capture — {selected.isoformat()}\n\n"
+        entry = self._timestamped_entry("Capture", text, key)
+        self._atomic_replace(path, document + entry)
+        return {"path": str(path), "date": selected.isoformat(), "status": "captured", "duplicate": False}
+
+    def _prepare_capture_parent(self) -> Path:
+        path = self.life_root / "-1. Capture"
+        try:
+            path.mkdir(mode=0o755, exist_ok=True)
+            info = path.lstat()
+        except OSError:
+            raise LifeOSError("Capture directory is unavailable") from None
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise LifeOSError("Capture directory must be a non-symlink directory")
+        return path
+
+    def _timestamped_entry(self, label: str, text: str, key: str) -> str:
+        timestamp = datetime.now(self.timezone).strftime("%H:%M")
+        return f"## {timestamp} — {label}\n{text}\n{_MESSAGE_PREFIX}{key} %%\n\n"
+
+    @staticmethod
+    def _control_entry(label: str, text: str, key: str) -> str:
+        return f"##### {label}\n{text}\n{_MESSAGE_PREFIX}{key} %%\n\n"
+
+    @staticmethod
+    def _message_already_committed(content: str, key: str) -> bool:
+        return f"{_MESSAGE_PREFIX}{key} %%" in content
 
     def _template_path(self) -> Path:
         return self.template_root / "Daily.md"
@@ -411,7 +565,16 @@ class LifeOSRuntime:
             raise ValueError("invalid follow-up count")
         pending = payload["pending_follow_up"]
         if pending is not None:
-            if set(pending) != {"for_question", "question"} or pending["for_question"] not in answered or not isinstance(pending["question"], str) or not pending["question"]:
+            if (
+                not isinstance(pending, dict)
+                or set(pending) != {"for_question", "question"}
+                or isinstance(pending["for_question"], bool)
+                or not isinstance(pending["for_question"], int)
+                or pending["for_question"] not in answered
+                or not isinstance(pending["question"], str)
+                or not 1 <= len(pending["question"]) <= 300
+                or pending["question"] != pending["question"].strip()
+            ):
                 raise ValueError("invalid pending follow-up")
         last_key = payload["last_message_key"]
         if last_key is not None and (not isinstance(last_key, str) or not last_key):
@@ -452,9 +615,20 @@ class LifeOSRuntime:
     def _checked_message(value: str) -> str:
         if not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 100_000:
             raise LifeOSError("message text is invalid")
-        if any(marker in value for marker in (_START, _END, _STATE_PREFIX)):
+        if any(marker in value for marker in (_START, _END, _STATE_PREFIX, _MESSAGE_PREFIX)):
             raise LifeOSError("message text contains a reserved marker")
         return value.strip()
+
+    @staticmethod
+    def _checked_follow_up(value: str) -> str:
+        if not isinstance(value, str):
+            raise LifeOSError("follow-up question is invalid")
+        question = value.strip()
+        if not 1 <= len(question) <= 300 or any(
+            marker in question for marker in (_START, _END, _STATE_PREFIX, _MESSAGE_PREFIX)
+        ):
+            raise LifeOSError("follow-up question is invalid")
+        return question
 
     @staticmethod
     def _checked_message_key(value: str) -> str:
