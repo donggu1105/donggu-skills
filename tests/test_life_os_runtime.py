@@ -4,8 +4,10 @@ from datetime import date
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -143,6 +145,42 @@ class LifeOSRuntimeTests(unittest.TestCase):
             )
 
         self.assertFalse(external_note.exists())
+
+    def test_capture_rejects_fifo_promptly_without_mutation(self):
+        day = date(2026, 8, 7)
+        capture_directory = self.vault / "Life OS/-1. Capture"
+        capture_directory.mkdir()
+        fifo = capture_directory / f"{day.isoformat()}.md"
+        os.mkfifo(fifo)
+        original_names = tuple(path.name for path in capture_directory.iterdir())
+        finished = threading.Event()
+        outcome = []
+
+        def record_capture():
+            try:
+                self.runtime.record(
+                    "capture", message_text="must not block", message_key="fifo:1",
+                    target_date=day,
+                )
+            except Exception as exc:
+                outcome.append(exc)
+            finally:
+                finished.set()
+
+        thread = threading.Thread(target=record_capture, daemon=True)
+        thread.start()
+        completed_promptly = finished.wait(0.2)
+        if not completed_promptly:
+            writer_fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+            os.close(writer_fd)
+            self.assertTrue(finished.wait(1), "blocked Capture read did not terminate")
+        thread.join(1)
+
+        self.assertTrue(completed_promptly, "Capture FIFO open blocked before type validation")
+        self.assertEqual(1, len(outcome))
+        self.assertIsInstance(outcome[0], life_os.LifeOSError)
+        self.assertTrue(stat.S_ISFIFO(fifo.lstat().st_mode))
+        self.assertEqual(original_names, tuple(path.name for path in capture_directory.iterdir()))
 
     def test_followups_are_durable_bounded_and_non_recursive(self):
         day = date(2026, 8, 7)

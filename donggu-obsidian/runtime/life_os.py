@@ -419,7 +419,7 @@ class LifeOSRuntime:
     @staticmethod
     def _read_capture_at(directory_fd: int, name: str) -> str | None:
         try:
-            descriptor = os.open(name, os.O_RDONLY | _NOFOLLOW, dir_fd=directory_fd)
+            descriptor = os.open(name, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=directory_fd)
         except FileNotFoundError:
             return None
         except OSError:
