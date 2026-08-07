@@ -39,6 +39,9 @@ hermes plugins install --force --enable donggu1105/donggu-skills/donggu-obsidian
 | `DONGGU_LIFE_OS_STATE_ROOT` | Vault 밖의 mode `0700` private state directory; 기본값은 `$XDG_STATE_HOME/donggu-life-os` 또는 `~/.local/state/donggu-life-os` |
 | `DONGGU_LIFE_OS_TIMEZONE` | `Asia/Seoul` (기본값) |
 
+Hermes native runtime은 비어 있지 않은 process environment 값을 우선하고, 없으면
+`hermes config set --force`가 저장한 동일 이름의 top-level `config.yaml` 값을 읽는다.
+
 실제 Discord ID는 공개 저장소에 넣지 말고 Hermes 로컬 설정에서만 바인딩한다.
 Life OS 답변 원문은 `pre_gateway_dispatch`에서 Discord 준비·첨부 주입 전에 짧게 보관하며, native record handler는 정확히 일치하는 Hermes 세션 컨텍스트와 DB 행 ID만 결합한다. SessionDB의 준비된 `content`는 답변으로 사용하지 않는다.
 

@@ -642,16 +642,44 @@ class LifeOSRuntime:
 
     @classmethod
     def from_environment(cls) -> "LifeOSRuntime":
-        raw_vault = os.environ.get("DONGGU_LIFE_OS_VAULT_ROOT")
+        names = (
+            "DONGGU_LIFE_OS_VAULT_ROOT",
+            "DONGGU_LIFE_OS_STATE_ROOT",
+            "DONGGU_LIFE_OS_TIMEZONE",
+        )
+        config: dict[str, Any] = {}
+        if any(not os.environ.get(name) for name in names):
+            try:
+                from hermes_cli.config import load_config_readonly
+            except (ImportError, ModuleNotFoundError):
+                pass
+            else:
+                loaded = load_config_readonly()
+                if not isinstance(loaded, dict):
+                    raise LifeOSError("Hermes Life OS configuration is invalid")
+                config = loaded
+
+        def setting(name: str, default: str | None = None) -> str | None:
+            environment_value = os.environ.get(name)
+            if environment_value:
+                return environment_value
+            configured_value = config.get(name)
+            if configured_value is None or configured_value == "":
+                return default
+            if not isinstance(configured_value, str):
+                raise LifeOSError(f"{name} is invalid")
+            return configured_value
+
+        raw_vault = setting("DONGGU_LIFE_OS_VAULT_ROOT")
         if not raw_vault:
             raise LifeOSError("DONGGU_LIFE_OS_VAULT_ROOT is required")
-        raw_state = os.environ.get("DONGGU_LIFE_OS_STATE_ROOT")
+        raw_state = setting("DONGGU_LIFE_OS_STATE_ROOT")
         if raw_state:
             state_root = Path(raw_state).expanduser()
         else:
             xdg_state = os.environ.get("XDG_STATE_HOME")
             state_root = (Path(xdg_state).expanduser() if xdg_state else Path.home() / ".local/state") / "donggu-life-os"
-        timezone_name = os.environ.get("DONGGU_LIFE_OS_TIMEZONE", "Asia/Seoul")
+        timezone_name = setting("DONGGU_LIFE_OS_TIMEZONE", "Asia/Seoul") or "Asia/Seoul"
         try:
             timezone = ZoneInfo(timezone_name)
         except (ZoneInfoNotFoundError, ValueError):

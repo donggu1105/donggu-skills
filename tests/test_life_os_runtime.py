@@ -2537,6 +2537,32 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 LifeOSRuntime.from_environment()
         self.assertFalse(environment_state.exists())
 
+    def test_from_environment_reads_hermes_top_level_life_os_settings(self):
+        configured_state = self.base / "configured-state"
+        config = {
+            "DONGGU_LIFE_OS_VAULT_ROOT": str(self.vault),
+            "DONGGU_LIFE_OS_STATE_ROOT": str(configured_state),
+            "DONGGU_LIFE_OS_TIMEZONE": "Asia/Seoul",
+        }
+        hermes_cli = types.ModuleType("hermes_cli")
+        hermes_cli.__path__ = []
+
+        with mock.patch.dict(os.environ, {
+            "DONGGU_LIFE_OS_VAULT_ROOT": "",
+            "DONGGU_LIFE_OS_STATE_ROOT": "",
+            "DONGGU_LIFE_OS_TIMEZONE": "",
+        }, clear=False), mock.patch.dict(sys.modules, {
+            "hermes_cli": hermes_cli,
+            "hermes_cli.config": types.SimpleNamespace(
+                load_config_readonly=lambda: config,
+            ),
+        }):
+            runtime = LifeOSRuntime.from_environment()
+
+        self.assertTrue(os.path.samefile(self.vault, runtime.vault_root))
+        self.assertTrue(os.path.samefile(configured_state, runtime.state_root))
+        self.assertEqual("Asia/Seoul", runtime.timezone.key)
+
     def test_status_rejects_noncontiguous_active_and_paused_progress(self):
         day = date(2026, 8, 7)
         self.runtime.start_daily(day)
