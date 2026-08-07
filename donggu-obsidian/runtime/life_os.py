@@ -88,12 +88,23 @@ def _prepare_private_state_root(value: Path) -> Path:
     path = Path(value).expanduser()
     if not path.is_absolute():
         raise LifeOSError("State root must be absolute")
+    created = False
     try:
-        path.mkdir(parents=True, mode=0o700, exist_ok=True)
+        try:
+            path.mkdir(parents=True, mode=0o700)
+            created = True
+        except FileExistsError:
+            pass
         info = path.lstat()
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
             raise LifeOSError("State root must be a non-symlink directory")
-        os.chmod(path, 0o700)
+        if created:
+            os.chmod(path, 0o700)
+            info = path.lstat()
+        if info.st_uid != os.geteuid():
+            raise LifeOSError("Existing state root must be owned by the current user")
+        if stat.S_IMODE(info.st_mode) != 0o700:
+            raise LifeOSError("Existing state root must have mode 0700")
     except LifeOSError:
         raise
     except OSError:
@@ -111,14 +122,14 @@ class LifeOSRuntime:
     QUESTIONS = QUESTIONS
 
     def __init__(self, *, vault_root: Path, state_root: Path, timezone: ZoneInfo):
+        if not isinstance(timezone, ZoneInfo) or timezone.key != "Asia/Seoul":
+            raise LifeOSError("Timezone must be Asia/Seoul")
+        self.timezone = timezone
         self.vault_root = _checked_directory(vault_root)
         self.life_root = _checked_child(self.vault_root, "Life OS")
         self.periodic_root = _checked_child(self.life_root, "0. PeriodicNotes")
         self.template_root = _checked_child(self.periodic_root, "Templates")
         self.state_root = _prepare_private_state_root(state_root)
-        if not isinstance(timezone, ZoneInfo):
-            raise LifeOSError("Timezone must be an IANA ZoneInfo value")
-        self.timezone = timezone
         template = self._template_path()
         try:
             template_info = template.lstat()
@@ -373,8 +384,12 @@ class LifeOSRuntime:
             raise ValueError("invalid not-started state")
         if status == "completed" and (next_question is not None or set(answered) | set(skipped) != set(range(1, len(QUESTIONS) + 1))):
             raise ValueError("invalid completed state")
-        if status in {"active", "paused"} and next_question is None:
-            raise ValueError("invalid incomplete state")
+        if status in {"active", "paused"}:
+            if next_question is None:
+                raise ValueError("invalid incomplete state")
+            expected_progress = set(range(1, next_question))
+            if set(answered) | set(skipped) != expected_progress:
+                raise ValueError("noncontiguous question state")
         return WorkflowState(
             version=1,
             date=payload["date"],
