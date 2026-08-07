@@ -577,7 +577,6 @@ The skill must contain these exact workflow branches:
 ## Routing
 
 - “오늘 정리하자” or no explicit period in the dedicated channel → Daily.
-- “이번 주/달/분기/연도 정리하자” → the matching existing periodic note.
 - “일단 기록해줘” → Capture.
 - “어제 이어서” → yesterday's Daily.
 
@@ -590,7 +589,7 @@ The skill must contain these exact workflow branches:
 5. Never use generic filesystem tools as a fallback when a native tool fails.
 ```
 
-Also document `건너뛰기`, `그만`, `이어서 하자`, free Daily record, attachment paths, two-follow-up cap, manual Claude/Codex CLI fallback, and the exact allowed Vault roots.
+Also document `건너뛰기`, `그만`, `이어서 하자`, free Daily record, Capture, attachment paths, two-follow-up cap, manual Claude/Codex CLI fallback, and the exact allowed Vault roots. Daily and Capture are the only supported routes.
 
 - [ ] **Step 4: Implement the thin CLI**
 

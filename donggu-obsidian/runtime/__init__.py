@@ -8,7 +8,7 @@ from .core_actions import (
     CoreReceiptStore,
     CoreRuntimeError,
 )
-from .life_os import LifeOSError, LifeOSRuntime, WorkflowState
+from .life_os import LifeOSError, LifeOSRuntime, WorkflowState, checked_life_os_message_text
 
 __all__ = [
     "CoreActionRuntime",
@@ -20,4 +20,5 @@ __all__ = [
     "LifeOSError",
     "LifeOSRuntime",
     "WorkflowState",
+    "checked_life_os_message_text",
 ]

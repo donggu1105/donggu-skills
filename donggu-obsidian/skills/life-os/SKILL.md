@@ -1,16 +1,16 @@
 ---
 name: life-os
-description: Use when recording or resuming Life OS Daily check-ins, periodic reflections, quick captures, or attachments from a dedicated Hermes channel, Claude Code, or Codex.
+description: Use when recording or resuming Life OS Daily check-ins, quick captures, or attachments from a dedicated Hermes channel, Claude Code, or Codex.
 ---
 
 # Life OS
 
 Keep conversation state in the target Daily note. Ask one question at a time and commit every trusted turn immediately through the shared runtime.
+Support Daily and Capture only.
 
 ## Routing
 
 - “오늘 정리하자” or no explicit period in the dedicated channel → Daily.
-- “이번 주/달/분기/연도 정리하자” → the matching existing periodic note.
 - “일단 기록해줘” → Capture.
 - “어제 이어서” → yesterday's Daily.
 
@@ -48,6 +48,7 @@ Ask these fixed questions individually, in order:
 After each answer, optionally propose one short, non-recursive follow-up and pass it with that same record call. Ask 최대 2개 follow-ups across the check-in. Return the committed next question only; never send several questions together.
 
 Pass agent-visible attachment paths to `donggu_life_os_record`. A Hermes cache path is input only: let the native runtime copy the actual file into `Life OS/Attachments/` and link that Vault attachment. Never write a cache path, URL, wrapper note, manifest, or attachment subdirectory.
+For an attachment-only Discord turn, the native hook records the deterministic text `첨부 파일`; never derive answer text from injected document content or cache metadata.
 
 Allow automated Vault writes only under:
 

@@ -67,7 +67,6 @@ class LifeOSSkillContractTests(unittest.TestCase):
         routing = (
             "## Routing\n\n"
             "- “오늘 정리하자” or no explicit period in the dedicated channel → Daily.\n"
-            "- “이번 주/달/분기/연도 정리하자” → the matching existing periodic note.\n"
             "- “일단 기록해줘” → Capture.\n"
             "- “어제 이어서” → yesterday's Daily."
         )
@@ -87,6 +86,22 @@ class LifeOSSkillContractTests(unittest.TestCase):
             "Life OS/Attachments/", "Claude Code", "Codex",
         ):
             self.assertIn(phrase, text)
+
+    def test_public_life_os_contract_advertises_only_daily_and_capture_routes(self):
+        sources = (
+            SKILL,
+            ROOT / "docs/superpowers/specs/2026-08-07-hermes-life-os-discord-design.md",
+            ROOT / "docs/superpowers/plans/2026-08-07-hermes-life-os-discord.md",
+        )
+        forbidden = ("Weekly", "Monthly", "Quarterly", "Yearly", "이번 주/달/분기/연도")
+        for source in sources:
+            text = source.read_text(encoding="utf-8")
+            for phrase in forbidden:
+                with self.subTest(source=source.name, phrase=phrase):
+                    self.assertNotIn(phrase, text)
+        skill = SKILL.read_text(encoding="utf-8")
+        self.assertIn("Daily and Capture only", skill)
+        self.assertIn("첨부 파일", skill)
 
     def test_skill_declares_exact_record_calls_and_trusted_handler_boundary(self):
         text = SKILL.read_text(encoding="utf-8")

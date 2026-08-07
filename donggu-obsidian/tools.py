@@ -16,6 +16,7 @@ from .runtime import (
     CoreRuntimeError,
     LifeOSError,
     LifeOSRuntime,
+    checked_life_os_message_text,
 )
 
 
@@ -25,6 +26,7 @@ _LIFE_OS_RUNTIME: Optional[LifeOSRuntime] = None
 _LIFE_OS_RUNTIME_LOCK = threading.Lock()
 _TRUSTED_TURN_TTL_SECONDS = 300.0
 _TRUSTED_TURN_LIMIT = 256
+_ATTACHMENT_ONLY_TEXT = "첨부 파일"
 
 
 class _TrustedTurnCache:
@@ -145,6 +147,35 @@ def _turn_identity(
     return values
 
 
+def _message_type_name(value: Any) -> str:
+    return str(getattr(value, "value", value) or "").strip().lower()
+
+
+def _trusted_discord_event_text(event: Any, raw_content: str) -> str:
+    raw_text = raw_content.strip()
+    event_text = event.text
+    message_type = _message_type_name(event.message_type)
+    media_urls = event.media_urls
+    media_types = event.media_types
+    verified_media = (
+        isinstance(media_urls, list)
+        and isinstance(media_types, list)
+        and len(media_urls) == len(media_types) > 0
+        and all(isinstance(item, str) and item for item in (*media_urls, *media_types))
+    )
+    if not isinstance(event_text, str):
+        raise CoreRuntimeError("trusted Discord turn text is unavailable")
+    if raw_text:
+        if message_type == "text" and event_text.strip() != raw_text:
+            raise CoreRuntimeError("batched Discord text cannot be captured safely")
+        if message_type != "text" and not verified_media:
+            raise CoreRuntimeError("Discord media metadata is unavailable")
+        return checked_life_os_message_text(raw_text)
+    if message_type == "text" or not verified_media:
+        raise CoreRuntimeError("trusted Discord turn text is unavailable")
+    return _ATTACHMENT_ONLY_TEXT
+
+
 def capture_trusted_discord_turn(*, event: Any, gateway: Any, **_kwargs: Any) -> None:
     """Capture only Discord's normalized author text before gateway preparation."""
     try:
@@ -166,9 +197,7 @@ def capture_trusted_discord_turn(*, event: Any, gateway: Any, **_kwargs: Any) ->
             or not isinstance(raw.content, str)
         ):
             return None
-        text = raw.content.strip()
-        if not text:
-            return None
+        text = _trusted_discord_event_text(event, raw.content)
         session_key = gateway._session_key_for_source(source)
         if not isinstance(session_key, str) or not session_key:
             return None
@@ -182,7 +211,7 @@ def capture_trusted_discord_turn(*, event: Any, gateway: Any, **_kwargs: Any) ->
             session_key=session_key,
         )
         _TRUSTED_TURNS.put(identity, text)
-    except (AttributeError, CoreRuntimeError, ImportError, TypeError):
+    except (AttributeError, CoreRuntimeError, ImportError, LifeOSError, TypeError):
         return None
     return None
 

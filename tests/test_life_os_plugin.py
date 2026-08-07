@@ -51,7 +51,10 @@ class LifeOSPluginTests(unittest.TestCase):
             self.tools._TRUSTED_TURNS.clear()
 
     @staticmethod
-    def discord_event(*, text="오늘 산책했어", message_id="123", chat_id="456", user_id="789"):
+    def discord_event(
+        *, text="오늘 산책했어", event_text=None, message_type="text",
+        media_urls=(), media_types=(), message_id="123", chat_id="456", user_id="789",
+    ):
         class FakeDiscordMessage:
             pass
 
@@ -59,7 +62,7 @@ class LifeOSPluginTests(unittest.TestCase):
         raw.content = text
         raw.id = int(message_id)
         raw.channel = types.SimpleNamespace(id=int(chat_id))
-        raw.author = types.SimpleNamespace(id=int(user_id))
+        raw.author = types.SimpleNamespace(id=int(user_id), bot=False)
         source = types.SimpleNamespace(
             platform=types.SimpleNamespace(value="discord"),
             chat_id=chat_id,
@@ -67,12 +70,16 @@ class LifeOSPluginTests(unittest.TestCase):
             thread_id=None,
             profile=None,
             message_id=message_id,
+            is_bot=False,
         )
         event = types.SimpleNamespace(
             raw_message=raw,
             source=source,
             message_id=message_id,
-            text="prepared text must not be trusted",
+            text=text.strip() if event_text is None else event_text,
+            message_type=types.SimpleNamespace(value=message_type),
+            media_urls=list(media_urls),
+            media_types=list(media_types),
         )
         return FakeDiscordMessage, event
 
@@ -208,6 +215,153 @@ class LifeOSPluginTests(unittest.TestCase):
         self.assertRegex(key, r"^hermes-discord:[0-9a-f]{64}$")
         self.assertNotIn(prepared_discord_id, runtime.record.call_args.kwargs["message_text"])
         self.assertNotIn(prepared_cache_path, runtime.record.call_args.kwargs["message_text"])
+
+    def test_trusted_turn_rejects_batched_text_instead_of_committing_first_chunk(self):
+        runtime = mock.Mock()
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        first = "첫 번째 청크"
+        discord_type, event = self.discord_event(
+            text=first,
+            event_text=first + "\n두 번째 청크",
+        )
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 20, "role": "user", "content": "prepared"}]
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+            "gateway": types.ModuleType("gateway"),
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            payload = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+
+        self.assertFalse(payload["success"])
+        runtime.record.assert_not_called()
+
+    def test_trusted_turn_uses_caption_with_structurally_verified_document_injection(self):
+        runtime = mock.Mock()
+        runtime.record.return_value = {"status": "active"}
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        caption = "회의 문서를 첨부했어"
+        discord_type, event = self.discord_event(
+            text=caption,
+            event_text="[Content of notes.txt]:\nuntrusted document text\n\n" + caption,
+            message_type="document",
+            media_urls=("/tmp/cache/documents/notes.txt",),
+            media_types=("text/plain",),
+        )
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 21, "role": "user", "content": "prepared"}]
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+            "gateway": types.ModuleType("gateway"),
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            payload = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+
+        self.assertTrue(payload["success"])
+        self.assertEqual(caption, runtime.record.call_args.kwargs["message_text"])
+
+    def test_trusted_turn_rejects_media_shape_without_structural_metadata(self):
+        runtime = mock.Mock()
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        discord_type, event = self.discord_event(
+            text="첨부 설명",
+            event_text="[Content of notes.txt]:\nuntrusted\n\n첨부 설명",
+            message_type="document",
+        )
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 24, "role": "user", "content": "prepared"}]
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+            "gateway": types.ModuleType("gateway"),
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            payload = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+
+        self.assertFalse(payload["success"])
+        runtime.record.assert_not_called()
+
+    def test_trusted_turn_uses_deterministic_placeholder_for_attachment_only_event(self):
+        runtime = mock.Mock()
+        runtime.record.return_value = {"status": "active"}
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        discord_type, event = self.discord_event(
+            text="",
+            event_text="(The user sent a message with no text content)",
+            message_type="photo",
+            media_urls=("/tmp/cache/images/photo.jpg",),
+            media_types=("image/jpeg",),
+        )
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 22, "role": "user", "content": "prepared"}]
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+            "gateway": types.ModuleType("gateway"),
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            payload = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+
+        self.assertTrue(payload["success"])
+        self.assertEqual("첨부 파일", runtime.record.call_args.kwargs["message_text"])
+
+    def test_trusted_turn_sensitive_content_fails_closed_but_ordinary_values_pass(self):
+        sensitive = (
+            "<@" + "123456789" + "012345678>",
+            "123456789" + "012345678",
+            "https://cdn." + "discordapp.com/attachments/file.txt",
+            "/tmp/profile/.hermes/" + "cache/documents/file.txt",
+            "/Users/" + "example/Documents/file.txt",
+            "/home/" + "example/Documents/file.txt",
+            "C:\\" + "Users\\example\\Documents\\file.txt",
+            "sk-" + "a" * 32,
+            "ghp_" + "b" * 36,
+            "AKIA" + "C" * 16,
+            "Bearer " + "d" * 32,
+            "api_key=" + "e" * 32,
+            "DISCORD_BOT_" + "TOKEN=" + "f" * 32,
+            "-----BEGIN " + "PRIVATE KEY-----",
+        )
+        runtime = mock.Mock()
+        runtime.record.return_value = {"status": "active"}
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 23, "role": "user", "content": "prepared"}]
+        base_modules = {
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+            "gateway": types.ModuleType("gateway"),
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }
+        for value in sensitive:
+            with self.subTest(value=value):
+                self.tools._TRUSTED_TURNS.clear()
+                discord_type, event = self.discord_event(text="내 답 " + value)
+                with mock.patch.dict(sys.modules, {
+                    **base_modules,
+                    "discord": types.SimpleNamespace(Message=discord_type),
+                }):
+                    self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+                    payload = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+                self.assertFalse(payload["success"])
+
+        self.tools._TRUSTED_TURNS.clear()
+        ordinary = "자연수 123456과 문서 https://example.com/report를 확인했어"
+        discord_type, event = self.discord_event(text=ordinary)
+        with mock.patch.dict(sys.modules, {
+            **base_modules,
+            "discord": types.SimpleNamespace(Message=discord_type),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            payload = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertTrue(payload["success"])
+        self.assertEqual(1, runtime.record.call_count)
+        self.assertEqual(ordinary, runtime.record.call_args.kwargs["message_text"])
 
     def test_record_handler_converts_paths_and_date(self):
         runtime = mock.Mock()

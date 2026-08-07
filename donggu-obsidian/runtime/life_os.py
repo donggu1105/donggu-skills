@@ -39,7 +39,26 @@ _DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _ATTACHMENT_NAME = re.compile(r"^A(\d{3,}) - (.+)$")
 _ATTACHMENT_LINK = re.compile(r"\[\[Life OS/Attachments/(A\d{3,} - [^\]\r\n]+)\]\]")
+_ATTACHMENT_TEMP = re.compile(r"^\.life-os-attachment-[0-9a-f]{16}$")
 _DEFAULT_MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
+_SENSITIVE_MESSAGE_PATTERNS = (
+    re.compile(r"<(?:@!?|@&|#)[0-9]{17,20}>"),
+    re.compile(r"(?<![0-9])[0-9]{17,20}(?![0-9])"),
+    re.compile(r"https?://(?:cdn\.discordapp\.com|media\.discordapp\.net)/", re.IGNORECASE),
+    re.compile(r"(?:^|[\\/])\.hermes[\\/]cache(?:[\\/]|$)", re.IGNORECASE),
+    re.compile(r"/(?:Users|home)/[^/\s]+(?:/|$)"),
+    re.compile(r"[A-Za-z]:\\Users\\[^\\\s]+(?:\\|$)", re.IGNORECASE),
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    re.compile(r"(?:sk-(?:proj-)?|gh[pousr]_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]{16,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._-]{16,}", re.IGNORECASE),
+    re.compile(
+        r"\b(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|token|secret|password)"
+        r"\s*[:=]\s*\S{8,}",
+        re.IGNORECASE,
+    ),
+)
 
 
 class LifeOSError(Exception):
@@ -76,6 +95,16 @@ class _Document:
     prefix: str
     content: str
     suffix: str
+
+
+def checked_life_os_message_text(value: str) -> str:
+    """Validate text before it can cross a Life OS persistence boundary."""
+    if not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 100_000:
+        raise LifeOSError("message text is invalid")
+    text = value.strip()
+    if any(pattern.search(text) for pattern in _SENSITIVE_MESSAGE_PATTERNS):
+        raise LifeOSError("message text contains sensitive content")
+    return text
 
 
 def _checked_directory(value: Path) -> Path:
@@ -548,8 +577,58 @@ class LifeOSRuntime:
     def _store_attachments(self, paths: Sequence[Path]) -> tuple[StoredAttachment, ...]:
         return tuple(self._store_one_attachment(Path(path)) for path in paths)
 
+    def _reconcile_attachment_temps(self) -> None:
+        """Remove only validated temp entries left by an interrupted publish."""
+        with self._attachments_directory() as directory_fd:
+            try:
+                entries = tuple(os.listdir(directory_fd))
+            except OSError:
+                raise LifeOSError("attachment directory is unreadable") from None
+            canonical = tuple(name for name in entries if _ATTACHMENT_NAME.fullmatch(name))
+            changed = False
+            for name in entries:
+                if not name.startswith(".life-os-attachment-"):
+                    continue
+                if _ATTACHMENT_TEMP.fullmatch(name) is None:
+                    raise LifeOSError("temporary attachment entry is invalid")
+                try:
+                    info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                except OSError:
+                    raise LifeOSError("temporary attachment entry is unavailable") from None
+                if (
+                    stat.S_ISLNK(info.st_mode)
+                    or not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != os.geteuid()
+                ):
+                    raise LifeOSError("temporary attachment entry is unsafe")
+                matches = []
+                for candidate in canonical:
+                    try:
+                        candidate_info = os.stat(
+                            candidate, dir_fd=directory_fd, follow_symlinks=False,
+                        )
+                    except OSError:
+                        raise LifeOSError("stored attachment is unavailable") from None
+                    if stat.S_ISREG(candidate_info.st_mode) and os.path.samestat(info, candidate_info):
+                        matches.append(candidate)
+                if len(matches) > 1 or (not matches and info.st_nlink != 1):
+                    raise LifeOSError("temporary attachment ownership is ambiguous")
+                if matches and info.st_nlink != 2:
+                    raise LifeOSError("temporary attachment ownership is ambiguous")
+                try:
+                    os.unlink(name, dir_fd=directory_fd)
+                except OSError:
+                    raise LifeOSError("temporary attachment could not be reconciled") from None
+                changed = True
+            if changed:
+                try:
+                    os.fsync(directory_fd)
+                except OSError:
+                    raise LifeOSError("attachment directory could not be synchronized") from None
+
     def _store_one_attachment(self, source: Path) -> StoredAttachment:
         with self._open_cache_attachment(source) as (source_descriptor, source_name):
+            self._reconcile_attachment_temps()
             digest = _file_sha256_fd(source_descriptor)
             existing = self._attachment_by_hash(digest)
             if existing is not None:
@@ -1441,11 +1520,10 @@ class LifeOSRuntime:
 
     @staticmethod
     def _checked_message(value: str) -> str:
-        if not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 100_000:
-            raise LifeOSError("message text is invalid")
-        if any(marker in value for marker in (_START, _END, _STATE_PREFIX, _MESSAGE_PREFIX)):
+        text = checked_life_os_message_text(value)
+        if any(marker in text for marker in (_START, _END, _STATE_PREFIX, _MESSAGE_PREFIX)):
             raise LifeOSError("message text contains a reserved marker")
-        return value.strip()
+        return text
 
     @staticmethod
     def _checked_follow_up(value: str) -> str:

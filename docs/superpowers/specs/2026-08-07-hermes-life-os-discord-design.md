@@ -39,7 +39,6 @@ both recover the same workflow state from the Vault.
 - A deterministic native Hermes runtime and three Life OS tools.
 - Daily start, answer, skip, pause, resume, completion, and free Daily record.
 - Daily Capture append for “일단 기록해줘”.
-- Manual routing to existing Weekly, Monthly, Quarterly, and Yearly notes.
 - Discord attachment ingestion into a flat `Life OS/Attachments/` directory.
 - Idempotent Discord channel bootstrap and a daily Hermes cron job.
 - Hermes channel binding, prompt, allowlist, gateway restart, and smoke checks.
@@ -51,7 +50,7 @@ both recover the same workflow state from the Vault.
 - Copying third-party LifeOS template text into the public repository.
 - Automatic publication into `Personal Branding/` or any other Vault area.
 - Reminders after the 22:00 prompt.
-- Automated Weekly, Monthly, Quarterly, or Yearly cron jobs.
+- Periodic-note routing or automation beyond Daily.
 
 ## Package architecture
 

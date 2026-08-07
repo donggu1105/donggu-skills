@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -116,6 +117,54 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertTrue(updated.startswith(before + "<!-- life-os:record:start -->"))
         self.assertTrue(updated.endswith("<!-- life-os:record:end -->" + suffix))
         self.assertIn("산책을 했다", updated)
+
+    def test_sensitive_message_policy_rejects_daily_and_capture_without_mutation(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        daily = self.runtime.daily_path(day)
+        original = daily.read_bytes()
+        capture = self.runtime.capture_path(day)
+        sensitive = (
+            "<@" + "123456789" + "012345678>",
+            "123456789" + "012345678",
+            "https://media." + "discordapp.net/attachments/file.txt",
+            "/tmp/profile/.hermes/" + "cache/audio/file.ogg",
+            "/Users/" + "example/private.txt",
+            "/home/" + "example/private.txt",
+            "C:\\" + "Users\\example\\private.txt",
+            "sk-" + "a" * 32,
+            "ghp_" + "b" * 36,
+            "AKIA" + "C" * 16,
+            "Bearer " + "d" * 32,
+            "password=" + "e" * 32,
+            "DISCORD_BOT_" + "TOKEN=" + "f" * 32,
+            "-----BEGIN " + "OPENSSH PRIVATE KEY-----",
+        )
+
+        for index, value in enumerate(sensitive):
+            with self.subTest(surface="daily", value=value):
+                with self.assertRaisesRegex(life_os.LifeOSError, "sensitive"):
+                    self.runtime.record(
+                        "free_record", message_text="내 답 " + value,
+                        message_key=f"sensitive:daily:{index}", target_date=day,
+                    )
+                self.assertEqual(original, daily.read_bytes())
+            with self.subTest(surface="capture", value=value):
+                with self.assertRaisesRegex(life_os.LifeOSError, "sensitive"):
+                    self.runtime.record(
+                        "capture", message_text="내 답 " + value,
+                        message_key=f"sensitive:capture:{index}", target_date=day,
+                    )
+                self.assertFalse(capture.exists())
+
+    def test_message_policy_allows_ordinary_numbers_and_non_discord_urls(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        text = "자연수 123456과 https://example.com/report를 기록"
+        result = self.runtime.record(
+            "free_record", message_text=text, message_key="ordinary:1", target_date=day,
+        )
+        self.assertIn(text, Path(result["path"]).read_text(encoding="utf-8"))
 
     def test_questions_followups_pause_resume_and_completion(self):
         day = date(2026, 8, 7)
@@ -776,6 +825,90 @@ class LifeOSRuntimeTests(unittest.TestCase):
         text = Path(result["path"]).read_text(encoding="utf-8")
         self.assertEqual(1, text.count("[[Life OS/Attachments/A001 - crash.pdf]]"))
         self.assertFalse(any(name.startswith(".life-os-") for name in attachment_names))
+
+    def test_attachment_hard_process_death_after_publish_is_reconciled_on_retry(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        source = cache / "uuid-hard-crash.pdf"
+        source.write_bytes(b"hard crash recovery")
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        child = (
+            "import importlib.util, os, pathlib, sys\n"
+            "module_path, vault, state, cache, source = map(pathlib.Path, sys.argv[1:])\n"
+            "spec = importlib.util.spec_from_file_location('child_life_os', module_path)\n"
+            "module = importlib.util.module_from_spec(spec)\n"
+            "sys.modules[spec.name] = module\n"
+            "spec.loader.exec_module(module)\n"
+            "runtime = module.LifeOSRuntime(vault_root=vault, state_root=state, "
+            "timezone=module.ZoneInfo('Asia/Seoul'), cache_roots=(cache,), "
+            "max_attachment_bytes=32 * 1024 * 1024)\n"
+            "real_link = module.os.link\n"
+            "def die_after_link(*args, **kwargs):\n"
+            "    real_link(*args, **kwargs)\n"
+            "    os._exit(73)\n"
+            "module.os.link = die_after_link\n"
+            "runtime.record('answer', message_text='first try', "
+            "message_key='crash:hard-process', attachment_paths=(source,), "
+            "target_date=module.date(2026, 8, 7))\n"
+        )
+        proc = subprocess.run(
+            [
+                sys.executable, "-c", child, str(MODULE_PATH), str(self.vault),
+                str(self.base / "state"), str(cache), str(source),
+            ],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(73, proc.returncode, proc.stderr)
+        names_after_death = sorted(path.name for path in self.runtime.attachments_root.iterdir())
+        self.assertEqual(2, len(names_after_death))
+        self.assertIn("A001 - hard-crash.pdf", names_after_death)
+        self.assertTrue(any(name.startswith(".life-os-attachment-") for name in names_after_death))
+
+        result = self.runtime.record(
+            "answer", message_text="first try", message_key="crash:hard-process",
+            attachment_paths=(source,), target_date=day,
+        )
+        self.assertEqual(
+            ["A001 - hard-crash.pdf"],
+            [path.name for path in self.runtime.attachments_root.iterdir()],
+        )
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertEqual(1, text.count("[[Life OS/Attachments/A001 - hard-crash.pdf]]"))
+
+    def test_attachment_temp_reconciliation_rejects_symlink_and_nonregular_entries(self):
+        attachments = self.runtime.attachments_root
+        attachments.mkdir()
+        target = self.base / "outside-temp"
+        target.write_bytes(b"outside")
+        symlink = attachments / (".life-os-attachment-" + "a" * 16)
+        symlink.symlink_to(target)
+        with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
+            self.runtime._reconcile_attachment_temps()
+        symlink.unlink()
+        fifo = attachments / (".life-os-attachment-" + "b" * 16)
+        os.mkfifo(fifo)
+        with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
+            self.runtime._reconcile_attachment_temps()
+
+    def test_attachment_temp_reconciliation_rejects_foreign_owner(self):
+        attachments = self.runtime.attachments_root
+        attachments.mkdir()
+        temp_name = ".life-os-attachment-" + "c" * 16
+        (attachments / temp_name).write_bytes(b"stale")
+        real_stat = life_os.os.stat
+
+        def foreign_temp(path, *args, **kwargs):
+            info = real_stat(path, *args, **kwargs)
+            if path == temp_name and kwargs.get("follow_symlinks") is False:
+                values = list(info)
+                values[4] = info.st_uid + 1
+                return os.stat_result(values)
+            return info
+
+        with mock.patch.object(life_os.os, "stat", side_effect=foreign_temp):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
+                self.runtime._reconcile_attachment_temps()
 
     def test_note_rename_crash_reuses_attachment_and_commits_once_on_retry(self):
         cache = self.base / "cache/documents"
