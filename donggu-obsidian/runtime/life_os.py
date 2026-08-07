@@ -127,7 +127,7 @@ def _checked_external_state_root(vault_root: Path, value: Path) -> Path:
                 if parent == existing_ancestor:
                     raise LifeOSError("State root ancestry is unavailable")
                 existing_ancestor = parent
-        current = existing_ancestor
+        current = Path(os.path.realpath(existing_ancestor))
         while True:
             if os.path.samefile(current, vault_root):
                 raise LifeOSError("State root must be outside the Vault")

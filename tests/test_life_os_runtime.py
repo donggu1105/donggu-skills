@@ -207,6 +207,28 @@ class LifeOSRuntimeTests(unittest.TestCase):
             )
         self.assertFalse(actual_internal.exists())
 
+    def test_state_root_rejects_external_symlink_to_case_variant_inner_vault_without_creation(self):
+        case_variant_vault = self.vault.with_name(self.vault.name.upper())
+        try:
+            same_vault = os.path.samefile(case_variant_vault, self.vault)
+        except FileNotFoundError:
+            same_vault = False
+        if not same_vault:
+            self.skipTest("temporary test filesystem is case-sensitive")
+
+        alias = self.base / "case-inner-alias"
+        alias.symlink_to(case_variant_vault / "Life OS", target_is_directory=True)
+        requested = alias / ".state"
+        actual_internal = self.vault / "Life OS/.state"
+        self.assertFalse(actual_internal.exists())
+        with self.assertRaises(life_os.LifeOSError):
+            LifeOSRuntime(
+                vault_root=self.vault,
+                state_root=requested,
+                timezone=ZoneInfo("Asia/Seoul"),
+            )
+        self.assertFalse(actual_internal.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
