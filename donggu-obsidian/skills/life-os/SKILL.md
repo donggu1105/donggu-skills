@@ -35,7 +35,7 @@ Every `donggu_life_os_record` call requires `operation`. Select exactly one call
 - `일단 기록해줘` → `donggu_life_os_record(operation="capture")`.
 - Normal message with no active check-in → `donggu_life_os_record(operation="free_record")`; create a free Daily record without starting the sequence.
 
-Add `follow_up_question` only to an `answer` call when proposing one short follow-up. Add `attachment_paths` only when the latest turn includes attachments. Add `date` only for an explicit target date such as yesterday. Never pass `control`, `text`, `message_text`, `message_key`, or `session_id`. The native handler reads the latest trusted persisted user turn from Hermes `SessionDB` and constructs the trusted key from the Hermes session ID and persisted message row ID.
+Add `follow_up_question` only to an `answer` call when proposing one short follow-up. Add `attachment_paths` only when the latest turn includes attachments. Add `date` only for an explicit target date such as yesterday. Never pass `control`, `text`, `message_text`, `message_key`, or `session_id`. The native handler uses the trusted Discord-authored turn captured before gateway preparation, uses `SessionDB` only for the persisted user row ID, and constructs the trusted key from the Hermes session, row, platform, and source identities.
 
 Ask these fixed questions individually, in order:
 

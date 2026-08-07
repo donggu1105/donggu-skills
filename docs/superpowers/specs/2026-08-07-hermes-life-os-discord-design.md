@@ -160,10 +160,14 @@ optional list of agent-visible attachment cache paths. Operations are
 follow-up is accepted only while answering a core question, must be 1–300
 characters, and is ignored after the two-follow-up limit.
 
-For Hermes turns, the handler reads the latest persisted user message, session
-ID, and message row ID from Hermes `SessionDB`; model-supplied answer text or
-Discord message IDs are not trusted. The `(session_id, message_row_id)` pair is
-the native idempotency key. Attachment paths remain model-selected because
+For Hermes turns, a `pre_gateway_dispatch` hook captures only normalized text
+from the real Discord message before gateway preparation and binds it to the
+Discord message, platform, chat, user, thread, and profile identities. The
+native handler requires an exact match with Hermes session context and uses
+`SessionDB` only to identify the persisted user row ID; persisted prepared
+content, model-supplied answer text, and model-supplied Discord IDs are not
+trusted. The session, row, platform, and source identities form the durable
+native idempotency key. Attachment paths remain model-selected because
 Hermes exposes media paths in the current prompt, but the runtime accepts only
 regular, non-symlink files beneath the active Hermes image, audio, or document
 cache roots.
@@ -311,13 +315,15 @@ commits the note link. No private manifest is needed in the attachment folder.
 
 - One advisory lock under the private state root serializes Life OS mutations
   for the configured Vault. Its directory name is a SHA-256 digest of the
-  canonical Vault path; no personal path is written into the lock filename.
+  retained Vault descriptor's canonical `(st_dev, st_ino)` identity; no
+  personal path is written into the lock filename.
 - The private state directory and lock use modes `0700` and `0600`. No lock or
   manifest is stored in the Vault or attachment directory.
 - Note replacement uses a sibling temporary file, flush, fsync, atomic rename,
   and parent-directory fsync.
-- A trusted Hermes `(session_id, message_row_id)` key appears once in the
-  bounded record block.
+- A trusted Hermes key derived from session, row, platform, and source
+  identities appears once in the bounded record block. A private per-Vault
+  claim binds that key to one operation and target across Daily and Capture.
 - Reprocessing the same message returns the prior result without adding text,
   advancing state, or copying another attachment.
 - Attachment identity is content hash, not a temporary cache filename.

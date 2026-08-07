@@ -445,16 +445,17 @@ def test_life_os_tools_register_after_existing_core_surface(self):
         [item["name"] for item in ctx.tools],
     )
 
-def test_record_handler_uses_latest_session_db_text(self):
-    with mock.patch.object(tools, "_latest_trusted_user_message", return_value=(17, "오늘 산책했어")):
-        payload = json.loads(tools.handle_life_os_record(
-            {"operation": "answer", "attachment_paths": []},
-            session_id="discord-session",
-        ))
+def test_record_handler_uses_only_hook_captured_discord_text(self):
+    tools.capture_trusted_discord_turn(
+        event=discord_event(content="오늘 산책했어"), gateway=gateway,
+    )
+    payload = json.loads(tools.handle_life_os_record(
+        {"operation": "answer", "attachment_paths": []},
+    ))
     self.assertTrue(payload["success"])
     runtime.record.assert_called_once_with(
         "answer", message_text="오늘 산책했어",
-        message_key="discord-session:17", attachment_paths=(),
+        message_key=mock.ANY, attachment_paths=(),
         follow_up_question=None, target_date=None,
     )
 ```
@@ -486,12 +487,11 @@ LIFE_OS_RECORD_SCHEMA = {
 
 def handle_life_os_record(args: dict, **kwargs) -> str:
     try:
-        session_id = _trusted_session_id(kwargs)
-        message_id, message_text = _latest_trusted_user_message(session_id)
+        _row_id, message_text, message_key = _trusted_life_os_turn()
         result = _life_os_runtime().record(
             str(args.get("operation") or ""),
             message_text=message_text,
-            message_key=f"{session_id}:{message_id}",
+            message_key=message_key,
             attachment_paths=tuple(Path(value) for value in args.get("attachment_paths") or ()),
             follow_up_question=args.get("follow_up_question"),
             target_date=_optional_iso_date(args.get("date")),
@@ -505,7 +505,7 @@ Status and start handlers accept only an optional ISO date; start does not requi
 
 - [ ] **Step 4: Register the three tools and bump every manifest to 1.9.0**
 
-Append the Life OS registrations after the eight CORE registrations. Extend `provides_tools` in the same order. Set `donggu-obsidian` to `1.9.0` in Claude JSON, Hermes YAML, and marketplace JSON. Update the Hermes description to mention both CORE and Life OS without removing the CORE contract.
+Append the Life OS registrations after the eight CORE registrations. Register the trusted-turn capture as `pre_gateway_dispatch`, declare it in `provides_hooks`, and extend `provides_tools` in the same order. Set `donggu-obsidian` to `1.9.0` in Claude JSON, Hermes YAML, and marketplace JSON. Update the Hermes description to mention both CORE and Life OS without removing the CORE contract.
 
 - [ ] **Step 5: Run plugin and manifest tests**
 

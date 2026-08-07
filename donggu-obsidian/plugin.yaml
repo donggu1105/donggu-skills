@@ -16,3 +16,5 @@ provides_tools:
   - donggu_life_os_status
   - donggu_life_os_start_daily
   - donggu_life_os_record
+provides_hooks:
+  - pre_gateway_dispatch

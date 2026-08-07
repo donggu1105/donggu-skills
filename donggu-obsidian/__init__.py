@@ -13,6 +13,7 @@ from .tools import (
     RECEIPT_STATUS_SCHEMA,
     RECOVERY_STATUS_SCHEMA,
     REVOKE_SCHEMA,
+    capture_trusted_discord_turn,
     handle_ack,
     handle_apply,
     handle_life_os_record,
@@ -83,3 +84,4 @@ def register(ctx) -> None:
             description=description,
             emoji=emoji,
         )
+    ctx.register_hook("pre_gateway_dispatch", capture_trusted_discord_turn)

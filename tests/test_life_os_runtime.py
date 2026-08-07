@@ -145,6 +145,31 @@ class LifeOSRuntimeTests(unittest.TestCase):
             )
         self.assertEqual("completed", result["status"])
 
+    def test_question_five_follow_up_keeps_active_until_follow_up_is_committed(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        for index in range(1, 5):
+            self.runtime.record(
+                "answer", message_text=f"답변 {index}", message_key=f"q5:{index}",
+                target_date=day,
+            )
+        fifth = self.runtime.record(
+            "answer", message_text="내일은 마무리", message_key="q5:5",
+            follow_up_question="첫 행동은 무엇인가?", target_date=day,
+        )
+        self.assertEqual("active", fifth["status"])
+        self.assertEqual("첫 행동은 무엇인가?", fifth["question"])
+        self.assertIsNotNone(fifth["pending_follow_up"])
+
+        completed = self.runtime.record(
+            "answer", message_text="문서를 연다", message_key="q5:follow", target_date=day,
+        )
+        self.assertEqual("completed", completed["status"])
+        self.assertIsNone(completed["pending_follow_up"])
+        self.assertIsNone(completed["question"])
+        text = self.runtime.daily_path(day).read_text(encoding="utf-8")
+        self.assertEqual(1, text.count("문서를 연다"))
+
     def test_capture_appends_timestamped_entry_without_starting_daily(self):
         result = self.runtime.record(
             "capture", message_text="책 아이디어", message_key="s2:1",
@@ -962,10 +987,13 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(private, runtime.state_root)
         self.assertEqual(0o700, private.stat().st_mode & 0o777)
 
-    def test_lock_uses_canonical_vault_digest_namespace_and_private_modes(self):
-        expected_name = hashlib.sha256(
-            os.path.realpath(self.vault).encode("utf-8")
-        ).hexdigest()
+    def test_lock_uses_filesystem_identity_digest_namespace_and_private_modes(self):
+        vault_info = self.vault.stat()
+        identity = json.dumps(
+            {"st_dev": vault_info.st_dev, "st_ino": vault_info.st_ino},
+            separators=(",", ":"), sort_keys=True,
+        )
+        expected_name = hashlib.sha256(identity.encode("utf-8")).hexdigest()
         namespace = self.runtime.state_root / expected_name
         self.assertEqual(namespace, self.runtime.state_namespace)
         self.assertRegex(namespace.name, r"^[0-9a-f]{64}$")
@@ -997,7 +1025,9 @@ class LifeOSRuntimeTests(unittest.TestCase):
         state_base = self.base / "namespace-state"
         state_base.mkdir(mode=0o700)
         os.chmod(state_base, 0o700)
-        digest = hashlib.sha256(os.path.realpath(self.vault).encode("utf-8")).hexdigest()
+        info = self.vault.stat()
+        identity = json.dumps({"st_dev": info.st_dev, "st_ino": info.st_ino}, separators=(",", ":"), sort_keys=True)
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
         namespace = state_base / digest
         namespace.mkdir(mode=0o755)
         os.chmod(namespace, 0o755)
@@ -1011,7 +1041,9 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(0o755, namespace.stat().st_mode & 0o777)
 
     def test_lock_namespace_rejects_symlink_and_foreign_owner(self):
-        digest = hashlib.sha256(os.path.realpath(self.vault).encode("utf-8")).hexdigest()
+        info = self.vault.stat()
+        identity = json.dumps({"st_dev": info.st_dev, "st_ino": info.st_ino}, separators=(",", ":"), sort_keys=True)
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
         symlink_base = self.base / "symlink-namespace-state"
         symlink_base.mkdir(mode=0o700)
@@ -1040,6 +1072,185 @@ class LifeOSRuntimeTests(unittest.TestCase):
                     state_root=foreign_base,
                     timezone=ZoneInfo("Asia/Seoul"),
                 )
+
+    def test_lock_namespace_rejects_post_construction_symlink_replacement(self):
+        namespace = self.runtime.state_namespace
+        moved = namespace.with_name(namespace.name + "-original")
+        external = self.base / "external-state-namespace"
+        external.mkdir(mode=0o700)
+        namespace.rename(moved)
+        namespace.symlink_to(external, target_is_directory=True)
+
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.record(
+                "free_record", message_text="must not mutate", message_key="namespace:swap",
+                target_date=date(2026, 8, 7),
+            )
+        self.assertFalse(self.runtime.daily_path(date(2026, 8, 7)).exists())
+        self.assertFalse((external / "mutation.lock").exists())
+
+    def test_case_alias_of_same_vault_uses_same_lock_namespace(self):
+        case_alias = self.vault.with_name(self.vault.name.upper())
+        try:
+            same = os.path.samefile(case_alias, self.vault)
+        except FileNotFoundError:
+            same = False
+        if not same:
+            self.skipTest("temporary test filesystem is case-sensitive")
+        aliased = LifeOSRuntime(
+            vault_root=case_alias,
+            state_root=self.runtime.state_root,
+            timezone=ZoneInfo("Asia/Seoul"),
+        )
+        self.assertEqual(self.runtime.state_namespace, aliased.state_namespace)
+
+    def test_global_message_claim_prevents_cross_date_and_cross_surface_replay(self):
+        yesterday = date(2026, 8, 6)
+        today = date(2026, 8, 7)
+        first = self.runtime.record(
+            "free_record", message_text="한 번만", message_key="global:date",
+            target_date=yesterday,
+        )
+        replay = self.runtime.record(
+            "free_record", message_text="한 번만", message_key="global:date",
+            target_date=today,
+        )
+        self.assertFalse(first.get("duplicate", False))
+        self.assertTrue(replay["duplicate"])
+        self.assertEqual(first["path"], replay["path"])
+        self.assertFalse(self.runtime.daily_path(today).exists())
+
+        captured = self.runtime.record(
+            "capture", message_text="캡처", message_key="global:surface",
+            target_date=today,
+        )
+        daily_replay = self.runtime.record(
+            "free_record", message_text="캡처", message_key="global:surface",
+            target_date=today,
+        )
+        self.assertTrue(daily_replay["duplicate"])
+        self.assertEqual(captured["path"], daily_replay["path"])
+
+        daily = self.runtime.record(
+            "free_record", message_text="데일리", message_key="global:reverse",
+            target_date=today,
+        )
+        capture_replay = self.runtime.record(
+            "capture", message_text="데일리", message_key="global:reverse",
+            target_date=today,
+        )
+        self.assertTrue(capture_replay["duplicate"])
+        self.assertEqual(daily["path"], capture_replay["path"])
+
+    def test_global_claim_survives_restart_and_pending_claim_recovers_without_suppression(self):
+        day = date(2026, 8, 7)
+        original_commit = self.runtime._commit_global_claim
+        with mock.patch.object(self.runtime, "_commit_global_claim", side_effect=OSError("crash")):
+            with self.assertRaises(OSError):
+                self.runtime.record(
+                    "free_record", message_text="committed before crash", message_key="claim:crash",
+                    target_date=day,
+                )
+        restarted = LifeOSRuntime(
+            vault_root=self.vault,
+            state_root=self.runtime.state_root,
+            timezone=ZoneInfo("Asia/Seoul"),
+            cache_roots=self.runtime.cache_roots,
+            max_attachment_bytes=32 * 1024 * 1024,
+        )
+        result = restarted.record(
+            "free_record", message_text="committed before crash", message_key="claim:crash",
+            target_date=day,
+        )
+        self.assertTrue(result["duplicate"])
+        self.assertEqual(1, self.runtime.daily_path(day).read_text(encoding="utf-8").count("committed before crash"))
+        self.assertTrue(callable(original_commit))
+
+    def test_implicit_record_and_start_are_linearized_under_one_lock(self):
+        yesterday = date(2026, 8, 6)
+        today = date(2026, 8, 7)
+        self.runtime.start_daily(yesterday)
+
+        class FixedDateTime(life_os.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 7, 12, 0, tzinfo=tz)
+
+        entered = threading.Event()
+        release = threading.Event()
+        original_resolve = self.runtime._resolve_target_date_unlocked
+
+        def blocked_resolve(command=None):
+            entered.set()
+            release.wait(1)
+            return original_resolve(command)
+
+        outcomes = []
+        with mock.patch.object(life_os, "datetime", FixedDateTime), mock.patch.object(
+            self.runtime, "_resolve_target_date_unlocked", side_effect=blocked_resolve,
+        ):
+            record_thread = threading.Thread(target=lambda: outcomes.append(self.runtime.record(
+                "answer", message_text="어제 답", message_key="linearized:1",
+            )))
+            start_thread = threading.Thread(target=lambda: outcomes.append(self.runtime.start_daily(today)))
+            record_thread.start()
+            self.assertTrue(entered.wait(1))
+            start_thread.start()
+            release.set()
+            record_thread.join(2)
+            start_thread.join(2)
+        self.assertIn("어제 답", self.runtime.daily_path(yesterday).read_text(encoding="utf-8"))
+        self.assertNotIn("어제 답", self.runtime.daily_path(today).read_text(encoding="utf-8"))
+
+    def test_default_attachment_limit_uses_active_yaml_then_env_and_refreshes(self):
+        cache_root = self.base / "cache/dynamic-documents"
+        cache_root.mkdir(parents=True)
+        source = cache_root / "limit.txt"
+        source.write_bytes(b"fifteen-bytes!!")
+        runtime = LifeOSRuntime(
+            vault_root=self.vault,
+            state_root=self.base / "dynamic-limit-state",
+            timezone=ZoneInfo("Asia/Seoul"),
+            cache_roots=(cache_root,),
+        )
+        config = {"discord": {"max_attachment_bytes": 11}}
+        fake_config = types.SimpleNamespace(load_config_readonly=lambda: config)
+        with mock.patch.dict(sys.modules, {
+            "hermes_cli": types.ModuleType("hermes_cli"),
+            "hermes_cli.config": fake_config,
+        }), mock.patch.dict(os.environ, {"DISCORD_MAX_ATTACHMENT_BYTES": "22"}, clear=False):
+            self.assertEqual(11, runtime.max_attachment_bytes)
+            with self.assertRaisesRegex(life_os.LifeOSError, "configured size limit"):
+                runtime.record(
+                    "free_record", message_text="limit", message_key="dynamic-limit:1",
+                    attachment_paths=(source,), target_date=date(2026, 8, 7),
+                )
+            config["discord"] = {}
+            self.assertEqual(22, runtime.max_attachment_bytes)
+            config["discord"]["max_attachment_bytes"] = 33
+            self.assertEqual(33, runtime.max_attachment_bytes)
+            recorded = runtime.record(
+                "free_record", message_text="limit", message_key="dynamic-limit:1",
+                attachment_paths=(source,), target_date=date(2026, 8, 7),
+            )
+            self.assertFalse(recorded.get("duplicate", False))
+
+    def test_default_attachment_limit_fails_closed_on_unsafe_value(self):
+        runtime = LifeOSRuntime(
+            vault_root=self.vault,
+            state_root=self.base / "unsafe-limit-state",
+            timezone=ZoneInfo("Asia/Seoul"),
+            cache_roots=(self.base / "cache/documents",),
+        )
+        fake_config = types.SimpleNamespace(
+            load_config_readonly=lambda: {"discord": {"max_attachment_bytes": -1}},
+        )
+        with mock.patch.dict(sys.modules, {
+            "hermes_cli": types.ModuleType("hermes_cli"),
+            "hermes_cli.config": fake_config,
+        }):
+            with self.assertRaises(life_os.LifeOSError):
+                _ = runtime.max_attachment_bytes
 
     def test_state_root_rejects_paths_canonically_nested_under_vault_without_creation(self):
         internal = self.vault / "Life OS/.state"

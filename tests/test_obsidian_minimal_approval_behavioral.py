@@ -55,9 +55,13 @@ def canonical_sha(value) -> str:
 class FakeContext:
     def __init__(self):
         self.tools = []
+        self.hooks = []
 
     def register_tool(self, **kwargs):
         self.tools.append(kwargs)
+
+    def register_hook(self, name, callback):
+        self.hooks.append((name, callback))
 
 
 class LedgerOrderError(RuntimeError):

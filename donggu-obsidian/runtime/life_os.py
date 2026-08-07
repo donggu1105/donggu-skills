@@ -235,18 +235,22 @@ class LifeOSRuntime:
         if max_attachment_bytes is not None:
             if isinstance(max_attachment_bytes, bool) or not isinstance(max_attachment_bytes, int) or max_attachment_bytes < 0:
                 raise LifeOSError("maximum attachment bytes is invalid")
-            self.max_attachment_bytes = max_attachment_bytes
+            self._max_attachment_bytes_override = max_attachment_bytes
         else:
-            raw_limit = os.environ.get("DISCORD_MAX_ATTACHMENT_BYTES")
-            try:
-                self.max_attachment_bytes = max(0, int(raw_limit)) if raw_limit not in {None, ""} else _DEFAULT_MAX_ATTACHMENT_BYTES
-            except ValueError:
-                self.max_attachment_bytes = _DEFAULT_MAX_ATTACHMENT_BYTES
+            self._max_attachment_bytes_override = None
         external_state_root = _checked_external_state_root(self.vault_root, state_root)
         self.state_root = _prepare_private_state_root(external_state_root)
-        canonical_vault = os.path.realpath(self.vault_root)
-        namespace_name = hashlib.sha256(canonical_vault.encode("utf-8")).hexdigest()
+        self._state_root_identity = self.state_root.lstat()
+        vault_identity = json.dumps(
+            {"st_dev": self._vault_identity.st_dev, "st_ino": self._vault_identity.st_ino},
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        namespace_name = hashlib.sha256(vault_identity.encode("utf-8")).hexdigest()
         self.state_namespace = _prepare_private_state_root(self.state_root / namespace_name)
+        self._state_namespace_identity = self.state_namespace.lstat()
+        self.claims_root = _prepare_private_state_root(self.state_namespace / "claims")
+        self._claims_root_identity = self.claims_root.lstat()
         template = self._template_path()
         try:
             template_info = template.lstat()
@@ -284,7 +288,46 @@ class LifeOSRuntime:
             raise LifeOSError("Capture date is invalid")
         return self.life_root / "-1. Capture" / f"{value:%Y-%m-%d}.md"
 
+    @property
+    def max_attachment_bytes(self) -> int:
+        if self._max_attachment_bytes_override is not None:
+            return self._max_attachment_bytes_override
+        configured: Any = None
+        try:
+            from hermes_cli.config import load_config_readonly
+
+            raw_config = load_config_readonly()
+            discord_config = raw_config.get("discord", {})
+            if not isinstance(discord_config, dict):
+                raise LifeOSError("Hermes Discord attachment configuration is invalid")
+            configured = discord_config.get("max_attachment_bytes")
+        except (ImportError, ModuleNotFoundError):
+            configured = None
+        if configured is None:
+            configured = os.environ.get("DISCORD_MAX_ATTACHMENT_BYTES")
+        if configured is None or configured == "":
+            return _DEFAULT_MAX_ATTACHMENT_BYTES
+        if isinstance(configured, bool):
+            raise LifeOSError("Hermes Discord attachment limit is invalid")
+        try:
+            value = int(configured)
+        except (TypeError, ValueError):
+            raise LifeOSError("Hermes Discord attachment limit is invalid") from None
+        if value < 0:
+            raise LifeOSError("Hermes Discord attachment limit is invalid")
+        return value
+
+    @max_attachment_bytes.setter
+    def max_attachment_bytes(self, value: int) -> None:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise LifeOSError("maximum attachment bytes is invalid")
+        self._max_attachment_bytes_override = value
+
     def resolve_target_date(self, command: str | None = None) -> date:
+        with self._mutation_lock():
+            return self._resolve_target_date_unlocked(command)
+
+    def _resolve_target_date_unlocked(self, command: str | None = None) -> date:
         if command not in {None, "yesterday"}:
             raise LifeOSError("unsupported Life OS date command")
         today = datetime.now(self.timezone).date()
@@ -300,8 +343,8 @@ class LifeOSRuntime:
         return today
 
     def status(self, target_date: date | None = None) -> dict[str, Any]:
-        selected = target_date or self.resolve_target_date()
         with self._mutation_lock():
+            selected = target_date or self._resolve_target_date_unlocked()
             path = self.daily_path(selected)
             text = self._read_daily(selected)
             if text is None:
@@ -335,14 +378,36 @@ class LifeOSRuntime:
             raise LifeOSError("unsupported Life OS operation")
         text = self._checked_message(message_text)
         key = self._checked_message_key(message_key)
-        selected = target_date or self.resolve_target_date()
-        with self._mutation_lock():
+        with self._mutation_lock() as namespace_fd:
+            selected = target_date or self._resolve_target_date_unlocked()
+            claim_target = {
+                "date": selected.isoformat(),
+                "kind": "capture" if operation == "capture" else "daily",
+                "operation": operation,
+            }
+            claim = self._begin_global_claim(namespace_fd, key, claim_target)
+            if claim.get("status") == "committed":
+                if claim["target"] == claim_target:
+                    current = self._committed_outcome_for_key(selected, operation, key)
+                    if current is None:
+                        raise LifeOSError("committed Life OS message claim has no matching record")
+                    return {**current, "duplicate": True}
+                return {**claim["outcome"], "duplicate": True}
+            recovered = self._committed_outcome_for_key(selected, operation, key)
+            if recovered is not None:
+                recovered = {**recovered, "duplicate": True}
+                self._commit_global_claim(namespace_fd, key, claim_target, recovered)
+                return recovered
             if operation == "capture":
-                return self._append_capture(selected, text, key, attachment_paths)
+                result = self._append_capture(selected, text, key, attachment_paths)
+                self._commit_global_claim(namespace_fd, key, claim_target, result)
+                return result
             path = self._ensure_daily(selected)
             document, state = self._read_or_install_block(path, selected)
             if self._message_already_committed(document.content, key):
-                return self._result(path, state, content=document.content, duplicate=True)
+                result = self._result(path, state, content=document.content, duplicate=True)
+                self._commit_global_claim(namespace_fd, key, claim_target, result)
+                return result
             stored = self._store_attachments(attachment_paths)
             text = self._text_with_attachments(text, stored)
             document, state = self._apply_operation(
@@ -354,7 +419,9 @@ class LifeOSRuntime:
                 follow_up_question=follow_up_question,
             )
             self._commit_document(selected, self._render(document, state))
-            return self._result(path, state, content=document.content)
+            result = self._result(path, state, content=document.content)
+            self._commit_global_claim(namespace_fd, key, claim_target, result)
+            return result
 
     def _apply_operation(
         self,
@@ -401,8 +468,9 @@ class LifeOSRuntime:
                 f"{response}\n"
                 f"%% life-os-message: {key} %%\n\n"
             )
+            status = "completed" if state.next_question is None else "active"
             return replace(document, content=document.content + entry), replace(
-                state, pending_follow_up=None, last_message_key=key,
+                state, status=status, pending_follow_up=None, last_message_key=key,
             )
 
         if state.status == "not_started":
@@ -429,6 +497,7 @@ class LifeOSRuntime:
             question = self._checked_follow_up(follow_up_question)
             pending_follow_up = {"for_question": question_number, "question": question}
             follow_up_count += 1
+            status = "active"
         entry = (
             f"#### {question_number}. {self.QUESTIONS[question_number - 1]}\n"
             f"{response}\n"
@@ -934,23 +1003,99 @@ class LifeOSRuntime:
         )
 
     @contextmanager
-    def _mutation_lock(self) -> Iterator[None]:
-        lock_path = self.state_namespace / "mutation.lock"
+    def _state_namespace_directory(self) -> Iterator[int]:
+        state_fd = -1
+        namespace_fd = -1
+        try:
+            state_fd = os.open(self.state_root, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
+            state_info = os.fstat(state_fd)
+            if (
+                not os.path.samestat(self._state_root_identity, state_info)
+                or not stat.S_ISDIR(state_info.st_mode)
+                or state_info.st_uid != os.geteuid()
+                or stat.S_IMODE(state_info.st_mode) != 0o700
+            ):
+                raise LifeOSError("Life OS state root changed after runtime construction")
+            namespace_fd = os.open(
+                self.state_namespace.name,
+                os.O_RDONLY | _DIRECTORY | _NOFOLLOW,
+                dir_fd=state_fd,
+            )
+            namespace_info = os.fstat(namespace_fd)
+            if (
+                not os.path.samestat(self._state_namespace_identity, namespace_info)
+                or not stat.S_ISDIR(namespace_info.st_mode)
+                or namespace_info.st_uid != os.geteuid()
+                or stat.S_IMODE(namespace_info.st_mode) != 0o700
+            ):
+                raise LifeOSError("Life OS state namespace changed after runtime construction")
+        except LifeOSError:
+            if namespace_fd >= 0:
+                os.close(namespace_fd)
+            if state_fd >= 0:
+                os.close(state_fd)
+            raise
+        except OSError:
+            if namespace_fd >= 0:
+                os.close(namespace_fd)
+            if state_fd >= 0:
+                os.close(state_fd)
+            raise LifeOSError("Life OS state namespace is unavailable") from None
+        try:
+            yield namespace_fd
+        finally:
+            os.close(namespace_fd)
+            os.close(state_fd)
+
+    @contextmanager
+    def _mutation_lock(self) -> Iterator[int]:
         descriptor = -1
         created = False
-        try:
+        with self._state_namespace_directory() as namespace_fd:
             try:
-                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR | _NOFOLLOW, 0o600)
-                created = True
-            except FileExistsError:
-                descriptor = os.open(lock_path, os.O_RDWR | _NOFOLLOW)
+                try:
+                    descriptor = os.open(
+                        "mutation.lock", os.O_CREAT | os.O_EXCL | os.O_RDWR | _NOFOLLOW,
+                        0o600, dir_fd=namespace_fd,
+                    )
+                    created = True
+                except FileExistsError:
+                    descriptor = os.open("mutation.lock", os.O_RDWR | _NOFOLLOW, dir_fd=namespace_fd)
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_size != 0:
+                    raise LifeOSError("Existing Life OS mutation lock is unsafe")
+                if created:
+                    os.fchmod(descriptor, 0o600)
+                elif stat.S_IMODE(info.st_mode) != 0o600:
+                    raise LifeOSError("Existing Life OS mutation lock must have mode 0600")
+            except LifeOSError:
+                if descriptor >= 0:
+                    os.close(descriptor)
+                raise
+            except OSError:
+                if descriptor >= 0:
+                    os.close(descriptor)
+                raise LifeOSError("Life OS mutation lock is unavailable") from None
+            with os.fdopen(descriptor, "a+b", closefd=True) as stream:
+                try:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+                    yield namespace_fd
+                finally:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+    @contextmanager
+    def _claims_directory(self, namespace_fd: int) -> Iterator[int]:
+        descriptor = -1
+        try:
+            descriptor = os.open("claims", os.O_RDONLY | _DIRECTORY | _NOFOLLOW, dir_fd=namespace_fd)
             info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_size != 0:
-                raise LifeOSError("Existing Life OS mutation lock is unsafe")
-            if created:
-                os.fchmod(descriptor, 0o600)
-            elif stat.S_IMODE(info.st_mode) != 0o600:
-                raise LifeOSError("Existing Life OS mutation lock must have mode 0600")
+            if (
+                not os.path.samestat(self._claims_root_identity, info)
+                or not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o700
+            ):
+                raise LifeOSError("Life OS claim directory changed after runtime construction")
         except LifeOSError:
             if descriptor >= 0:
                 os.close(descriptor)
@@ -958,13 +1103,108 @@ class LifeOSRuntime:
         except OSError:
             if descriptor >= 0:
                 os.close(descriptor)
-            raise LifeOSError("Life OS mutation lock is unavailable") from None
-        with os.fdopen(descriptor, "a+b", closefd=True) as stream:
+            raise LifeOSError("Life OS claim directory is unavailable") from None
+        try:
+            yield descriptor
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _claim_name(key: str) -> str:
+        return hashlib.sha256(key.encode("utf-8")).hexdigest() + ".json"
+
+    def _read_global_claim(self, namespace_fd: int, key: str) -> dict[str, Any] | None:
+        with self._claims_directory(namespace_fd) as claims_fd:
+            descriptor = -1
             try:
-                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
-                yield
+                descriptor = os.open(
+                    self._claim_name(key), os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW,
+                    dir_fd=claims_fd,
+                )
+            except FileNotFoundError:
+                return None
+            except OSError:
+                raise LifeOSError("Life OS message claim is unavailable") from None
+            try:
+                info = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != os.geteuid()
+                    or stat.S_IMODE(info.st_mode) != 0o600
+                ):
+                    raise LifeOSError("Life OS message claim is unsafe")
+                with os.fdopen(descriptor, "rb", closefd=True) as stream:
+                    descriptor = -1
+                    raw = stream.read().decode("utf-8")
+                payload = json.loads(raw)
+            except LifeOSError:
+                raise
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                raise LifeOSError("Life OS message claim is malformed") from None
             finally:
-                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+                if descriptor >= 0:
+                    os.close(descriptor)
+        if (
+            not isinstance(payload, dict)
+            or payload.get("version") != 1
+            or payload.get("key") != key
+            or payload.get("status") not in {"pending", "committed"}
+            or not isinstance(payload.get("target"), dict)
+            or (payload["status"] == "committed" and not isinstance(payload.get("outcome"), dict))
+        ):
+            raise LifeOSError("Life OS message claim is malformed")
+        return payload
+
+    def _write_global_claim(self, namespace_fd: int, key: str, payload: dict[str, Any]) -> None:
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        with self._claims_directory(namespace_fd) as claims_fd:
+            self._atomic_replace_at(claims_fd, self._claim_name(key), raw)
+
+    def _begin_global_claim(
+        self, namespace_fd: int, key: str, target: dict[str, str],
+    ) -> dict[str, Any]:
+        existing = self._read_global_claim(namespace_fd, key)
+        if existing is not None:
+            if existing["target"] != target:
+                if existing["status"] == "committed":
+                    return existing
+                raise LifeOSError("trusted message is already claimed by another Life OS target")
+            return existing
+        pending = {"version": 1, "key": key, "status": "pending", "target": target}
+        self._write_global_claim(namespace_fd, key, pending)
+        return pending
+
+    def _commit_global_claim(
+        self, namespace_fd: int, key: str, target: dict[str, str], outcome: dict[str, Any],
+    ) -> None:
+        self._write_global_claim(namespace_fd, key, {
+            "version": 1,
+            "key": key,
+            "status": "committed",
+            "target": target,
+            "outcome": outcome,
+        })
+
+    def _committed_outcome_for_key(
+        self, selected: date, operation: str, key: str,
+    ) -> dict[str, Any] | None:
+        if operation == "capture":
+            path = self.capture_path(selected)
+            with self._capture_directory() as directory_fd:
+                content = self._read_capture_at(directory_fd, path.name)
+            if content is not None and self._message_already_committed(content, key):
+                return {
+                    "path": str(path), "date": selected.isoformat(),
+                    "status": "captured", "duplicate": True,
+                }
+            return None
+        text = self._read_daily(selected)
+        if text is None or not self._message_already_committed(text, key):
+            return None
+        document, state = self._parse_block(text, selected)
+        return self._result(
+            self.daily_path(selected), state, content=document.content, duplicate=True,
+        )
 
     def _ensure_daily(self, selected: date) -> Path:
         path = self.daily_path(selected)
@@ -1169,9 +1409,13 @@ class LifeOSRuntime:
         if status == "completed" and (next_question is not None or set(answered) | set(skipped) != set(range(1, len(QUESTIONS) + 1))):
             raise ValueError("invalid completed state")
         if status in {"active", "paused"}:
-            if next_question is None:
+            if next_question is None and pending is None:
                 raise ValueError("invalid incomplete state")
-            expected_progress = set(range(1, next_question))
+            expected_progress = (
+                set(range(1, len(QUESTIONS) + 1))
+                if next_question is None
+                else set(range(1, next_question))
+            )
             if set(answered) | set(skipped) != expected_progress:
                 raise ValueError("noncontiguous question state")
         return WorkflowState(

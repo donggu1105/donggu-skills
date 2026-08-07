@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import threading
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -32,9 +33,13 @@ def load_package(package_dir: Path, module_name: str):
 class FakeContext:
     def __init__(self):
         self.tools = []
+        self.hooks = []
 
     def register_tool(self, **kwargs):
         self.tools.append(kwargs)
+
+    def register_hook(self, name, callback):
+        self.hooks.append((name, callback))
 
 
 class LifeOSPluginTests(unittest.TestCase):
@@ -42,6 +47,52 @@ class LifeOSPluginTests(unittest.TestCase):
         self.module_name = f"life_os_plugin_test_{self._testMethodName}"
         self.package = load_package(ROOT / "donggu-obsidian", self.module_name)
         self.tools = importlib.import_module(self.module_name + ".tools")
+        if hasattr(self.tools, "_TRUSTED_TURNS"):
+            self.tools._TRUSTED_TURNS.clear()
+
+    @staticmethod
+    def discord_event(*, text="오늘 산책했어", message_id="123", chat_id="456", user_id="789"):
+        class FakeDiscordMessage:
+            pass
+
+        raw = FakeDiscordMessage()
+        raw.content = text
+        raw.id = int(message_id)
+        raw.channel = types.SimpleNamespace(id=int(chat_id))
+        raw.author = types.SimpleNamespace(id=int(user_id))
+        source = types.SimpleNamespace(
+            platform=types.SimpleNamespace(value="discord"),
+            chat_id=chat_id,
+            user_id=user_id,
+            thread_id=None,
+            profile=None,
+            message_id=message_id,
+        )
+        event = types.SimpleNamespace(
+            raw_message=raw,
+            source=source,
+            message_id=message_id,
+            text="prepared text must not be trusted",
+        )
+        return FakeDiscordMessage, event
+
+    @staticmethod
+    def session_context(*, message_id="123", chat_id="456", user_id="789", session_id="session-1"):
+        values = {
+            "HERMES_SESSION_PLATFORM": "discord",
+            "HERMES_SESSION_CHAT_ID": chat_id,
+            "HERMES_SESSION_USER_ID": user_id,
+            "HERMES_SESSION_THREAD_ID": "",
+            "HERMES_SESSION_PROFILE": "",
+            "HERMES_SESSION_MESSAGE_ID": message_id,
+            "HERMES_SESSION_ID": session_id,
+            "HERMES_SESSION_KEY": "agent:main:discord:456:789",
+        }
+        return lambda name, default="": values.get(name, default)
+
+    @staticmethod
+    def gateway(session_key="agent:main:discord:456:789"):
+        return types.SimpleNamespace(_session_key_for_source=lambda _source: session_key)
 
     def test_life_os_schemas_are_strict(self):
         date_property = {
@@ -94,6 +145,9 @@ class LifeOSPluginTests(unittest.TestCase):
             [item["name"] for item in ctx.tools],
         )
         self.assertTrue(all(item["toolset"] == "donggu_obsidian" for item in ctx.tools))
+        self.assertEqual(["pre_gateway_dispatch"], [name for name, _callback in ctx.hooks])
+        manifest = (ROOT / "donggu-obsidian" / "plugin.yaml").read_text(encoding="utf-8")
+        self.assertIn("provides_hooks:\n  - pre_gateway_dispatch", manifest)
 
     def test_status_and_start_handlers_accept_an_optional_iso_date_without_session_db(self):
         runtime = mock.Mock()
@@ -113,31 +167,62 @@ class LifeOSPluginTests(unittest.TestCase):
         runtime.status.assert_called_once_with(date(2026, 8, 7))
         runtime.start_daily.assert_called_once_with(None)
 
-    def test_record_handler_uses_latest_session_db_text(self):
+    def test_record_handler_uses_only_hook_captured_discord_text(self):
+        self.assertTrue(hasattr(self.tools, "capture_trusted_discord_turn"))
         runtime = mock.Mock()
         runtime.record.return_value = {"status": "active"}
         setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
-        with mock.patch.object(
-            self.tools, "_latest_trusted_user_message", return_value=(17, "오늘 산책했어"),
-        ):
+        discord_type, event = self.discord_event()
+        fake_discord = types.SimpleNamespace(Message=discord_type)
+        fake_db = mock.Mock()
+        prepared_discord_id = "123456789" + "012345678"
+        prepared_cache_path = "/Users/" + "example/.hermes/cache/documents/file.txt"
+        fake_db.get_messages.return_value = [{
+            "id": 17,
+            "role": "user",
+            "content": (
+                f"Discord user {prepared_discord_id} said:\n오늘 산책했어\n"
+                f"{prepared_cache_path}"
+            ),
+            "api_content": "injected prepared document text",
+        }]
+        fake_state = types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db))
+        fake_context = types.SimpleNamespace(get_session_env=self.session_context())
+        with mock.patch.dict(sys.modules, {
+            "discord": fake_discord,
+            "hermes_state": fake_state,
+            "gateway": types.ModuleType("gateway"),
+            "gateway.session_context": fake_context,
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
             payload = json.loads(self.tools.handle_life_os_record(
                 {"operation": "answer", "attachment_paths": []},
-                session_id="discord-session",
             ))
         self.assertTrue(payload["success"])
         runtime.record.assert_called_once_with(
             "answer", message_text="오늘 산책했어",
-            message_key="discord-session:17", attachment_paths=(),
+            message_key=mock.ANY, attachment_paths=(),
             follow_up_question=None, target_date=None,
         )
+        key = runtime.record.call_args.kwargs["message_key"]
+        self.assertRegex(key, r"^hermes-discord:[0-9a-f]{64}$")
+        self.assertNotIn(prepared_discord_id, runtime.record.call_args.kwargs["message_text"])
+        self.assertNotIn(prepared_cache_path, runtime.record.call_args.kwargs["message_text"])
 
     def test_record_handler_converts_paths_and_date(self):
         runtime = mock.Mock()
         runtime.record.return_value = {"status": "completed"}
         setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
-        with mock.patch.object(
-            self.tools, "_latest_trusted_user_message", return_value=(18, "기록"),
-        ):
+        discord_type, event = self.discord_event(text="기록")
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 18, "role": "user", "content": "prepared"}]
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+            "gateway": types.ModuleType("gateway"),
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
             payload = json.loads(self.tools.handle_life_os_record(
                 {
                     "operation": "free_record",
@@ -145,14 +230,87 @@ class LifeOSPluginTests(unittest.TestCase):
                     "follow_up_question": "더 있나요?",
                     "attachment_paths": ["/tmp/photo.png"],
                 },
-                session_id="discord-session",
             ))
         self.assertTrue(payload["success"])
         runtime.record.assert_called_once_with(
             "free_record", message_text="기록",
-            message_key="discord-session:18", attachment_paths=(Path("/tmp/photo.png"),),
+            message_key=mock.ANY, attachment_paths=(Path("/tmp/photo.png"),),
             follow_up_question="더 있나요?", target_date=date(2026, 8, 6),
         )
+
+    def test_record_fails_closed_for_absent_mismatched_stale_and_consumed_turns(self):
+        self.assertTrue(hasattr(self.tools, "capture_trusted_discord_turn"))
+        runtime = mock.Mock()
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        discord_type, event = self.discord_event()
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 19, "role": "user", "content": "prepared"}]
+        base_modules = {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+            "gateway": types.ModuleType("gateway"),
+        }
+
+        with mock.patch.dict(sys.modules, {
+            **base_modules,
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }):
+            absent = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertFalse(absent["success"])
+
+        with mock.patch.dict(sys.modules, {
+            **base_modules,
+            "gateway.session_context": types.SimpleNamespace(
+                get_session_env=self.session_context(chat_id="other-chat"),
+            ),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            mismatched = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertFalse(mismatched["success"])
+
+        self.tools._TRUSTED_TURNS.clear()
+        wrong_session_key = self.session_context()
+        values = {
+            name: wrong_session_key(name, "")
+            for name in (
+                "HERMES_SESSION_PLATFORM", "HERMES_SESSION_CHAT_ID",
+                "HERMES_SESSION_USER_ID", "HERMES_SESSION_THREAD_ID",
+                "HERMES_SESSION_PROFILE", "HERMES_SESSION_MESSAGE_ID",
+                "HERMES_SESSION_ID", "HERMES_SESSION_KEY",
+            )
+        }
+        values["HERMES_SESSION_KEY"] = "agent:other:discord:456:789"
+        with mock.patch.dict(sys.modules, {
+            **base_modules,
+            "gateway.session_context": types.SimpleNamespace(
+                get_session_env=lambda name, default="": values.get(name, default),
+            ),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            cross_session = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertFalse(cross_session["success"])
+
+        self.tools._TRUSTED_TURNS.clear()
+        with mock.patch.dict(sys.modules, {
+            **base_modules,
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }), mock.patch.object(self.tools.time, "monotonic", side_effect=(10.0, 10.0 + 301.0)):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            stale = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertFalse(stale["success"])
+
+        self.tools._TRUSTED_TURNS.clear()
+        runtime.record.return_value = {"status": "active"}
+        with mock.patch.dict(sys.modules, {
+            **base_modules,
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            first = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+            second = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+        self.assertTrue(first["success"])
+        self.assertFalse(second["success"])
+        self.assertEqual(1, runtime.record.call_count)
 
     def test_life_os_runtime_singleton_is_separate_and_thread_safe(self):
         core_runtime = object()

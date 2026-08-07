@@ -40,6 +40,7 @@ hermes plugins install --force --enable donggu1105/donggu-skills/donggu-obsidian
 | `DONGGU_LIFE_OS_TIMEZONE` | `Asia/Seoul` (기본값) |
 
 실제 Discord ID는 공개 저장소에 넣지 말고 Hermes 로컬 설정에서만 바인딩한다.
+Life OS 답변 원문은 `pre_gateway_dispatch`에서 Discord 준비·첨부 주입 전에 짧게 보관하며, native record handler는 정확히 일치하는 Hermes 세션 컨텍스트와 DB 행 ID만 결합한다. SessionDB의 준비된 `content`는 답변으로 사용하지 않는다.
 
 ```yaml
 discord:

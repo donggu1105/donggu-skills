@@ -102,8 +102,9 @@ class LifeOSSkillContractTests(unittest.TestCase):
             "Add `attachment_paths` only when the latest turn includes attachments",
             "Add `date` only for an explicit target date",
             "Never pass `control`, `text`, `message_text`, `message_key`, or `session_id`",
-            "reads the latest trusted persisted user turn from Hermes `SessionDB`",
-            "constructs the trusted key from the Hermes session ID and persisted message row ID",
+            "uses the trusted Discord-authored turn captured before gateway preparation",
+            "uses `SessionDB` only for the persisted user row ID",
+            "constructs the trusted key from the Hermes session, row, platform, and source identities",
         ):
             with self.subTest(contract=contract):
                 self.assertIn(contract, text)

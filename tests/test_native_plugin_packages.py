@@ -41,9 +41,13 @@ def load_package(package_dir: Path, module_name: str):
 class FakeContext:
     def __init__(self):
         self.tools = []
+        self.hooks = []
 
     def register_tool(self, **kwargs):
         self.tools.append(kwargs)
+
+    def register_hook(self, name, callback):
+        self.hooks.append((name, callback))
 
 
 class NativePluginPackageTests(unittest.TestCase):
