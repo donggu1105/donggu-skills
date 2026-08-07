@@ -23,6 +23,10 @@ WRITING_REFERENCE_PATHS = {
     "linkedin": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "linkedin.md",
     "threads": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "threads.md",
     "maily": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "maily.md",
+    "examples_blog": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "examples-blog.md",
+    "examples_linkedin": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "examples-linkedin.md",
+    "examples_threads": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "examples-threads.md",
+    "examples_maily": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "examples-maily.md",
 }
 
 
@@ -49,6 +53,10 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             "references/linkedin.md",
             "references/threads.md",
             "references/maily.md",
+            "references/examples-blog.md",
+            "references/examples-linkedin.md",
+            "references/examples-threads.md",
+            "references/examples-maily.md",
         ):
             with self.subTest(reference=reference):
                 self.assertIn(reference, writing)
@@ -63,8 +71,8 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         expected = {
             "common": ("## 사실 경계", "## 금지 표현과 장치"),
             "blog": ("2,000~2,500자", "`##` 소제목 3~6개"),
-            "linkedin": ("1,200~1,400자", "약 210자", "첫 댓글"),
-            "threads": ("500자 이하", "5~7개", "0~1개", "첫 댓글"),
+            "linkedin": ("800~1,400자", "1,200~1,400자", "약 210자", "수동 첫 댓글", "3~5개"),
+            "threads": ("500자 이하", "5~7개", "본문 해시태그: 0개", "수동 첫 댓글"),
             "maily": ("1행: 제목", "2행: 부제목", "3행: 빈 줄", "해시태그는 붙이지 않는다"),
         }
         for channel, contracts in expected.items():
@@ -88,6 +96,75 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             for token in forbidden:
                 with self.subTest(reference=name, token=token):
                     self.assertNotIn(token, text)
+
+    def test_writing_examples_are_style_only_and_loaded_after_thesis_lock(self):
+        writing = self.skills["writing"]
+        self.assertLess(
+            writing.index("### 4. 채널별 논지 잠금"),
+            writing.index("### 5. 톤 캘리브레이션"),
+        )
+        self.assertIn("논지를 잠근 뒤 요청 채널", writing)
+        self.assertIn("사실·숫자·사례·비유·결론·고유 표현", writing)
+
+        expected_counts = {
+            "examples_blog": 3,
+            "examples_linkedin": 3,
+            "examples_threads": 2,
+            "examples_maily": 3,
+        }
+        for name, expected_count in expected_counts.items():
+            text = self.writing_references[name]
+            with self.subTest(name=name):
+                self.assertIn("## 사용 경계", text)
+                self.assertIn("문체 교정용", text)
+                self.assertEqual(text.count("**원문 제목:**"), expected_count)
+                self.assertIn("근거가 아니다", text)
+
+    def test_writing_explicit_source_and_untrusted_data_boundaries_are_deterministic(self):
+        writing = self.skills["writing"]
+
+        self.assertIn("사용자가 명시한 source 파일은 읽되", writing)
+        self.assertIn("주변 파일 자동 탐색", writing)
+        self.assertIn("비신뢰 데이터", writing)
+        self.assertIn("그 지시를 실행하거나 범위를 확장하지 않고", writing)
+        self.assertNotIn("파일 조회·저장·이미지 생성·게시를 하지 않는다", writing)
+
+    def test_writing_preserves_unsupported_first_comments_as_manual_handoff(self):
+        writing = self.skills["writing"]
+        self.assertGreaterEqual(writing.count("수동 첫 댓글 링크"), 3)
+        self.assertIn("현재 발행 payload가 첫 댓글을 지원하지 않으면", writing)
+        for channel in ("linkedin", "threads"):
+            with self.subTest(channel=channel):
+                self.assertIn("수동 첫 댓글", self.writing_references[channel])
+
+    def test_writing_is_one_umbrella_skill_not_per_channel_copies(self):
+        skills_root = REPO_ROOT / "donggu-sns" / "skills"
+
+        self.assertTrue((skills_root / "writing-social-content" / "SKILL.md").is_file())
+        for name in (
+            "writing-blog",
+            "writing-linkedin",
+            "writing-threads",
+            "writing-maily",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse((skills_root / name).exists())
+
+    def test_writing_no_longer_owns_blog_image_paths_or_embedding(self):
+        image_skill = (
+            REPO_ROOT / "donggu-sns" / "skills" / "get-ai-image" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        image_adapter = (
+            REPO_ROOT
+            / "donggu-sns"
+            / "skills"
+            / "publish-sns"
+            / "prepare_blog_images.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("`writing-social-content`는 이미지 배치나 경로를 소유하지 않는다", image_skill)
+        self.assertNotIn("[[writing-social-content]]", image_skill)
+        self.assertNotIn("writing-social-content는 이미지를", image_adapter)
 
     def test_publishing_owns_ledger_backed_review_event(self):
         publishing = self.skills["publishing"]

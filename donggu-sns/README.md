@@ -42,21 +42,31 @@ writing-social-content/
 └── references/
     ├── common-voice.md
     ├── blog.md
+    ├── examples-blog.md
     ├── linkedin.md
+    ├── examples-linkedin.md
     ├── threads.md
-    └── maily.md
+    ├── examples-threads.md
+    ├── maily.md
+    └── examples-maily.md
 ```
 
 ```text
 사용자 source·URL·브리프
         ↓
-common-voice + 요청 채널 reference
+common-voice + 요청 채널 규칙
+        ↓
+근거 장부 + 채널별 논지 잠금
+        ↓
+요청 채널의 번들된 문체 예시로 톤 캘리브레이션
         ↓
 채널별 독립 초안
 ```
 
-- 공통 보이스와 요청받은 채널 reference만 읽는다.
-- 외부 VOICE 문서, canon 글, 특정 Vault 경로를 요구하지 않는다.
+- 공통 보이스와 요청받은 채널 규칙만 먼저 읽는다.
+- 현재 논지를 잠근 뒤 요청 채널의 기존 발행 글 발췌만 문체 예시로 읽는다.
+- 발췌의 사실·사례·결론은 재사용하지 않는다.
+- 외부 보이스 문서, 과거 글, 특정 Vault 경로를 런타임에 요구하지 않는다.
 - 현재 source가 내용의 정본이다.
 - 다른 채널 문장을 길이만 바꿔 재사용하지 않는다.
 - Blog·LinkedIn·Threads·Maily를 별도 스킬로 쪼개지 않는다.
