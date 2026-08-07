@@ -251,6 +251,15 @@ class LifeOSSkillContractTests(unittest.TestCase):
         self.assertNotIn("require_mention: false", plugin)
         self.assertIn("기존 global `require_mention` 값은 보존", plugin)
 
+    def test_public_docs_explain_safe_manual_residual_recovery(self):
+        plugin = PLUGIN_README.read_text(encoding="utf-8")
+        for token in (
+            "수동 복구", ".<note>.life-os-", ".life-os-attachment-",
+            ".life-os-recovery-", "DONGGU_LIFE_OS_STATE_ROOT", "비교",
+            "삭제하지",
+        ):
+            self.assertIn(token, plugin)
+
 
 if __name__ == "__main__":
     unittest.main()

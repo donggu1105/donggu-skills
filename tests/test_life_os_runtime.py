@@ -99,6 +99,143 @@ class LifeOSRuntimeTests(unittest.TestCase):
 
         self.assertEqual(["exclusive-rename", "fsync-directory"], events)
 
+    def test_new_note_rejects_temp_regular_file_replaced_before_exclusive_rename(self):
+        directory = self.base / "note-regular-replacement"
+        directory.mkdir()
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, directory_fd)
+        destination = directory / "note.md"
+        unrelated = b"unrelated note replacement"
+        real_rename = life_os._exclusive_rename_at
+
+        def replace_then_rename(parent_fd, source, target):
+            os.unlink(source, dir_fd=parent_fd)
+            replacement = os.open(
+                source, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=parent_fd,
+            )
+            os.write(replacement, unrelated)
+            os.close(replacement)
+            real_rename(parent_fd, source, target)
+
+        with mock.patch.object(life_os, "_exclusive_rename_at", side_effect=replace_then_rename):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+                self.runtime._atomic_publish_note_at(
+                    directory_fd, destination.name, "intended note\n", None,
+                )
+
+        self.assertFalse(destination.exists())
+        residuals = [path for path in directory.iterdir() if path.name.startswith(".life-os-")]
+        self.assertTrue(any(path.read_bytes() == unrelated for path in residuals))
+
+    def test_new_note_rejects_temp_symlink_replaced_before_exclusive_rename(self):
+        directory = self.base / "note-symlink-replacement"
+        directory.mkdir()
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, directory_fd)
+        destination = directory / "note.md"
+        outside = self.base / "outside-note"
+        outside.write_bytes(b"outside note bytes")
+        real_rename = life_os._exclusive_rename_at
+
+        def replace_then_rename(parent_fd, source, target):
+            os.unlink(source, dir_fd=parent_fd)
+            os.symlink(outside, source, dir_fd=parent_fd)
+            real_rename(parent_fd, source, target)
+
+        with mock.patch.object(life_os, "_exclusive_rename_at", side_effect=replace_then_rename):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+                self.runtime._atomic_publish_note_at(
+                    directory_fd, destination.name, "intended note\n", None,
+                )
+
+        self.assertFalse(destination.exists())
+        residuals = [path for path in directory.iterdir() if path.name.startswith(".life-os-")]
+        self.assertTrue(any(path.is_symlink() and path.readlink() == outside for path in residuals))
+        self.assertEqual(b"outside note bytes", outside.read_bytes())
+
+    def test_existing_note_rejects_temp_regular_file_replaced_before_replace(self):
+        directory = self.base / "existing-note-regular-replacement"
+        directory.mkdir()
+        destination = directory / "note.md"
+        original = b"original note bytes\n"
+        destination.write_bytes(original)
+        destination.chmod(0o600)
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, directory_fd)
+        expected = self.runtime._read_text_snapshot_at(
+            directory_fd,
+            destination.name,
+            unavailable="note unavailable",
+            nonregular="note nonregular",
+            unreadable="note unreadable",
+        )
+        self.assertIsNotNone(expected)
+        unrelated = b"unrelated update replacement"
+        real_replace = life_os.os.replace
+
+        def replace_then_commit(source, target, *args, **kwargs):
+            os.unlink(source, dir_fd=kwargs["src_dir_fd"])
+            replacement = os.open(
+                source,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+                dir_fd=kwargs["src_dir_fd"],
+            )
+            os.write(replacement, unrelated)
+            os.close(replacement)
+            return real_replace(source, target, *args, **kwargs)
+
+        with mock.patch.object(life_os.os, "replace", side_effect=replace_then_commit):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+                self.runtime._atomic_publish_note_at(
+                    directory_fd, destination.name, "intended update\n", expected,
+                )
+
+        self.assertFalse(destination.exists())
+        vault_recovery = [path for path in directory.iterdir() if path.name.startswith(".life-os-")]
+        self.assertTrue(any(path.read_bytes() == unrelated for path in vault_recovery))
+        state_recovery = list(self.runtime.state_namespace.iterdir())
+        self.assertTrue(any(path.is_file() and path.read_bytes() == original for path in state_recovery))
+
+    def test_existing_note_rejects_temp_symlink_replaced_before_replace(self):
+        directory = self.base / "existing-note-symlink-replacement"
+        directory.mkdir()
+        destination = directory / "note.md"
+        original = b"original note bytes\n"
+        destination.write_bytes(original)
+        destination.chmod(0o600)
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, directory_fd)
+        expected = self.runtime._read_text_snapshot_at(
+            directory_fd,
+            destination.name,
+            unavailable="note unavailable",
+            nonregular="note nonregular",
+            unreadable="note unreadable",
+        )
+        self.assertIsNotNone(expected)
+        outside = self.base / "outside-update"
+        outside.write_bytes(b"outside update bytes")
+        real_replace = life_os.os.replace
+
+        def replace_then_commit(source, target, *args, **kwargs):
+            os.unlink(source, dir_fd=kwargs["src_dir_fd"])
+            os.symlink(outside, source, dir_fd=kwargs["src_dir_fd"])
+            return real_replace(source, target, *args, **kwargs)
+
+        with mock.patch.object(life_os.os, "replace", side_effect=replace_then_commit):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+                self.runtime._atomic_publish_note_at(
+                    directory_fd, destination.name, "intended update\n", expected,
+                )
+
+        self.assertFalse(destination.exists())
+        vault_recovery = [path for path in directory.iterdir() if path.name.startswith(".life-os-")]
+        self.assertTrue(any(path.is_symlink() and path.readlink() == outside for path in vault_recovery))
+        self.assertEqual(b"outside update bytes", outside.read_bytes())
+        state_recovery = list(self.runtime.state_namespace.iterdir())
+        self.assertTrue(any(path.is_file() and path.read_bytes() == original for path in state_recovery))
+
     def test_new_daily_hard_death_after_exclusive_rename_is_idempotent_on_retry(self):
         day = date(2026, 8, 7)
         child = (
@@ -1120,6 +1257,66 @@ class LifeOSRuntimeTests(unittest.TestCase):
             )
 
         self.assertEqual(["exclusive-rename", "fsync-directory"], events)
+
+    def test_attachment_rejects_temp_regular_file_replaced_before_exclusive_rename(self):
+        source = self.base / "attachment-regular-replacement.bin"
+        source.write_bytes(b"intended attachment")
+        descriptor = os.open(source, os.O_RDONLY)
+        self.addCleanup(os.close, descriptor)
+        destination = self.runtime.attachments_root / "A001 - replacement.bin"
+        unrelated = b"unrelated attachment replacement"
+        real_rename = life_os._exclusive_rename_at
+
+        def replace_then_rename(parent_fd, temp, target):
+            os.unlink(temp, dir_fd=parent_fd)
+            replacement = os.open(
+                temp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=parent_fd,
+            )
+            os.write(replacement, unrelated)
+            os.close(replacement)
+            real_rename(parent_fd, temp, target)
+
+        with mock.patch.object(life_os, "_exclusive_rename_at", side_effect=replace_then_rename):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
+                self.runtime._atomic_copy_verified(
+                    descriptor, destination, hashlib.sha256(b"intended attachment").hexdigest(),
+                )
+
+        self.assertFalse(destination.exists())
+        residuals = [
+            path for path in self.runtime.attachments_root.iterdir()
+            if path.name.startswith(".life-os-")
+        ]
+        self.assertTrue(any(path.read_bytes() == unrelated for path in residuals))
+
+    def test_attachment_rejects_temp_symlink_replaced_before_exclusive_rename(self):
+        source = self.base / "attachment-symlink-replacement.bin"
+        source.write_bytes(b"intended attachment")
+        descriptor = os.open(source, os.O_RDONLY)
+        self.addCleanup(os.close, descriptor)
+        destination = self.runtime.attachments_root / "A001 - symlink.bin"
+        outside = self.base / "outside-attachment"
+        outside.write_bytes(b"outside attachment bytes")
+        real_rename = life_os._exclusive_rename_at
+
+        def replace_then_rename(parent_fd, temp, target):
+            os.unlink(temp, dir_fd=parent_fd)
+            os.symlink(outside, temp, dir_fd=parent_fd)
+            real_rename(parent_fd, temp, target)
+
+        with mock.patch.object(life_os, "_exclusive_rename_at", side_effect=replace_then_rename):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
+                self.runtime._atomic_copy_verified(
+                    descriptor, destination, hashlib.sha256(b"intended attachment").hexdigest(),
+                )
+
+        self.assertFalse(destination.exists())
+        residuals = [
+            path for path in self.runtime.attachments_root.iterdir()
+            if path.name.startswith(".life-os-")
+        ]
+        self.assertTrue(any(path.is_symlink() and path.readlink() == outside for path in residuals))
+        self.assertEqual(b"outside attachment bytes", outside.read_bytes())
 
     def test_attachment_post_rename_fsync_failure_has_no_residual_temp(self):
         source = self.base / "attachment-fsync-failure.bin"

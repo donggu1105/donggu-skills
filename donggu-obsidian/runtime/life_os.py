@@ -156,6 +156,16 @@ class _TextSnapshot:
     sha256: str
 
 
+@dataclass(frozen=True)
+class _TempIdentity:
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+    sha256: str
+
+
 def checked_life_os_message_text(value: str) -> str:
     """Validate text before it can cross a Life OS persistence boundary."""
     if not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 100_000:
@@ -292,6 +302,101 @@ def _file_sha256_at(directory_fd: int, name: str) -> str:
         if descriptor >= 0:
             os.close(descriptor)
     return digest.hexdigest()
+
+
+def _open_verified_temp_at(
+    directory_fd: int, name: str, digest: str, kind: str,
+) -> tuple[int, _TempIdentity]:
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            name, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=directory_fd,
+        )
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or stat.S_IMODE(before.st_mode) != 0o600
+        ):
+            raise OSError()
+        actual_digest = _file_sha256_fd(descriptor)
+        after = os.fstat(descriptor)
+        before_identity = (
+            before.st_dev, before.st_ino, before.st_size,
+            before.st_mtime_ns, before.st_ctime_ns,
+        )
+        after_identity = (
+            after.st_dev, after.st_ino, after.st_size,
+            after.st_mtime_ns, after.st_ctime_ns,
+        )
+        if before_identity != after_identity or actual_digest != digest:
+            raise OSError()
+        return descriptor, _TempIdentity(
+            device=after.st_dev,
+            inode=after.st_ino,
+            size=after.st_size,
+            mtime_ns=after.st_mtime_ns,
+            ctime_ns=after.st_ctime_ns,
+            sha256=actual_digest,
+        )
+    except (LifeOSError, OSError):
+        if descriptor >= 0:
+            os.close(descriptor)
+        raise LifeOSError(f"temporary {kind} changed before publication") from None
+
+
+def _published_temp_matches(
+    directory_fd: int, name: str, expected: _TempIdentity,
+) -> bool:
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            name, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=directory_fd,
+        )
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_dev != expected.device
+            or before.st_ino != expected.inode
+            or before.st_size != expected.size
+        ):
+            return False
+        actual_digest = _file_sha256_fd(descriptor)
+        after = os.fstat(descriptor)
+        return (
+            before.st_dev == after.st_dev
+            and before.st_ino == after.st_ino
+            and before.st_size == after.st_size
+            and before.st_mtime_ns == after.st_mtime_ns
+            and before.st_ctime_ns == after.st_ctime_ns
+            and after.st_mtime_ns == expected.mtime_ns
+            and actual_digest == expected.sha256
+        )
+    except (LifeOSError, OSError):
+        return False
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _quarantine_published_entry(directory_fd: int, name: str, kind: str) -> None:
+    for _attempt in range(10):
+        recovery_name = f".life-os-recovery-{secrets.token_hex(8)}"
+        try:
+            _exclusive_rename_at(directory_fd, name, recovery_name)
+            os.fsync(directory_fd)
+            raise LifeOSError(f"temporary {kind} changed during publication")
+        except FileExistsError:
+            continue
+        except LifeOSError:
+            raise
+        except OSError:
+            raise LifeOSError(
+                f"temporary {kind} changed and could not be quarantined safely"
+            ) from None
+    raise LifeOSError(f"temporary {kind} recovery name could not be allocated")
 
 
 class LifeOSRuntime:
@@ -895,6 +1000,7 @@ class LifeOSRuntime:
         if destination.parent != self.attachments_root:
             raise LifeOSError("attachment destination conflicts with an existing file")
         descriptor = -1
+        verification_descriptor = -1
         temp_name = ""
         try:
             with self._attachments_directory() as directory_fd:
@@ -928,11 +1034,20 @@ class LifeOSRuntime:
                     os.fsync(output_stream.fileno())
                 if hasher.hexdigest() != digest:
                     raise LifeOSError("cache attachment changed while being copied")
+                verification_descriptor, temp_identity = _open_verified_temp_at(
+                    directory_fd, temp_name, digest, "attachment",
+                )
                 try:
                     _exclusive_rename_at(directory_fd, temp_name, destination.name)
                 except FileExistsError:
                     raise LifeOSError("attachment destination conflicts with an existing file") from None
                 temp_name = ""
+                if not _published_temp_matches(
+                    directory_fd, destination.name, temp_identity,
+                ):
+                    _quarantine_published_entry(
+                        directory_fd, destination.name, "attachment",
+                    )
                 os.fsync(directory_fd)
         except LifeOSError:
             raise
@@ -941,6 +1056,8 @@ class LifeOSRuntime:
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
+            if verification_descriptor >= 0:
+                os.close(verification_descriptor)
 
     @staticmethod
     def _text_with_attachments(text: str, attachments: Sequence[StoredAttachment]) -> str:
@@ -1080,8 +1197,8 @@ class LifeOSRuntime:
             if descriptor >= 0:
                 os.close(descriptor)
 
-    @staticmethod
     def _atomic_publish_note_at(
+        self,
         directory_fd: int,
         name: str,
         text: str,
@@ -1089,7 +1206,9 @@ class LifeOSRuntime:
     ) -> None:
         data = text.encode("utf-8")
         descriptor = -1
+        verification_descriptor = -1
         temp_name = ""
+        recovery_name = ""
         try:
             for _attempt in range(10):
                 candidate = f".{name}.life-os-{secrets.token_hex(8)}"
@@ -1111,12 +1230,20 @@ class LifeOSRuntime:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
+            verification_descriptor, temp_identity = _open_verified_temp_at(
+                directory_fd,
+                temp_name,
+                hashlib.sha256(data).hexdigest(),
+                "note",
+            )
             if expected is None:
                 try:
                     _exclusive_rename_at(directory_fd, temp_name, name)
                 except FileExistsError:
                     raise _ConcurrentMutation from None
                 temp_name = ""
+                if not _published_temp_matches(directory_fd, name, temp_identity):
+                    _quarantine_published_entry(directory_fd, name, "note")
                 os.fsync(directory_fd)
             else:
                 current = LifeOSRuntime._read_text_snapshot_at(
@@ -1128,6 +1255,7 @@ class LifeOSRuntime:
                 )
                 if current != expected:
                     raise _ConcurrentMutation
+                recovery_name = self._write_note_recovery_backup(name, expected)
                 os.replace(
                     temp_name,
                     name,
@@ -1135,7 +1263,11 @@ class LifeOSRuntime:
                     dst_dir_fd=directory_fd,
                 )
                 temp_name = ""
+                if not _published_temp_matches(directory_fd, name, temp_identity):
+                    _quarantine_published_entry(directory_fd, name, "note")
                 os.fsync(directory_fd)
+                self._remove_note_recovery_backup(recovery_name)
+                recovery_name = ""
         except _ConcurrentMutation:
             raise
         except OSError:
@@ -1143,6 +1275,53 @@ class LifeOSRuntime:
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
+            if verification_descriptor >= 0:
+                os.close(verification_descriptor)
+
+    def _write_note_recovery_backup(self, name: str, expected: _TextSnapshot) -> str:
+        if not name or "/" in name or "\x00" in name:
+            raise LifeOSError("note recovery target is invalid")
+        descriptor = -1
+        recovery_name = ""
+        data = expected.text.encode("utf-8")
+        if hashlib.sha256(data).hexdigest() != expected.sha256:
+            raise LifeOSError("note recovery snapshot is invalid")
+        with self._state_namespace_directory() as namespace_fd:
+            try:
+                for _attempt in range(10):
+                    candidate = f".life-os-note-recovery-{secrets.token_hex(8)}-{name}"
+                    try:
+                        descriptor = os.open(
+                            candidate,
+                            os.O_CREAT | os.O_EXCL | os.O_WRONLY | _NOFOLLOW,
+                            0o600,
+                            dir_fd=namespace_fd,
+                        )
+                        recovery_name = candidate
+                        break
+                    except FileExistsError:
+                        continue
+                if descriptor < 0:
+                    raise OSError()
+                with os.fdopen(descriptor, "wb", closefd=True) as stream:
+                    descriptor = -1
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.fsync(namespace_fd)
+            except OSError:
+                if descriptor >= 0:
+                    os.close(descriptor)
+                raise LifeOSError("note recovery backup could not be persisted") from None
+        return recovery_name
+
+    def _remove_note_recovery_backup(self, recovery_name: str) -> None:
+        with self._state_namespace_directory() as namespace_fd:
+            try:
+                os.unlink(recovery_name, dir_fd=namespace_fd)
+                os.fsync(namespace_fd)
+            except OSError:
+                raise LifeOSError("note recovery backup could not be finalized") from None
 
     @staticmethod
     def _atomic_replace_at(directory_fd: int, name: str, text: str) -> None:

@@ -153,6 +153,16 @@ Life OS/Attachments/
 └── A002 - another-file.ext
 ```
 
+### 수동 복구
+
+runtime이 temporary/manual recovery 오류를 반환하면 쓰기를 멈추고 `.<note>.life-os-*`,
+`.life-os-attachment-*`, `.life-os-recovery-*` 파일과
+`DONGGU_LIFE_OS_STATE_ROOT` 아래 `.life-os-note-recovery-*` 백업을 먼저 byte-for-byte
+보존한다. 복구 파일을 canonical 파일 및 원본과 크기·SHA-256으로 비교하고, symlink는
+대상을 따라가지 말고 링크 자체와 대상을 따로 확인한다. 비교와 백업이 끝나기 전에는
+어떤 residual도 삭제하지 않는다. 어느 사본이 canonical이어야 하는지 확인한 뒤에만
+Vault 밖에 추가 백업하고 수동으로 정리한다.
+
 ---
 
 ## 🔁 Skill Chain 흐름
