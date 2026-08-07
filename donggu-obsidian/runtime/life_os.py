@@ -112,6 +112,19 @@ def _prepare_private_state_root(value: Path) -> Path:
     return path
 
 
+def _checked_external_state_root(vault_root: Path, value: Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        raise LifeOSError("State root must be absolute")
+    canonical_vault = Path(os.path.realpath(vault_root))
+    canonical_state = Path(os.path.realpath(path))
+    try:
+        canonical_state.relative_to(canonical_vault)
+    except ValueError:
+        return path
+    raise LifeOSError("State root must be outside the Vault")
+
+
 def _canonical_state(state: WorkflowState) -> str:
     return json.dumps(asdict(state), ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
@@ -129,7 +142,8 @@ class LifeOSRuntime:
         self.life_root = _checked_child(self.vault_root, "Life OS")
         self.periodic_root = _checked_child(self.life_root, "0. PeriodicNotes")
         self.template_root = _checked_child(self.periodic_root, "Templates")
-        self.state_root = _prepare_private_state_root(state_root)
+        external_state_root = _checked_external_state_root(self.vault_root, state_root)
+        self.state_root = _prepare_private_state_root(external_state_root)
         template = self._template_path()
         try:
             template_info = template.lstat()

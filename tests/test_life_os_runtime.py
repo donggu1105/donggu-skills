@@ -155,6 +155,38 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(private, runtime.state_root)
         self.assertEqual(0o700, private.stat().st_mode & 0o777)
 
+    def test_state_root_rejects_paths_canonically_nested_under_vault_without_creation(self):
+        internal = self.vault / "Life OS/.state"
+        with self.assertRaises(life_os.LifeOSError):
+            LifeOSRuntime(
+                vault_root=self.vault,
+                state_root=internal,
+                timezone=ZoneInfo("Asia/Seoul"),
+            )
+        self.assertFalse(internal.exists())
+
+        alias = self.base / "vault-alias"
+        alias.symlink_to(self.vault, target_is_directory=True)
+        aliased_internal = alias / "Life OS/.aliased-state"
+        with self.assertRaises(life_os.LifeOSError):
+            LifeOSRuntime(
+                vault_root=self.vault,
+                state_root=aliased_internal,
+                timezone=ZoneInfo("Asia/Seoul"),
+            )
+        self.assertFalse((self.vault / "Life OS/.aliased-state").exists())
+
+    def test_state_root_rejects_canonical_vault_root_without_chmod(self):
+        os.chmod(self.vault, 0o700)
+        before_mode = self.vault.stat().st_mode & 0o777
+        with self.assertRaises(life_os.LifeOSError):
+            LifeOSRuntime(
+                vault_root=self.vault,
+                state_root=self.vault,
+                timezone=ZoneInfo("Asia/Seoul"),
+            )
+        self.assertEqual(before_mode, self.vault.stat().st_mode & 0o777)
+
 
 if __name__ == "__main__":
     unittest.main()
