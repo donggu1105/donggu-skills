@@ -782,19 +782,27 @@ class LifeOSRuntime:
             if claim.get("status") == "committed":
                 if claim["target"] == claim_target:
                     current = self._committed_outcome_for_key(selected, operation, key)
-                    if current is None:
-                        raise LifeOSError("committed Life OS message claim has no matching record")
-                    return {**current, "duplicate": True}
-                return {**claim["outcome"], "duplicate": True}
+                    if current is not None:
+                        return {**current, "duplicate": True}
+                    self._write_global_claim(namespace_fd, key, {
+                        "version": 1, "key": key, "status": "pending",
+                        "target": claim_target,
+                    })
+                else:
+                    return {**claim["outcome"], "duplicate": True}
             recovered = self._committed_outcome_for_key(selected, operation, key)
             if recovered is not None:
                 recovered = {**recovered, "duplicate": True}
-                self._commit_global_claim(namespace_fd, key, claim_target, recovered)
-                return recovered
+                if self._commit_global_claim(namespace_fd, key, claim_target, recovered):
+                    return recovered
             if operation == "capture":
-                result = self._append_capture(selected, text, key, attachment_paths)
-                self._commit_global_claim(namespace_fd, key, claim_target, result)
-                return result
+                for _attempt in range(3):
+                    result = self._append_capture(selected, text, key, attachment_paths)
+                    if self._commit_global_claim(
+                        namespace_fd, key, claim_target, result,
+                    ):
+                        return result
+                raise LifeOSError("Capture note changed concurrently; retry the operation")
             path = self._ensure_daily(selected)
             stored = self._store_attachments(attachment_paths)
             text = self._text_with_attachments(text, stored)
@@ -808,8 +816,11 @@ class LifeOSRuntime:
                 document, state = self._document_and_state(snapshot.text, selected)
                 if self._message_already_committed(document.content, key):
                     result = self._result(path, state, content=document.content, duplicate=True)
-                    self._commit_global_claim(namespace_fd, key, claim_target, result)
-                    return result
+                    if self._commit_global_claim(
+                        namespace_fd, key, claim_target, result,
+                    ):
+                        return result
+                    continue
                 document, state = self._apply_operation(
                     document,
                     state,
@@ -823,8 +834,8 @@ class LifeOSRuntime:
                 except _ConcurrentMutation:
                     continue
                 result = self._result(path, state, content=document.content)
-                self._commit_global_claim(namespace_fd, key, claim_target, result)
-                return result
+                if self._commit_global_claim(namespace_fd, key, claim_target, result):
+                    return result
             raise LifeOSError("Daily note changed concurrently; retry the operation")
 
     def _apply_operation(
@@ -1087,7 +1098,6 @@ class LifeOSRuntime:
         vault_fd = -1
         life_fd = -1
         attachments_fd = -1
-        created = False
         try:
             vault_fd = os.open(self.vault_root, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
             if not os.path.samestat(self._vault_identity, os.fstat(vault_fd)):
@@ -1097,7 +1107,6 @@ class LifeOSRuntime:
                 raise LifeOSError("Life OS directory changed after runtime construction")
             try:
                 os.mkdir("Attachments", mode=0o755, dir_fd=life_fd)
-                created = True
             except FileExistsError:
                 pass
             before = os.stat("Attachments", dir_fd=life_fd, follow_symlinks=False)
@@ -1108,8 +1117,7 @@ class LifeOSRuntime:
             )
             if not os.path.samestat(before, os.fstat(attachments_fd)):
                 raise LifeOSError("attachment directory changed during validation")
-            if created:
-                os.fsync(life_fd)
+            os.fsync(life_fd)
         except LifeOSError:
             if attachments_fd >= 0:
                 os.close(attachments_fd)
@@ -1257,7 +1265,6 @@ class LifeOSRuntime:
         vault_fd = -1
         life_fd = -1
         directory_fd = -1
-        created = False
         try:
             vault_fd = os.open(self.vault_root, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
             if not os.path.samestat(self._vault_identity, os.fstat(vault_fd)):
@@ -1267,7 +1274,6 @@ class LifeOSRuntime:
                 raise LifeOSError("Life OS directory changed after runtime construction")
             try:
                 os.mkdir("-1. Capture", mode=0o755, dir_fd=life_fd)
-                created = True
             except FileExistsError:
                 pass
             before = os.stat("-1. Capture", dir_fd=life_fd, follow_symlinks=False)
@@ -1278,8 +1284,7 @@ class LifeOSRuntime:
             )
             if not os.path.samestat(before, os.fstat(directory_fd)):
                 raise LifeOSError("Capture directory changed during validation")
-            if created:
-                os.fsync(life_fd)
+            os.fsync(life_fd)
         except LifeOSError:
             if directory_fd >= 0:
                 os.close(directory_fd)
@@ -1993,7 +1998,17 @@ class LifeOSRuntime:
 
     def _commit_global_claim(
         self, namespace_fd: int, key: str, target: dict[str, str], outcome: dict[str, Any],
-    ) -> None:
+    ) -> bool:
+        pending = {
+            "version": 1, "key": key, "status": "pending", "target": target,
+        }
+        try:
+            selected = date.fromisoformat(target["date"])
+            operation = target["operation"]
+        except (KeyError, TypeError, ValueError):
+            raise LifeOSError("Life OS message claim target is malformed") from None
+        if self._committed_outcome_for_key(selected, operation, key) is None:
+            return False
         self._write_global_claim(namespace_fd, key, {
             "version": 1,
             "key": key,
@@ -2001,6 +2016,24 @@ class LifeOSRuntime:
             "target": target,
             "outcome": outcome,
         })
+        try:
+            if self._committed_outcome_for_key(selected, operation, key) is None:
+                self._write_global_claim(namespace_fd, key, pending)
+                return False
+            claim = self._read_global_claim(namespace_fd, key)
+            if (
+                claim is None
+                or claim["status"] != "committed"
+                or claim["target"] != target
+            ):
+                raise LifeOSError("Life OS message claim changed during commit")
+            if self._committed_outcome_for_key(selected, operation, key) is not None:
+                return True
+        except LifeOSError:
+            self._write_global_claim(namespace_fd, key, pending)
+            raise
+        self._write_global_claim(namespace_fd, key, pending)
+        return False
 
     def _committed_outcome_for_key(
         self, selected: date, operation: str, key: str,
@@ -2009,14 +2042,14 @@ class LifeOSRuntime:
             path = self.capture_path(selected)
             with self._capture_directory() as directory_fd:
                 content = self._read_capture_at(directory_fd, path.name)
-            if content is not None and self._message_already_committed(content, key):
+            if content is not None and content.count(f"{_MESSAGE_PREFIX}{key} %%") == 1:
                 return {
                     "path": str(path), "date": selected.isoformat(),
                     "status": "captured", "duplicate": True,
                 }
             return None
         text = self._read_daily(selected)
-        if text is None or not self._message_already_committed(text, key):
+        if text is None or text.count(f"{_MESSAGE_PREFIX}{key} %%") != 1:
             return None
         document, state = self._parse_block(text, selected)
         return self._result(
@@ -2069,11 +2102,9 @@ class LifeOSRuntime:
                 raise LifeOSError("Periodic notes directory changed after runtime construction")
             current_fd = periodic_fd
             for name in (f"{selected:%Y}", "Daily", f"{selected:%m}"):
-                created = False
                 if create:
                     try:
                         os.mkdir(name, mode=0o755, dir_fd=current_fd)
-                        created = True
                     except FileExistsError:
                         pass
                 try:
@@ -2090,7 +2121,7 @@ class LifeOSRuntime:
                 descriptors.append(child_fd)
                 if not os.path.samestat(before, os.fstat(child_fd)):
                     raise LifeOSError("Daily directory changed during validation")
-                if created:
+                if create:
                     os.fsync(current_fd)
                 current_fd = child_fd
         except _DailyMissing:

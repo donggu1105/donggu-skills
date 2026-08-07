@@ -60,6 +60,19 @@ class LifeOSRuntimeTests(unittest.TestCase):
             max_attachment_bytes=32 * 1024 * 1024,
         )
 
+    def _restart_runtime(self):
+        return LifeOSRuntime(
+            vault_root=self.vault,
+            state_root=self.runtime.state_root,
+            timezone=ZoneInfo("Asia/Seoul"),
+            cache_roots=self.runtime.cache_roots,
+            max_attachment_bytes=32 * 1024 * 1024,
+        )
+
+    def _claim_for(self, runtime, key):
+        with runtime._mutation_lock() as namespace_fd:
+            return runtime._read_global_claim(namespace_fd, key)
+
     def test_start_daily_renders_known_snapshot_and_preserves_template_blocks(self):
         result = self.runtime.start_daily(date(2026, 8, 7))
         text = Path(result["path"]).read_text(encoding="utf-8")
@@ -93,7 +106,10 @@ class LifeOSRuntimeTests(unittest.TestCase):
 
         def track_fsync(descriptor):
             for name, parent_fd in parents.items():
-                if descriptor == parent_fd:
+                if (
+                    descriptor == parent_fd
+                    and f"fsync-parent:{name}" not in events
+                ):
                     events.append(f"fsync-parent:{name}")
             return real_fsync(descriptor)
 
@@ -118,6 +134,39 @@ class LifeOSRuntimeTests(unittest.TestCase):
             ],
             events,
         )
+
+    def test_daily_retry_fsyncs_existing_verified_parent_before_descent(self):
+        day = date(2026, 8, 7)
+        periodic_identity = self.runtime.periodic_root.stat()
+        failed = False
+        synced = False
+        descended_before_sync = False
+        real_fsync = life_os.os.fsync
+        real_open = life_os.os.open
+
+        def fail_then_sync(descriptor):
+            nonlocal failed, synced
+            if os.path.samestat(os.fstat(descriptor), periodic_identity):
+                if not failed:
+                    failed = True
+                    raise OSError("injected Daily parent fsync failure")
+                synced = True
+            return real_fsync(descriptor)
+
+        def track_descent(name, *args, **kwargs):
+            nonlocal descended_before_sync
+            if name == "Daily" and failed and not synced:
+                descended_before_sync = True
+            return real_open(name, *args, **kwargs)
+
+        with mock.patch.object(life_os.os, "fsync", side_effect=fail_then_sync):
+            with mock.patch.object(life_os.os, "open", side_effect=track_descent):
+                with self.assertRaises(life_os.LifeOSError):
+                    self.runtime.start_daily(day)
+                self.runtime.start_daily(day)
+
+        self.assertTrue(synced)
+        self.assertFalse(descended_before_sync)
 
     def test_exchange_rename_swaps_cross_directory_entries_on_macos(self):
         if sys.platform != "darwin":
@@ -1042,6 +1091,45 @@ class LifeOSRuntimeTests(unittest.TestCase):
 
         self.assertEqual(["mkdir", "open", "fsync-parent", "publish"], events)
 
+    def test_capture_retry_fsyncs_existing_verified_parent_before_publish(self):
+        day = date(2026, 8, 7)
+        parent_identity = self.runtime.life_root.stat()
+        failed = False
+        synced = False
+        published_before_sync = False
+        real_fsync = life_os.os.fsync
+        real_rename = life_os._exclusive_rename_at
+
+        def fail_then_sync(descriptor):
+            nonlocal failed, synced
+            if os.path.samestat(os.fstat(descriptor), parent_identity):
+                if not failed:
+                    failed = True
+                    raise OSError("injected Capture parent fsync failure")
+                synced = True
+            return real_fsync(descriptor)
+
+        def track_publish(directory_fd, source, target):
+            nonlocal published_before_sync
+            if target.endswith(".md") and failed and not synced:
+                published_before_sync = True
+            return real_rename(directory_fd, source, target)
+
+        with mock.patch.object(life_os.os, "fsync", side_effect=fail_then_sync):
+            with mock.patch.object(life_os, "_exclusive_rename_at", side_effect=track_publish):
+                with self.assertRaises(life_os.LifeOSError):
+                    self.runtime.record(
+                        "capture", message_text="첫 캡처", message_key="fsync-retry:capture",
+                        target_date=day,
+                    )
+                self.runtime.record(
+                    "capture", message_text="첫 캡처", message_key="fsync-retry:capture",
+                    target_date=day,
+                )
+
+        self.assertTrue(synced)
+        self.assertFalse(published_before_sync)
+
     def test_new_capture_hard_death_after_exclusive_rename_is_idempotent_on_retry(self):
         day = date(2026, 8, 7)
         child = (
@@ -1570,6 +1658,41 @@ class LifeOSRuntimeTests(unittest.TestCase):
                         self.runtime._store_one_attachment(source)
 
         self.assertEqual(["mkdir", "open", "fsync-parent", "publish"], events)
+
+    def test_attachment_retry_fsyncs_existing_verified_parent_before_publish(self):
+        source = self.base / "cache/documents/fsync-retry.bin"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"attachment retry")
+        parent_identity = self.runtime.life_root.stat()
+        failed = False
+        synced = False
+        published_before_sync = False
+        real_fsync = life_os.os.fsync
+        real_rename = life_os._exclusive_rename_at
+
+        def fail_then_sync(descriptor):
+            nonlocal failed, synced
+            if os.path.samestat(os.fstat(descriptor), parent_identity):
+                if not failed:
+                    failed = True
+                    raise OSError("injected attachment parent fsync failure")
+                synced = True
+            return real_fsync(descriptor)
+
+        def track_publish(directory_fd, source_name, target):
+            nonlocal published_before_sync
+            if failed and not synced:
+                published_before_sync = True
+            return real_rename(directory_fd, source_name, target)
+
+        with mock.patch.object(life_os.os, "fsync", side_effect=fail_then_sync):
+            with mock.patch.object(life_os, "_exclusive_rename_at", side_effect=track_publish):
+                with self.assertRaises(life_os.LifeOSError):
+                    self.runtime._store_one_attachment(source)
+                self.runtime._store_one_attachment(source)
+
+        self.assertTrue(synced)
+        self.assertFalse(published_before_sync)
 
     def test_status_reports_only_bounded_canonical_attachment_references(self):
         cache = self.base / "cache/documents"
@@ -2679,6 +2802,197 @@ class LifeOSRuntimeTests(unittest.TestCase):
         )
         self.assertTrue(capture_replay["duplicate"])
         self.assertEqual(daily["path"], capture_replay["path"])
+
+    def test_daily_replays_replacement_immediately_before_claim_commit(self):
+        day = date(2026, 8, 7)
+        key = "claim-handoff:daily:pre"
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        external = path.read_text(encoding="utf-8") + "\nclaim 전 Daily 교체\n"
+        real_commit = self.runtime._commit_global_claim
+        injected = False
+
+        def replace_then_commit(namespace_fd, claim_key, target, outcome):
+            nonlocal injected
+            if not injected and claim_key == key:
+                injected = True
+                replacement = path.parent / ".claim-pre-daily"
+                replacement.write_text(external, encoding="utf-8")
+                os.replace(replacement, path)
+            return real_commit(namespace_fd, claim_key, target, outcome)
+
+        with mock.patch.object(
+            self.runtime, "_commit_global_claim", side_effect=replace_then_commit,
+        ):
+            result = self.runtime.record(
+                "free_record", message_text="Daily handoff", message_key=key,
+                target_date=day,
+            )
+
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("claim 전 Daily 교체", text)
+        self.assertEqual(1, text.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual("committed", self._claim_for(self.runtime, key)["status"])
+        self.assertFalse(result.get("duplicate", False))
+
+    def test_capture_replays_replacement_immediately_before_claim_commit(self):
+        day = date(2026, 8, 7)
+        seed = self.runtime.record(
+            "capture", message_text="seed", message_key="claim-handoff:capture:seed-pre",
+            target_date=day,
+        )
+        path = Path(seed["path"])
+        external = path.read_text(encoding="utf-8") + "\nclaim 전 Capture 교체\n"
+        key = "claim-handoff:capture:pre"
+        real_commit = self.runtime._commit_global_claim
+        injected = False
+
+        def replace_then_commit(namespace_fd, claim_key, target, outcome):
+            nonlocal injected
+            if not injected and claim_key == key:
+                injected = True
+                replacement = path.parent / ".claim-pre-capture"
+                replacement.write_text(external, encoding="utf-8")
+                os.replace(replacement, path)
+            return real_commit(namespace_fd, claim_key, target, outcome)
+
+        with mock.patch.object(
+            self.runtime, "_commit_global_claim", side_effect=replace_then_commit,
+        ):
+            result = self.runtime.record(
+                "capture", message_text="Capture handoff", message_key=key,
+                target_date=day,
+            )
+
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("claim 전 Capture 교체", text)
+        self.assertEqual(1, text.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual("committed", self._claim_for(self.runtime, key)["status"])
+        self.assertFalse(result.get("duplicate", False))
+
+    def test_daily_replays_replacement_during_committed_claim_write(self):
+        day = date(2026, 8, 7)
+        key = "claim-handoff:daily:write"
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        external = path.read_text(encoding="utf-8") + "\nclaim write 중 Daily 교체\n"
+        real_write = self.runtime._write_global_claim
+        injected = False
+
+        def replace_during_write(namespace_fd, claim_key, payload):
+            nonlocal injected
+            if not injected and claim_key == key and payload.get("status") == "committed":
+                injected = True
+                replacement = path.parent / ".claim-write-daily"
+                replacement.write_text(external, encoding="utf-8")
+                os.replace(replacement, path)
+            return real_write(namespace_fd, claim_key, payload)
+
+        with mock.patch.object(
+            self.runtime, "_write_global_claim", side_effect=replace_during_write,
+        ):
+            result = self.runtime.record(
+                "free_record", message_text="Daily claim write", message_key=key,
+                target_date=day,
+            )
+
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("claim write 중 Daily 교체", text)
+        self.assertEqual(1, text.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual("committed", self._claim_for(self.runtime, key)["status"])
+        self.assertFalse(result.get("duplicate", False))
+
+    def test_capture_replays_replacement_during_committed_claim_write(self):
+        day = date(2026, 8, 7)
+        seed = self.runtime.record(
+            "capture", message_text="seed", message_key="claim-handoff:capture:seed-write",
+            target_date=day,
+        )
+        path = Path(seed["path"])
+        external = path.read_text(encoding="utf-8") + "\nclaim write 중 Capture 교체\n"
+        key = "claim-handoff:capture:write"
+        real_write = self.runtime._write_global_claim
+        injected = False
+
+        def replace_during_write(namespace_fd, claim_key, payload):
+            nonlocal injected
+            if not injected and claim_key == key and payload.get("status") == "committed":
+                injected = True
+                replacement = path.parent / ".claim-write-capture"
+                replacement.write_text(external, encoding="utf-8")
+                os.replace(replacement, path)
+            return real_write(namespace_fd, claim_key, payload)
+
+        with mock.patch.object(
+            self.runtime, "_write_global_claim", side_effect=replace_during_write,
+        ):
+            result = self.runtime.record(
+                "capture", message_text="Capture claim write", message_key=key,
+                target_date=day,
+            )
+
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("claim write 중 Capture 교체", text)
+        self.assertEqual(1, text.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual("committed", self._claim_for(self.runtime, key)["status"])
+        self.assertFalse(result.get("duplicate", False))
+
+    def test_daily_restart_reconciles_committed_claim_with_missing_record(self):
+        day = date(2026, 8, 7)
+        key = "claim-reconcile:daily"
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        external = path.read_text(encoding="utf-8") + "\nrestart Daily 교체\n"
+        self.runtime.record(
+            "free_record", message_text="Daily restart", message_key=key,
+            target_date=day,
+        )
+        path.write_text(external, encoding="utf-8")
+        restarted = self._restart_runtime()
+
+        try:
+            result = restarted.record(
+                "free_record", message_text="Daily restart", message_key=key,
+                target_date=day,
+            )
+        except life_os.LifeOSError as exc:
+            self.fail(f"committed Daily claim poisoned retry: {exc}")
+
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("restart Daily 교체", text)
+        self.assertEqual(1, text.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual("committed", self._claim_for(restarted, key)["status"])
+        self.assertFalse(result.get("duplicate", False))
+
+    def test_capture_restart_reconciles_committed_claim_with_missing_record(self):
+        day = date(2026, 8, 7)
+        seed = self.runtime.record(
+            "capture", message_text="seed", message_key="claim-reconcile:capture:seed",
+            target_date=day,
+        )
+        path = Path(seed["path"])
+        external = path.read_text(encoding="utf-8") + "\nrestart Capture 교체\n"
+        key = "claim-reconcile:capture"
+        self.runtime.record(
+            "capture", message_text="Capture restart", message_key=key,
+            target_date=day,
+        )
+        path.write_text(external, encoding="utf-8")
+        restarted = self._restart_runtime()
+
+        try:
+            result = restarted.record(
+                "capture", message_text="Capture restart", message_key=key,
+                target_date=day,
+            )
+        except life_os.LifeOSError as exc:
+            self.fail(f"committed Capture claim poisoned retry: {exc}")
+
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("restart Capture 교체", text)
+        self.assertEqual(1, text.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual("committed", self._claim_for(restarted, key)["status"])
+        self.assertFalse(result.get("duplicate", False))
 
     def test_global_claim_survives_restart_and_pending_claim_recovers_without_suppression(self):
         day = date(2026, 8, 7)
