@@ -247,6 +247,7 @@ def _authorize_life_os_call(operation: str) -> None:
             or any(get_session_env(name, "") != "" for name in _HERMES_LIVE_SESSION_IDENTITY_NAMES)
             or get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM", "").strip().lower() != "discord"
             or get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID", "") != channel_id
+            or get_session_env("HERMES_CRON_AUTO_DELIVER_THREAD_ID", "") != ""
         ):
             raise CoreRuntimeError("Life OS cron origin is not authorized")
         return

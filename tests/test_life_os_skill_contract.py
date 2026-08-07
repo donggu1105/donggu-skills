@@ -209,6 +209,11 @@ class LifeOSSkillContractTests(unittest.TestCase):
         text = note.read_text(encoding="utf-8")
         self.assertEqual(1, text.count("첫 답"))
 
+    def test_cli_start_rejects_removed_resume_option(self):
+        proc = self.run_cli("start", "--resume", "--date", "2026-08-07")
+        self.assertEqual(2, proc.returncode)
+        self.assertIn("unrecognized arguments: --resume", proc.stderr)
+
     def test_cli_reports_runtime_errors_on_stderr_with_exit_code_2(self):
         proc = subprocess.run(
             [sys.executable, str(CLI), "--vault-root", str(self.base / "missing"), "status"],
@@ -235,6 +240,12 @@ class LifeOSSkillContractTests(unittest.TestCase):
             "DONGGU_LIFE_OS_TIMEZONE", "hermes plugins install",
             "channel_skill_bindings", "<life-os-channel-id>", "0 22 * * *",
             "Asia/Seoul", ".codex/skills/life-os", "Life OS/Attachments/",
+            "require_mention: false", "free_response_channels", "channel_prompts",
+            "allowed_channels", "hermes cron create", "hermes cron edit",
+            "hermes cron list --all", 'hermes cron run "$LIFE_OS_CRON_JOB_ID"',
+            'hermes cron runs "$LIFE_OS_CRON_JOB_ID" --limit 5',
+            '--deliver "discord:${LIFE_OS_CHANNEL_ID}"', "--skill life-os",
+            '--workdir \"$LIFE_OS_VAULT_ROOT\"',
         ):
             self.assertIn(token, plugin)
 

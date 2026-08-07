@@ -69,6 +69,10 @@ class _DailyMissing(Exception):
     """The selected date has no Daily directory or note yet."""
 
 
+class _ConcurrentMutation(Exception):
+    """The destination changed after Life OS read its source snapshot."""
+
+
 @dataclass(frozen=True)
 class WorkflowState:
     version: int
@@ -95,6 +99,17 @@ class _Document:
     prefix: str
     content: str
     suffix: str
+
+
+@dataclass(frozen=True)
+class _TextSnapshot:
+    text: str
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+    sha256: str
 
 
 def checked_life_os_message_text(value: str) -> str:
@@ -387,11 +402,24 @@ class LifeOSRuntime:
         selected = target_date or datetime.now(self.timezone).date()
         with self._mutation_lock():
             path = self._ensure_daily(selected)
-            document, state = self._read_or_install_block(path, selected)
-            if state.status == "not_started" or (resume and state.status == "paused"):
-                state = replace(state, status="active")
-                self._commit_document(selected, self._render(document, state))
-            return self._result(path, state, content=document.content)
+            for _attempt in range(3):
+                try:
+                    snapshot = self._read_daily_snapshot(selected)
+                except _ConcurrentMutation:
+                    continue
+                if snapshot is None:
+                    raise LifeOSError("Daily note is unavailable")
+                document, state = self._document_and_state(snapshot.text, selected)
+                if state.status == "not_started" or (resume and state.status == "paused"):
+                    state = replace(state, status="active")
+                rendered = self._render(document, state)
+                if rendered != snapshot.text:
+                    try:
+                        self._publish_daily(selected, rendered, snapshot)
+                    except _ConcurrentMutation:
+                        continue
+                return self._result(path, state, content=document.content)
+            raise LifeOSError("Daily note changed concurrently; retry the operation")
 
     def record(
         self,
@@ -432,25 +460,36 @@ class LifeOSRuntime:
                 self._commit_global_claim(namespace_fd, key, claim_target, result)
                 return result
             path = self._ensure_daily(selected)
-            document, state = self._read_or_install_block(path, selected)
-            if self._message_already_committed(document.content, key):
-                result = self._result(path, state, content=document.content, duplicate=True)
-                self._commit_global_claim(namespace_fd, key, claim_target, result)
-                return result
             stored = self._store_attachments(attachment_paths)
             text = self._text_with_attachments(text, stored)
-            document, state = self._apply_operation(
-                document,
-                state,
-                operation,
-                text,
-                key,
-                follow_up_question=follow_up_question,
-            )
-            self._commit_document(selected, self._render(document, state))
-            result = self._result(path, state, content=document.content)
-            self._commit_global_claim(namespace_fd, key, claim_target, result)
-            return result
+            for _attempt in range(3):
+                try:
+                    snapshot = self._read_daily_snapshot(selected)
+                except _ConcurrentMutation:
+                    continue
+                if snapshot is None:
+                    raise LifeOSError("Daily note is unavailable")
+                document, state = self._document_and_state(snapshot.text, selected)
+                if self._message_already_committed(document.content, key):
+                    result = self._result(path, state, content=document.content, duplicate=True)
+                    self._commit_global_claim(namespace_fd, key, claim_target, result)
+                    return result
+                document, state = self._apply_operation(
+                    document,
+                    state,
+                    operation,
+                    text,
+                    key,
+                    follow_up_question=follow_up_question,
+                )
+                try:
+                    self._publish_daily(selected, self._render(document, state), snapshot)
+                except _ConcurrentMutation:
+                    continue
+                result = self._result(path, state, content=document.content)
+                self._commit_global_claim(namespace_fd, key, claim_target, result)
+                return result
+            raise LifeOSError("Daily note changed concurrently; retry the operation")
 
     def _apply_operation(
         self,
@@ -557,17 +596,30 @@ class LifeOSRuntime:
         self, selected: date, text: str, key: str, attachment_paths: Sequence[Path],
     ) -> dict[str, Any]:
         path = self.capture_path(selected)
+        stored = self._store_attachments(attachment_paths)
+        text = self._text_with_attachments(text, stored)
+        entry = self._timestamped_entry("Capture", text, key)
         with self._capture_directory() as directory_fd:
-            document = self._read_capture_at(directory_fd, path.name)
-            if document is not None:
-                if self._message_already_committed(document, key):
-                    return {"path": str(path), "date": selected.isoformat(), "status": "captured", "duplicate": True}
+            for _attempt in range(3):
+                try:
+                    snapshot = self._read_capture_snapshot_at(directory_fd, path.name)
+                except _ConcurrentMutation:
+                    continue
+                if snapshot is not None:
+                    if self._message_already_committed(snapshot.text, key):
+                        return {"path": str(path), "date": selected.isoformat(), "status": "captured", "duplicate": True}
+                    document = snapshot.text
+                else:
+                    document = f"# Capture — {selected.isoformat()}\n\n"
+                try:
+                    self._atomic_publish_note_at(
+                        directory_fd, path.name, document + entry, snapshot,
+                    )
+                except _ConcurrentMutation:
+                    continue
+                break
             else:
-                document = f"# Capture — {selected.isoformat()}\n\n"
-            stored = self._store_attachments(attachment_paths)
-            text = self._text_with_attachments(text, stored)
-            entry = self._timestamped_entry("Capture", text, key)
-            self._atomic_replace_at(directory_fd, path.name, document + entry)
+                raise LifeOSError("Capture note changed concurrently; retry the operation")
         return {"path": str(path), "date": selected.isoformat(), "status": "captured", "duplicate": False}
 
     @property
@@ -947,26 +999,146 @@ class LifeOSRuntime:
 
     @staticmethod
     def _read_capture_at(directory_fd: int, name: str) -> str | None:
+        snapshot = LifeOSRuntime._read_capture_snapshot_at(directory_fd, name)
+        return None if snapshot is None else snapshot.text
+
+    @staticmethod
+    def _read_capture_snapshot_at(directory_fd: int, name: str) -> _TextSnapshot | None:
+        return LifeOSRuntime._read_text_snapshot_at(
+            directory_fd,
+            name,
+            unavailable="Capture note is unavailable",
+            nonregular="Capture note must be a non-symlink file",
+            unreadable="Capture note is unreadable",
+        )
+
+    @staticmethod
+    def _read_text_snapshot_at(
+        directory_fd: int,
+        name: str,
+        *,
+        unavailable: str,
+        nonregular: str,
+        unreadable: str,
+    ) -> _TextSnapshot | None:
+        descriptor = -1
         try:
             descriptor = os.open(name, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=directory_fd)
         except FileNotFoundError:
             return None
         except OSError:
-            raise LifeOSError("Capture note is unavailable") from None
+            raise LifeOSError(unavailable) from None
         try:
-            info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode):
-                raise LifeOSError("Capture note must be a non-symlink file")
+            before = os.fstat(descriptor)
+            if not stat.S_ISREG(before.st_mode):
+                raise LifeOSError(nonregular)
             with os.fdopen(descriptor, "rb", closefd=True) as stream:
                 descriptor = -1
-                return stream.read().decode("utf-8")
+                data = stream.read()
+                after = os.fstat(stream.fileno())
+            identity_before = (
+                before.st_dev, before.st_ino, before.st_size,
+                before.st_mtime_ns, before.st_ctime_ns,
+            )
+            identity_after = (
+                after.st_dev, after.st_ino, after.st_size,
+                after.st_mtime_ns, after.st_ctime_ns,
+            )
+            if identity_before != identity_after or len(data) != after.st_size:
+                raise _ConcurrentMutation
+            return _TextSnapshot(
+                text=data.decode("utf-8"),
+                device=after.st_dev,
+                inode=after.st_ino,
+                size=after.st_size,
+                mtime_ns=after.st_mtime_ns,
+                ctime_ns=after.st_ctime_ns,
+                sha256=hashlib.sha256(data).hexdigest(),
+            )
+        except _ConcurrentMutation:
+            raise
         except LifeOSError:
             raise
         except (OSError, UnicodeError):
-            raise LifeOSError("Capture note is unreadable") from None
+            raise LifeOSError(unreadable) from None
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
+
+    @staticmethod
+    def _atomic_publish_note_at(
+        directory_fd: int,
+        name: str,
+        text: str,
+        expected: _TextSnapshot | None,
+    ) -> None:
+        data = text.encode("utf-8")
+        descriptor = -1
+        temp_name = ""
+        try:
+            for _attempt in range(10):
+                candidate = f".{name}.life-os-{secrets.token_hex(8)}"
+                try:
+                    descriptor = os.open(
+                        candidate,
+                        os.O_CREAT | os.O_EXCL | os.O_WRONLY | _NOFOLLOW,
+                        0o600,
+                        dir_fd=directory_fd,
+                    )
+                    temp_name = candidate
+                    break
+                except FileExistsError:
+                    continue
+            if descriptor < 0:
+                raise OSError("temporary note allocation failed")
+            with os.fdopen(descriptor, "wb", closefd=True) as stream:
+                descriptor = -1
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            if expected is None:
+                try:
+                    os.link(
+                        temp_name,
+                        name,
+                        src_dir_fd=directory_fd,
+                        dst_dir_fd=directory_fd,
+                        follow_symlinks=False,
+                    )
+                except FileExistsError:
+                    raise _ConcurrentMutation from None
+                os.unlink(temp_name, dir_fd=directory_fd)
+                temp_name = ""
+            else:
+                current = LifeOSRuntime._read_text_snapshot_at(
+                    directory_fd,
+                    name,
+                    unavailable="note is unavailable",
+                    nonregular="note must be a non-symlink file",
+                    unreadable="note is unreadable",
+                )
+                if current != expected:
+                    raise _ConcurrentMutation
+                os.replace(
+                    temp_name,
+                    name,
+                    src_dir_fd=directory_fd,
+                    dst_dir_fd=directory_fd,
+                )
+                temp_name = ""
+            os.fsync(directory_fd)
+        except _ConcurrentMutation:
+            raise
+        except OSError:
+            raise LifeOSError("note could not be committed atomically") from None
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temp_name:
+                try:
+                    os.unlink(temp_name, dir_fd=directory_fd)
+                except OSError:
+                    pass
 
     @staticmethod
     def _atomic_replace_at(directory_fd: int, name: str, text: str) -> None:
@@ -1287,13 +1459,28 @@ class LifeOSRuntime:
 
     def _ensure_daily(self, selected: date) -> Path:
         path = self.daily_path(selected)
-        if self._read_daily(selected) is not None:
-            return path
+        for _attempt in range(3):
+            try:
+                if self._read_daily_snapshot(selected) is not None:
+                    return path
+                break
+            except _ConcurrentMutation:
+                continue
+        else:
+            raise LifeOSError("Daily note changed concurrently; retry the operation")
         template = self._read_template()
         rendered, count = _SNAPSHOT_LINE.subn("", template)
         if count > 1 or _TEMPLATE_EXPRESSION.search(rendered) or "<%" in rendered:
             raise LifeOSError("Daily template contains an unsupported expression")
-        self._atomic_replace_daily(selected, rendered)
+        try:
+            self._publish_daily(selected, rendered, None)
+        except _ConcurrentMutation:
+            try:
+                current = self._read_daily_snapshot(selected)
+            except _ConcurrentMutation:
+                current = None
+            if current is None:
+                raise LifeOSError("Daily note changed concurrently; retry the operation") from None
         return path
 
     @contextmanager
@@ -1355,61 +1542,42 @@ class LifeOSRuntime:
                 os.close(descriptor)
 
     def _read_daily(self, selected: date) -> str | None:
+        snapshot = self._read_daily_snapshot(selected)
+        return None if snapshot is None else snapshot.text
+
+    def _read_daily_snapshot(self, selected: date) -> _TextSnapshot | None:
         try:
             with self._daily_directory(selected, create=False) as directory_fd:
-                return self._read_daily_at(directory_fd, f"{selected:%Y-%m-%d}.md")
+                return self._read_daily_snapshot_at(directory_fd, f"{selected:%Y-%m-%d}.md")
         except _DailyMissing:
             return None
 
     @staticmethod
-    def _read_daily_at(directory_fd: int, name: str) -> str | None:
-        descriptor = -1
-        try:
-            descriptor = os.open(
-                name, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=directory_fd,
-            )
-        except FileNotFoundError:
-            return None
-        except OSError:
-            raise LifeOSError("Daily note is unavailable") from None
-        try:
-            info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode):
-                raise LifeOSError("Daily note must be a non-symlink file")
-            with os.fdopen(descriptor, "rb", closefd=True) as stream:
-                descriptor = -1
-                return stream.read().decode("utf-8")
-        except LifeOSError:
-            raise
-        except (OSError, UnicodeError):
-            raise LifeOSError("Daily note is unreadable") from None
-        finally:
-            if descriptor >= 0:
-                os.close(descriptor)
+    def _read_daily_snapshot_at(directory_fd: int, name: str) -> _TextSnapshot | None:
+        return LifeOSRuntime._read_text_snapshot_at(
+            directory_fd,
+            name,
+            unavailable="Daily note is unavailable",
+            nonregular="Daily note must be a non-symlink file",
+            unreadable="Daily note is unreadable",
+        )
 
-    def _atomic_replace_daily(self, selected: date, text: str) -> None:
+    def _publish_daily(
+        self, selected: date, text: str, expected: _TextSnapshot | None,
+    ) -> None:
         with self._daily_directory(selected, create=True) as directory_fd:
-            self._atomic_replace_at(directory_fd, f"{selected:%Y-%m-%d}.md", text)
+            self._atomic_publish_note_at(
+                directory_fd, f"{selected:%Y-%m-%d}.md", text, expected,
+            )
 
-    def _read_or_install_block(self, path: Path, selected: date) -> tuple[_Document, WorkflowState]:
-        text = self._read_daily(selected)
-        if text is None:
-            raise LifeOSError("Daily note is unavailable")
+    def _document_and_state(
+        self, text: str, selected: date,
+    ) -> tuple[_Document, WorkflowState]:
         start_count, end_count = text.count(_START), text.count(_END)
         if start_count == 0 and end_count == 0:
             if _STATE_PREFIX in text:
                 raise LifeOSError("Daily note contains an orphaned Life OS state")
-            document = self._install_block(text)
-            state = self._initial_state(selected)
-            self._commit_document(selected, self._render(document, state))
-            return document, state
-        return self._parse_block(text, selected)
-
-    def _read_block(self, path: Path, selected: date) -> tuple[_Document, WorkflowState]:
-        del path
-        text = self._read_daily(selected)
-        if text is None:
-            raise LifeOSError("Daily note is unavailable")
+            return self._install_block(text), self._initial_state(selected)
         return self._parse_block(text, selected)
 
     def _install_block(self, text: str) -> _Document:
@@ -1548,9 +1716,6 @@ class LifeOSRuntime:
             content += "\n"
         state_line = f"{_STATE_PREFIX}{_canonical_state(state)} %%\n"
         return document.prefix + _START + content + state_line + _END + document.suffix
-
-    def _commit_document(self, selected: date, text: str) -> None:
-        self._atomic_replace_daily(selected, text)
 
     @classmethod
     def _attachment_references(cls, content: str | None) -> list[str]:

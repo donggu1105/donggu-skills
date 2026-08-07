@@ -44,12 +44,92 @@ Life OS 답변 원문은 `pre_gateway_dispatch`에서 Discord 준비·첨부 주
 
 ```yaml
 discord:
+  require_mention: false
+  free_response_channels:
+    - "<life-os-channel-id>"
   channel_skill_bindings:
     - id: "<life-os-channel-id>"
       skill: life-os
+  channel_prompts:
+    "<life-os-channel-id>": >-
+      Use only the life-os skill and its native tools in this channel. Never use
+      generic filesystem tools as fallback, and never expose internal paths,
+      credentials, IDs, or tool state.
 ```
 
+기존 `discord` 설정을 통째로 교체하지 않는다. `require_mention`만 `false`로 설정하고,
+`free_response_channels`와 기존 `channel_skill_bindings`에는 Life OS 채널 항목을 합집합으로
+추가한다. `allowed_channels`가 없으면 계속 생략하고, 이미 있으면 기존 항목을 보존한 채
+`<life-os-channel-id>`만 추가한다. 설정 후 `hermes config check`로 검증한다.
+
 22시 체크인은 `Asia/Seoul` 기준 cron `0 22 * * *`으로 `life-os` skill과 `donggu_life_os_start_daily`를 호출한다. 기존 active 상태를 초기화하거나 두 번째 reminder를 만들지 않고, pending question 또는 이미 완료됐다는 결과만 전달한다.
+
+아래 recipe는 대상 Vault root에서 실행한다. placeholder를 로컬 값으로 바꾸고, 기존 exact-name
+job이 있으면 그 ID를 `LIFE_OS_CRON_JOB_ID`에 넣는다. 없으면 create 출력의 `Created job:` 뒤
+12자리 ID를 한 번 캡처한다. 이후 edit, readback, run, history 모두 같은 ID만 사용한다.
+
+```bash
+LIFE_OS_VAULT_ROOT="$(pwd)"
+LIFE_OS_CHANNEL_ID="<life-os-channel-id>"
+LIFE_OS_CRON_NAME='Life OS 데일리 체크인 (22:00)'
+LIFE_OS_CRON_PROMPT='Use the life-os skill. Call donggu_life_os_start_daily for the current KST date. Return only its pending question; if completed, return 오늘 Daily 기록은 이미 완료됐어요.'
+
+life_os_cron_ids() {
+  python3 -c '
+import re, sys
+name = sys.argv[1]
+current = None
+for raw in sys.stdin:
+    line = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw.rstrip("\n"))
+    job = re.match(r"\s*([0-9a-f]{12})\b", line)
+    if job:
+        current = job.group(1)
+    named = re.match(r"\s*Name:\s+(.*)$", line)
+    if named and named.group(1) == name and current:
+        print(current)
+' "$LIFE_OS_CRON_NAME"
+}
+
+LIFE_OS_CRON_LIST="$(hermes cron list --all)"
+LIFE_OS_CRON_IDS="$(printf '%s\n' "$LIFE_OS_CRON_LIST" | life_os_cron_ids)"
+LIFE_OS_CRON_MATCH_COUNT="$(printf '%s\n' "$LIFE_OS_CRON_IDS" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+case "$LIFE_OS_CRON_MATCH_COUNT" in
+  0)
+    LIFE_OS_CRON_CREATE="$(hermes cron create '0 22 * * *' "$LIFE_OS_CRON_PROMPT" \
+      --name "$LIFE_OS_CRON_NAME" \
+      --deliver "discord:${LIFE_OS_CHANNEL_ID}" \
+      --skill life-os \
+      --workdir "$LIFE_OS_VAULT_ROOT")"
+    LIFE_OS_CRON_JOB_ID="$(printf '%s\n' "$LIFE_OS_CRON_CREATE" | \
+      sed -nE 's/.*Created job:[[:space:]]*([0-9a-f]{12}).*/\1/p')"
+    ;;
+  1) LIFE_OS_CRON_JOB_ID="$LIFE_OS_CRON_IDS" ;;
+  *) echo 'expected zero or one exact-name cron job' >&2; exit 1 ;;
+esac
+case "$LIFE_OS_CRON_JOB_ID" in ''|*[!0-9a-f]*) exit 1 ;; esac
+
+# create 직후 또는 기존 job 조정 시 동일 ID를 idempotent하게 정규화한다.
+hermes cron edit "$LIFE_OS_CRON_JOB_ID" \
+  --schedule '0 22 * * *' \
+  --prompt "$LIFE_OS_CRON_PROMPT" \
+  --name "$LIFE_OS_CRON_NAME" \
+  --deliver "discord:${LIFE_OS_CHANNEL_ID}" \
+  --skill life-os \
+  --workdir "$LIFE_OS_VAULT_ROOT"
+
+LIFE_OS_CRON_LIST="$(hermes cron list --all)"
+LIFE_OS_CRON_READBACK_IDS="$(printf '%s\n' "$LIFE_OS_CRON_LIST" | life_os_cron_ids)"
+if [ "$LIFE_OS_CRON_READBACK_IDS" != "$LIFE_OS_CRON_JOB_ID" ]; then
+  echo 'cron readback did not match the captured job ID' >&2
+  exit 1
+fi
+hermes cron run "$LIFE_OS_CRON_JOB_ID"
+hermes cron runs "$LIFE_OS_CRON_JOB_ID" --limit 5
+```
+
+`hermes config get timezone --json`의 readback이 `Asia/Seoul`인지 확인하고, cron list readback에서
+exact name이 캡처한 ID로 정확히 한 번 나타나지 않으면 run하지 않는다.
 
 Claude Code에서는 `/donggu-obsidian:life-os`를 호출한다. Codex에서는 같은 skill directory를 `~/.codex/skills/life-os` 공유 링크로 연결한다.
 

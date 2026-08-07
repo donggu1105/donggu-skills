@@ -127,7 +127,7 @@ class LifeOSPluginTests(unittest.TestCase):
         return lambda name, default="": values.get(name, default)
 
     @staticmethod
-    def cron_context(*, marker="1", platform="discord", chat_id="456"):
+    def cron_context(*, marker="1", platform="discord", chat_id="456", thread_id=""):
         values = {
             "HERMES_SESSION_PLATFORM": "",
             "HERMES_SESSION_SOURCE": "",
@@ -145,6 +145,7 @@ class LifeOSPluginTests(unittest.TestCase):
             "HERMES_CRON_SESSION": marker,
             "HERMES_CRON_AUTO_DELIVER_PLATFORM": platform,
             "HERMES_CRON_AUTO_DELIVER_CHAT_ID": chat_id,
+            "HERMES_CRON_AUTO_DELIVER_THREAD_ID": thread_id,
         }
         return lambda name, default="": values.get(name, default)
 
@@ -276,6 +277,7 @@ class LifeOSPluginTests(unittest.TestCase):
             self.cron_context(marker="true"),
             self.cron_context(platform="slack"),
             self.cron_context(chat_id="999"),
+            self.cron_context(thread_id="thread-123"),
         ):
             with self.subTest(context=context):
                 runtime.reset_mock()

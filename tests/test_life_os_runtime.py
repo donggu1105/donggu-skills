@@ -68,6 +68,67 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("<!-- life-os:record:start -->", text)
         self.assertEqual(1, result["next_question"])
 
+    def test_concurrent_new_daily_creation_is_never_replaced(self):
+        day = date(2026, 8, 7)
+        path = self.runtime.daily_path(day)
+        competing = "## Daily Record\n외부에서 먼저 만든 Daily\n"
+        real_replace = life_os.os.replace
+        real_link = life_os.os.link
+        injected = False
+
+        def occupy_before_replace(source, destination, *args, **kwargs):
+            nonlocal injected
+            if not injected and destination == path.name:
+                injected = True
+                path.write_text(competing, encoding="utf-8")
+            return real_replace(source, destination, *args, **kwargs)
+
+        def occupy_before_link(source, destination, *args, **kwargs):
+            nonlocal injected
+            if not injected and destination == path.name:
+                injected = True
+                path.write_text(competing, encoding="utf-8")
+            return real_link(source, destination, *args, **kwargs)
+
+        with mock.patch.object(life_os.os, "replace", side_effect=occupy_before_replace), \
+             mock.patch.object(life_os.os, "link", side_effect=occupy_before_link):
+            result = self.runtime.start_daily(day)
+
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertTrue(injected)
+        self.assertIn("외부에서 먼저 만든 Daily", text)
+        self.assertEqual(1, text.count("<!-- life-os:record:start -->"))
+
+    def test_external_daily_edit_before_commit_is_replayed_on_newest_document(self):
+        day = date(2026, 8, 7)
+        path = self.runtime.daily_path(day)
+        self.runtime.start_daily(day)
+        outside = "\n외부 편집: 회의 메모\n"
+        real_snapshot = life_os.LifeOSRuntime._read_text_snapshot_at
+        injected = False
+        reads = 0
+
+        def edit_before_validation(directory_fd, name, **kwargs):
+            nonlocal injected, reads
+            if name == path.name:
+                reads += 1
+            if not injected and name == path.name and reads == 2:
+                injected = True
+                path.write_text(path.read_text(encoding="utf-8") + outside, encoding="utf-8")
+            return real_snapshot(directory_fd, name, **kwargs)
+
+        with mock.patch.object(
+            life_os.LifeOSRuntime, "_read_text_snapshot_at", side_effect=edit_before_validation,
+        ):
+            result = self.runtime.record(
+                "answer", message_text="산책했다", message_key="race:daily", target_date=day,
+            )
+
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertTrue(injected)
+        self.assertIn(outside.strip(), text)
+        self.assertEqual(1, text.count("%% life-os-message: race:daily %%"))
+
     def test_start_daily_rejects_symlinked_year_with_existing_daily(self):
         day = date(2026, 8, 7)
         external_year = self.base / "external-periodic/2026"
@@ -255,6 +316,71 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("# Capture — 2026-08-07", text)
         self.assertIn("책 아이디어", text)
         self.assertFalse(self.runtime.daily_path(date(2026, 8, 7)).exists())
+
+    def test_concurrent_new_capture_creation_is_never_replaced(self):
+        day = date(2026, 8, 7)
+        path = self.runtime.capture_path(day)
+        competing = f"# Capture — {day.isoformat()}\n\n외부 선행 캡처\n"
+        real_replace = life_os.os.replace
+        real_link = life_os.os.link
+        injected = False
+
+        def occupy_before_replace(source, destination, *args, **kwargs):
+            nonlocal injected
+            if not injected and destination == path.name:
+                injected = True
+                path.write_text(competing, encoding="utf-8")
+            return real_replace(source, destination, *args, **kwargs)
+
+        def occupy_before_link(source, destination, *args, **kwargs):
+            nonlocal injected
+            if not injected and destination == path.name:
+                injected = True
+                path.write_text(competing, encoding="utf-8")
+            return real_link(source, destination, *args, **kwargs)
+
+        with mock.patch.object(life_os.os, "replace", side_effect=occupy_before_replace), \
+             mock.patch.object(life_os.os, "link", side_effect=occupy_before_link):
+            result = self.runtime.record(
+                "capture", message_text="내 캡처", message_key="race:capture:new", target_date=day,
+            )
+
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertTrue(injected)
+        self.assertIn("외부 선행 캡처", text)
+        self.assertEqual(1, text.count("%% life-os-message: race:capture:new %%"))
+
+    def test_external_capture_append_before_commit_is_replayed_on_newest_document(self):
+        day = date(2026, 8, 7)
+        first = self.runtime.record(
+            "capture", message_text="첫 캡처", message_key="race:capture:first", target_date=day,
+        )
+        path = Path(first["path"])
+        outside = "외부에서 추가한 캡처\n"
+        real_snapshot = life_os.LifeOSRuntime._read_text_snapshot_at
+        injected = False
+        reads = 0
+
+        def edit_before_validation(directory_fd, name, **kwargs):
+            nonlocal injected, reads
+            if name == path.name:
+                reads += 1
+            if not injected and name == path.name and reads == 2:
+                injected = True
+                path.write_text(path.read_text(encoding="utf-8") + outside, encoding="utf-8")
+            return real_snapshot(directory_fd, name, **kwargs)
+
+        with mock.patch.object(
+            life_os.LifeOSRuntime, "_read_text_snapshot_at", side_effect=edit_before_validation,
+        ):
+            result = self.runtime.record(
+                "capture", message_text="둘째 캡처", message_key="race:capture:second", target_date=day,
+            )
+
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertTrue(injected)
+        self.assertIn(outside.strip(), text)
+        self.assertEqual(1, text.count("%% life-os-message: race:capture:second %%"))
 
     def test_capture_rejects_symlinked_parent_with_existing_dated_file(self):
         day = date(2026, 8, 7)

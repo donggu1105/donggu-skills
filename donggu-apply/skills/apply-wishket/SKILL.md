@@ -22,7 +22,7 @@ WISHKET_ID, WISHKET_PASSWORD      # for auto-login (from .env, never chat)
 PORTFOLIO_SUPABASE_URL=https://ggvlnurppgoroqxbhpej.supabase.co
 PORTFOLIO_SUPABASE_KEY=<anon-or-service key with projects read>
 ```
-Python with `playwright` + chromium (donggu: `/Users/joeykang/workspace/projects/n8n/api/.venv/bin/python`).
+Python with `playwright` + chromium (use the project's local virtual environment).
 Use **absolute** `SESSIONS_DIR`/`SCREENSHOTS_DIR` — agent cwd resets between calls, so the scripts' `./sessions` default is unreliable. Creds come from `WISHKET_ID`/`WISHKET_PASSWORD` env, or a `WISHKET_CRED_FILE` (`.env`-style; file-first to avoid ps/env exposure).
 
 ## Flow

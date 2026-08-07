@@ -62,7 +62,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     start = commands.add_parser("start")
     start.add_argument("--date")
-    start.add_argument("--resume", action="store_true")
 
     record = commands.add_parser("record")
     record.add_argument(
