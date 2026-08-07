@@ -116,6 +116,29 @@ def _checked_external_state_root(vault_root: Path, value: Path) -> Path:
     path = Path(value).expanduser()
     if not path.is_absolute():
         raise LifeOSError("State root must be absolute")
+    existing_ancestor = path
+    try:
+        while True:
+            try:
+                existing_ancestor.lstat()
+                break
+            except FileNotFoundError:
+                parent = existing_ancestor.parent
+                if parent == existing_ancestor:
+                    raise LifeOSError("State root ancestry is unavailable")
+                existing_ancestor = parent
+        current = existing_ancestor
+        while True:
+            if os.path.samefile(current, vault_root):
+                raise LifeOSError("State root must be outside the Vault")
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+    except LifeOSError:
+        raise
+    except OSError:
+        raise LifeOSError("State root ancestry is unavailable") from None
     canonical_vault = Path(os.path.realpath(vault_root))
     canonical_state = Path(os.path.realpath(path))
     try:
