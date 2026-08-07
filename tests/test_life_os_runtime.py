@@ -450,7 +450,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 self.assertEqual(1, self.runtime.status(day)["next_question"])
         self.assertFalse((self.vault / "Life OS/Attachments").exists())
 
-    def test_attachment_rejects_file_swapped_to_symlink_between_hash_and_copy(self):
+    def test_attachment_rejects_file_swapped_to_symlink_before_descriptor_open(self):
         cache = self.base / "cache/documents"
         cache.mkdir(parents=True)
         source = cache / "uuid-race.pdf"
@@ -459,20 +459,24 @@ class LifeOSRuntimeTests(unittest.TestCase):
         outside.write_bytes(b"same bytes")
         day = date(2026, 8, 7)
         self.runtime.start_daily(day)
-        real_hash = life_os._file_sha256
+        real_open = life_os.os.open
+        swapped = False
 
-        def hash_then_swap(path):
-            digest = real_hash(path)
-            path.unlink()
-            path.symlink_to(outside)
-            return digest
+        def swap_file_before_open(path, flags, *args, **kwargs):
+            nonlocal swapped
+            if path == source.name and kwargs.get("dir_fd") is not None and not swapped:
+                source.unlink()
+                source.symlink_to(outside)
+                swapped = True
+            return real_open(path, flags, *args, **kwargs)
 
-        with mock.patch.object(life_os, "_file_sha256", side_effect=hash_then_swap):
+        with mock.patch.object(life_os.os, "open", side_effect=swap_file_before_open):
             with self.assertRaisesRegex(life_os.LifeOSError, "cache attachment"):
                 self.runtime.record(
                     "answer", message_text="race", message_key="race:1",
                     attachment_paths=[source], target_date=day,
                 )
+        self.assertTrue(swapped)
         self.assertEqual(1, self.runtime.status(day)["next_question"])
         attachments = self.vault / "Life OS/Attachments"
         self.assertFalse(attachments.exists() and any(attachments.iterdir()))
@@ -492,6 +496,41 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 attachment_paths=[traversal], target_date=day,
             )
         self.assertEqual(1, self.runtime.status(day)["next_question"])
+
+    def test_attachment_rejects_intermediate_cache_parent_swapped_to_symlink(self):
+        cache = self.base / "cache/documents"
+        nested = cache / "nested"
+        nested.mkdir(parents=True)
+        source = nested / "uuid-nested.pdf"
+        source.write_bytes(b"trusted bytes")
+        outside = self.base / "outside-cache"
+        outside.mkdir()
+        (outside / source.name).write_bytes(b"outside bytes")
+        moved = cache / "original-nested"
+        real_open = life_os.os.open
+        swapped = False
+
+        def swap_parent_before_open(path, flags, *args, **kwargs):
+            nonlocal swapped
+            if path == "nested" and kwargs.get("dir_fd") is not None and not swapped:
+                nested.rename(moved)
+                nested.symlink_to(outside, target_is_directory=True)
+                swapped = True
+            return real_open(path, flags, *args, **kwargs)
+
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        with mock.patch.object(life_os.os, "open", side_effect=swap_parent_before_open):
+            with self.assertRaisesRegex(life_os.LifeOSError, "cache attachment"):
+                self.runtime.record(
+                    "answer", message_text="nested", message_key="nested-race:1",
+                    attachment_paths=[source], target_date=day,
+                )
+
+        self.assertTrue(swapped)
+        self.assertEqual(1, self.runtime.status(day)["next_question"])
+        attachments = self.vault / "Life OS/Attachments"
+        self.assertFalse(attachments.exists() and any(attachments.iterdir()))
 
     def test_attachment_name_is_sanitized_and_conflicting_destination_is_rejected(self):
         cache = self.base / "cache/documents"
