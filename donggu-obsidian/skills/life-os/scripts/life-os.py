@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "status":
             result = runtime.status(_optional_date(args.date))
         elif args.command == "start":
-            result = runtime.start_daily(_optional_date(args.date), resume=args.resume)
+            result = runtime.start_daily(_optional_date(args.date), resume=True)
         else:
             text = sys.stdin.read()
             result = runtime.record(

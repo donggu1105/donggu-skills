@@ -28,6 +28,14 @@ _LIFE_OS_RUNTIME_LOCK = threading.Lock()
 _TRUSTED_TURN_TTL_SECONDS = 300.0
 _TRUSTED_TURN_LIMIT = 256
 _ATTACHMENT_ONLY_TEXT = "첨부 파일"
+_HERMES_LIVE_SESSION_IDENTITY_NAMES = (
+    "HERMES_SESSION_PLATFORM", "HERMES_SESSION_SOURCE",
+    "HERMES_SESSION_CHAT_ID", "HERMES_SESSION_CHAT_TYPE",
+    "HERMES_SESSION_CHAT_NAME", "HERMES_SESSION_THREAD_ID",
+    "HERMES_SESSION_USER_ID", "HERMES_SESSION_USER_NAME",
+    "HERMES_SESSION_KEY", "HERMES_SESSION_ID", "HERMES_UI_SESSION_ID",
+    "HERMES_SESSION_MESSAGE_ID", "HERMES_SESSION_PROFILE",
+)
 
 
 class _TrustedTurnCache:
@@ -236,8 +244,7 @@ def _authorize_life_os_call(operation: str) -> None:
         if (
             cron_marker != "1"
             or operation != "start"
-            or get_session_env("HERMES_SESSION_PLATFORM", "") != ""
-            or get_session_env("HERMES_SESSION_CHAT_ID", "") != ""
+            or any(get_session_env(name, "") != "" for name in _HERMES_LIVE_SESSION_IDENTITY_NAMES)
             or get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM", "").strip().lower() != "discord"
             or get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID", "") != channel_id
         ):

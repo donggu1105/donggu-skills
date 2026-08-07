@@ -834,27 +834,81 @@ Expected: gateway healthy; `donggu-obsidian` enabled at `1.9.0`; `life-os` disco
 
 - [ ] **Step 1: Create or reconcile the unique cron job**
 
-List jobs first. If the exact job name exists, edit it; otherwise create it:
+List jobs first and resolve the exact name to zero or one job ID. Edit that ID
+when present; otherwise create the job and capture the returned ID:
 
 ```bash
 LIFE_OS_VAULT_ROOT="$(pwd)"
+LIFE_OS_CRON_NAME='Life OS 데일리 체크인 (22:00)'
+LIFE_OS_CRON_PROMPT='Use the life-os skill. Call donggu_life_os_start_daily for the current KST date. Return only its pending question; if completed, return 오늘 Daily 기록은 이미 완료됐어요.'
 LIFE_OS_CHANNEL_ID="$(hermes --oneshot 'Read-only Discord lookup: list channels in the guild named 대장간 and return only the decimal ID of the unique text channel named life-os whose parent category is 알림. Do not mutate anything.' --toolsets discord_admin)"
 case "$LIFE_OS_CHANNEL_ID" in ''|*[!0-9]*) exit 1 ;; esac
-hermes cron create '0 22 * * *' \
-  'Use the life-os skill. Call donggu_life_os_start_daily for the current KST date. Return only its pending question; if completed, return 오늘 Daily 기록은 이미 완료됐어요.' \
-  --name 'Life OS 데일리 체크인 (22:00)' \
-  --deliver "discord:${LIFE_OS_CHANNEL_ID}" \
-  --skill life-os \
-  --workdir "$LIFE_OS_VAULT_ROOT"
+
+life_os_cron_ids() {
+  python3 -c '
+import re, sys
+name = sys.argv[1]
+current = None
+for raw in sys.stdin:
+    line = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw.rstrip("\n"))
+    match = re.match(r"\s*([0-9a-f]{12})\b", line)
+    if match:
+        current = match.group(1)
+    named = re.match(r"\s*Name:\s+(.*)$", line)
+    if named and named.group(1) == name and current:
+        print(current)
+' "$LIFE_OS_CRON_NAME"
+}
+
+LIFE_OS_CRON_LIST="$(hermes cron list --all)"
+LIFE_OS_CRON_IDS="$(printf '%s\n' "$LIFE_OS_CRON_LIST" | life_os_cron_ids)"
+LIFE_OS_CRON_MATCH_COUNT="$(printf '%s\n' "$LIFE_OS_CRON_IDS" | sed '/^$/d' | wc -l | tr -d ' ')"
+case "$LIFE_OS_CRON_MATCH_COUNT" in
+  0)
+    LIFE_OS_CRON_CREATE="$(hermes cron create '0 22 * * *' "$LIFE_OS_CRON_PROMPT" \
+      --name "$LIFE_OS_CRON_NAME" \
+      --deliver "discord:${LIFE_OS_CHANNEL_ID}" \
+      --skill life-os \
+      --workdir "$LIFE_OS_VAULT_ROOT")"
+    LIFE_OS_CRON_JOB_ID="$(printf '%s\n' "$LIFE_OS_CRON_CREATE" | \
+      python3 -c 'import re,sys; text=sys.stdin.read(); match=re.search(r"Created job:\s*([0-9a-f]{12})\b", text); print(match.group(1) if match else "")')"
+    ;;
+  1)
+    LIFE_OS_CRON_JOB_ID="$LIFE_OS_CRON_IDS"
+    hermes cron edit "$LIFE_OS_CRON_JOB_ID" \
+      --schedule '0 22 * * *' \
+      --prompt "$LIFE_OS_CRON_PROMPT" \
+      --name "$LIFE_OS_CRON_NAME" \
+      --deliver "discord:${LIFE_OS_CHANNEL_ID}" \
+      --skill life-os \
+      --workdir "$LIFE_OS_VAULT_ROOT"
+    ;;
+  *)
+    echo 'expected exactly one cron job ID for the exact job name' >&2
+    exit 1
+    ;;
+esac
+case "$LIFE_OS_CRON_JOB_ID" in ''|*[!0-9a-f]*) exit 1 ;; esac
+
+LIFE_OS_CRON_LIST="$(hermes cron list --all)"
+LIFE_OS_CRON_IDS="$(printf '%s\n' "$LIFE_OS_CRON_LIST" | life_os_cron_ids)"
+LIFE_OS_CRON_MATCH_COUNT="$(printf '%s\n' "$LIFE_OS_CRON_IDS" | sed '/^$/d' | wc -l | tr -d ' ')"
+if [ "$LIFE_OS_CRON_MATCH_COUNT" != 1 ] || [ "$LIFE_OS_CRON_IDS" != "$LIFE_OS_CRON_JOB_ID" ]; then
+  echo 'expected exactly one cron job ID for the exact job name' >&2
+  exit 1
+fi
 ```
 
-Run from the target Vault root. The readback call is read-only and the decimal-only guard fails closed before cron creation. Do not create a duplicate named job.
+Run from the target Vault root. The readback call is read-only and the
+decimal-only guard fails closed before cron creation. The post-create/edit
+`cron list --all` readback proves the exact name resolves to the captured
+unique ID; ambiguity fails before any smoke run.
 
 - [ ] **Step 2: Force one run and wait for a terminal execution record**
 
 ```bash
-hermes cron run 'Life OS 데일리 체크인 (22:00)'
-hermes cron runs 'Life OS 데일리 체크인 (22:00)' --limit 5
+hermes cron run "$LIFE_OS_CRON_JOB_ID"
+hermes cron runs "$LIFE_OS_CRON_JOB_ID" --limit 5
 ```
 
 Expected: newest run reaches `completed`; scheduler remains healthy.

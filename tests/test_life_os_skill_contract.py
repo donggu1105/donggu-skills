@@ -155,6 +155,19 @@ class LifeOSSkillContractTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, plan)
 
+    def test_cron_reconciliation_and_smoke_commands_use_one_exact_job_id(self):
+        plan = PLAN.read_text(encoding="utf-8")
+        for phrase in (
+            'LIFE_OS_CRON_LIST="$(hermes cron list --all)"',
+            'LIFE_OS_CRON_CREATE="$(hermes cron create',
+            'LIFE_OS_CRON_JOB_ID',
+            'expected exactly one cron job ID for the exact job name',
+            'hermes cron run "$LIFE_OS_CRON_JOB_ID"',
+            'hermes cron runs "$LIFE_OS_CRON_JOB_ID" --limit 5',
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, plan)
+
     def test_cli_status_start_and_record_use_shared_runtime(self):
         status = self.run_cli("status", "--date", "2026-08-07")
         self.assertEqual(0, status.returncode, status.stderr)
@@ -172,6 +185,29 @@ class LifeOSSkillContractTests(unittest.TestCase):
         self.assertEqual("감정과 에너지는 어떤가?", json.loads(record.stdout)["question"])
         note = self.vault / "Life OS/0. PeriodicNotes/2026/Daily/08/2026-08-07.md"
         self.assertIn("산책을 했다", note.read_text(encoding="utf-8"))
+
+    def test_cli_explicit_start_resumes_paused_daily_without_resetting_progress(self):
+        day = "2026-08-07"
+        self.assertEqual(0, self.run_cli("start", "--date", day).returncode)
+        answer = self.run_cli(
+            "record", "answer", "--date", day,
+            "--message-key", "manual:answer", input_text="첫 답",
+        )
+        self.assertEqual(0, answer.returncode, answer.stderr)
+        pause = self.run_cli(
+            "record", "pause", "--date", day,
+            "--message-key", "manual:pause", input_text="그만",
+        )
+        self.assertEqual(0, pause.returncode, pause.stderr)
+
+        resumed = self.run_cli("start", "--date", day)
+        self.assertEqual(0, resumed.returncode, resumed.stderr)
+        payload = json.loads(resumed.stdout)
+        self.assertEqual("active", payload["status"])
+        self.assertEqual(2, payload["next_question"])
+        note = self.vault / "Life OS/0. PeriodicNotes/2026/Daily/08/2026-08-07.md"
+        text = note.read_text(encoding="utf-8")
+        self.assertEqual(1, text.count("첫 답"))
 
     def test_cli_reports_runtime_errors_on_stderr_with_exit_code_2(self):
         proc = subprocess.run(

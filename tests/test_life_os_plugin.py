@@ -130,13 +130,18 @@ class LifeOSPluginTests(unittest.TestCase):
     def cron_context(*, marker="1", platform="discord", chat_id="456"):
         values = {
             "HERMES_SESSION_PLATFORM": "",
+            "HERMES_SESSION_SOURCE": "",
             "HERMES_SESSION_CHAT_ID": "",
-            "HERMES_SESSION_USER_ID": "",
+            "HERMES_SESSION_CHAT_TYPE": "",
+            "HERMES_SESSION_CHAT_NAME": "",
             "HERMES_SESSION_THREAD_ID": "",
-            "HERMES_SESSION_PROFILE": "",
-            "HERMES_SESSION_MESSAGE_ID": "",
-            "HERMES_SESSION_ID": "",
+            "HERMES_SESSION_USER_ID": "",
+            "HERMES_SESSION_USER_NAME": "",
             "HERMES_SESSION_KEY": "",
+            "HERMES_SESSION_ID": "",
+            "HERMES_UI_SESSION_ID": "",
+            "HERMES_SESSION_MESSAGE_ID": "",
+            "HERMES_SESSION_PROFILE": "",
             "HERMES_CRON_SESSION": marker,
             "HERMES_CRON_AUTO_DELIVER_PLATFORM": platform,
             "HERMES_CRON_AUTO_DELIVER_CHAT_ID": chat_id,
@@ -281,18 +286,27 @@ class LifeOSPluginTests(unittest.TestCase):
                 self.assertFalse(denied["success"])
                 runtime.start_daily.assert_not_called()
 
-        cron = self.cron_context()
-        mixed_values = {
-            "HERMES_SESSION_PLATFORM": "discord",
-            "HERMES_SESSION_CHAT_ID": "456",
-        }
-        mixed_context = lambda name, default="": mixed_values.get(name, cron(name, default))
-        with mock.patch.dict(sys.modules, {
-            "gateway.session_context": types.SimpleNamespace(get_session_env=mixed_context),
-        }):
-            denied = json.loads(self.tools.handle_life_os_start_daily({}))
-        self.assertFalse(denied["success"])
-        runtime.start_daily.assert_not_called()
+        live_identity_names = (
+            "HERMES_SESSION_PLATFORM", "HERMES_SESSION_SOURCE",
+            "HERMES_SESSION_CHAT_ID", "HERMES_SESSION_CHAT_TYPE",
+            "HERMES_SESSION_CHAT_NAME", "HERMES_SESSION_THREAD_ID",
+            "HERMES_SESSION_USER_ID", "HERMES_SESSION_USER_NAME",
+            "HERMES_SESSION_KEY", "HERMES_SESSION_ID", "HERMES_UI_SESSION_ID",
+            "HERMES_SESSION_MESSAGE_ID", "HERMES_SESSION_PROFILE",
+        )
+        for contaminated_name in live_identity_names:
+            with self.subTest(contaminated_name=contaminated_name):
+                runtime.reset_mock()
+                cron = self.cron_context()
+                mixed_context = lambda name, default="", target=contaminated_name: (
+                    "contaminated" if name == target else cron(name, default)
+                )
+                with mock.patch.dict(sys.modules, {
+                    "gateway.session_context": types.SimpleNamespace(get_session_env=mixed_context),
+                }):
+                    denied = json.loads(self.tools.handle_life_os_start_daily({}))
+                self.assertFalse(denied["success"])
+                runtime.start_daily.assert_not_called()
 
     def test_origin_guard_rejects_invalid_and_duplicate_life_os_bindings(self):
         runtime = mock.Mock()
@@ -789,7 +803,7 @@ class LifeOSPluginTests(unittest.TestCase):
                 self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
                 first = json.loads(self.tools.handle_life_os_record({"operation": "free_record"}))
                 second = json.loads(self.tools.handle_life_os_record({"operation": "free_record"}))
-            note = runtime.daily_path(date.today()).read_text(encoding="utf-8")
+            note = Path(second["path"]).read_text(encoding="utf-8")
         self.assertFalse(first["success"])
         self.assertTrue(second["success"])
         self.assertTrue(second["duplicate"])
