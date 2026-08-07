@@ -112,6 +112,38 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("책 아이디어", text)
         self.assertFalse(self.runtime.daily_path(date(2026, 8, 7)).exists())
 
+    def test_capture_rejects_symlinked_parent_with_existing_dated_file(self):
+        day = date(2026, 8, 7)
+        external = self.base / "external-capture"
+        external.mkdir()
+        external_note = external / f"{day.isoformat()}.md"
+        original = "external content\n"
+        external_note.write_text(original, encoding="utf-8")
+        (self.vault / "Life OS/-1. Capture").symlink_to(external, target_is_directory=True)
+
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.record(
+                "capture", message_text="must not escape", message_key="escape:existing",
+                target_date=day,
+            )
+
+        self.assertEqual(original, external_note.read_text(encoding="utf-8"))
+
+    def test_capture_rejects_symlinked_parent_without_dated_file(self):
+        day = date(2026, 8, 7)
+        external = self.base / "external-empty-capture"
+        external.mkdir()
+        external_note = external / f"{day.isoformat()}.md"
+        (self.vault / "Life OS/-1. Capture").symlink_to(external, target_is_directory=True)
+
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.record(
+                "capture", message_text="must not create", message_key="escape:absent",
+                target_date=day,
+            )
+
+        self.assertFalse(external_note.exists())
+
     def test_followups_are_durable_bounded_and_non_recursive(self):
         day = date(2026, 8, 7)
         self.runtime.start_daily(day)
@@ -151,6 +183,31 @@ class LifeOSRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(2, limited["follow_up_count"])
         self.assertIsNone(limited["pending_follow_up"])
+
+    def test_answer_and_skip_cannot_consume_paused_follow_up(self):
+        for offset, operation in enumerate(("answer", "skip"), start=7):
+            with self.subTest(operation=operation):
+                day = date(2026, 8, offset)
+                self.runtime.start_daily(day)
+                self.runtime.record(
+                    "answer", message_text="첫 답", message_key=f"paused:{operation}:answer",
+                    follow_up_question="꼬리질문?", target_date=day,
+                )
+                paused = self.runtime.record(
+                    "pause", message_text="그만", message_key=f"paused:{operation}:pause",
+                    target_date=day,
+                )
+                path = self.runtime.daily_path(day)
+                original = path.read_text(encoding="utf-8")
+
+                with self.assertRaises(life_os.LifeOSError):
+                    self.runtime.record(
+                        operation, message_text="일찍 온 답", message_key=f"paused:{operation}:early",
+                        target_date=day,
+                    )
+
+                self.assertEqual(original, path.read_text(encoding="utf-8"))
+                self.assertEqual(paused, self.runtime.status(day))
 
     def test_skip_and_free_record_preserve_question_progress(self):
         day = date(2026, 8, 7)

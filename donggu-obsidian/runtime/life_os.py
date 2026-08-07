@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import stat
 import tempfile
 from typing import Any, Iterator, Sequence
@@ -310,6 +311,8 @@ class LifeOSRuntime:
             )
 
         if state.pending_follow_up is not None:
+            if state.status == "paused":
+                raise LifeOSError("Daily workflow is not accepting a response")
             if operation == "skip":
                 response = "건너뛰기"
             else:
@@ -377,35 +380,109 @@ class LifeOSRuntime:
 
     def _append_capture(self, selected: date, text: str, key: str) -> dict[str, Any]:
         path = self.capture_path(selected)
-        if path.exists():
-            try:
-                info = path.lstat()
-                if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-                    raise LifeOSError("Capture note must be a non-symlink file")
-                document = path.read_bytes().decode("utf-8")
-            except LifeOSError:
-                raise
-            except (OSError, UnicodeError):
-                raise LifeOSError("Capture note is unreadable") from None
-            if self._message_already_committed(document, key):
-                return {"path": str(path), "date": selected.isoformat(), "status": "captured", "duplicate": True}
-        else:
-            self._prepare_capture_parent()
-            document = f"# Capture — {selected.isoformat()}\n\n"
-        entry = self._timestamped_entry("Capture", text, key)
-        self._atomic_replace(path, document + entry)
+        with self._capture_directory() as directory_fd:
+            document = self._read_capture_at(directory_fd, path.name)
+            if document is not None:
+                if self._message_already_committed(document, key):
+                    return {"path": str(path), "date": selected.isoformat(), "status": "captured", "duplicate": True}
+            else:
+                document = f"# Capture — {selected.isoformat()}\n\n"
+            entry = self._timestamped_entry("Capture", text, key)
+            self._atomic_replace_at(directory_fd, path.name, document + entry)
         return {"path": str(path), "date": selected.isoformat(), "status": "captured", "duplicate": False}
 
-    def _prepare_capture_parent(self) -> Path:
+    @contextmanager
+    def _capture_directory(self) -> Iterator[int]:
         path = self.life_root / "-1. Capture"
+        directory_fd = -1
         try:
             path.mkdir(mode=0o755, exist_ok=True)
-            info = path.lstat()
+            path_info = path.lstat()
+            if stat.S_ISLNK(path_info.st_mode) or not stat.S_ISDIR(path_info.st_mode):
+                raise LifeOSError("Capture directory must be a non-symlink directory")
+            directory_fd = os.open(path, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
+            if not os.path.samestat(path_info, os.fstat(directory_fd)):
+                raise LifeOSError("Capture directory changed during validation")
+        except LifeOSError:
+            if directory_fd >= 0:
+                os.close(directory_fd)
+            raise
         except OSError:
+            if directory_fd >= 0:
+                os.close(directory_fd)
             raise LifeOSError("Capture directory is unavailable") from None
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-            raise LifeOSError("Capture directory must be a non-symlink directory")
-        return path
+        try:
+            yield directory_fd
+        finally:
+            os.close(directory_fd)
+
+    @staticmethod
+    def _read_capture_at(directory_fd: int, name: str) -> str | None:
+        try:
+            descriptor = os.open(name, os.O_RDONLY | _NOFOLLOW, dir_fd=directory_fd)
+        except FileNotFoundError:
+            return None
+        except OSError:
+            raise LifeOSError("Capture note is unavailable") from None
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                raise LifeOSError("Capture note must be a non-symlink file")
+            with os.fdopen(descriptor, "rb", closefd=True) as stream:
+                descriptor = -1
+                return stream.read().decode("utf-8")
+        except LifeOSError:
+            raise
+        except (OSError, UnicodeError):
+            raise LifeOSError("Capture note is unreadable") from None
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+    @staticmethod
+    def _atomic_replace_at(directory_fd: int, name: str, text: str) -> None:
+        data = text.encode("utf-8")
+        descriptor = -1
+        temp_name = ""
+        try:
+            for _attempt in range(10):
+                candidate = f".{name}.life-os-{secrets.token_hex(8)}"
+                try:
+                    descriptor = os.open(
+                        candidate,
+                        os.O_CREAT | os.O_EXCL | os.O_WRONLY | _NOFOLLOW,
+                        0o600,
+                        dir_fd=directory_fd,
+                    )
+                    temp_name = candidate
+                    break
+                except FileExistsError:
+                    continue
+            if descriptor < 0:
+                raise OSError("temporary Capture allocation failed")
+            with os.fdopen(descriptor, "wb", closefd=True) as stream:
+                descriptor = -1
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(
+                temp_name,
+                name,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
+            )
+            temp_name = ""
+            os.fsync(directory_fd)
+        except OSError:
+            raise LifeOSError("Capture note could not be committed atomically") from None
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temp_name:
+                try:
+                    os.unlink(temp_name, dir_fd=directory_fd)
+                except OSError:
+                    pass
 
     def _timestamped_entry(self, label: str, text: str, key: str) -> str:
         timestamp = datetime.now(self.timezone).strftime("%H:%M")
