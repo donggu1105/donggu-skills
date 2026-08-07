@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 import json
 import re
 import unittest
@@ -105,6 +106,14 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         )
         self.assertIn("논지를 잠근 뒤 요청 채널", writing)
         self.assertIn("사실·숫자·사례·비유·결론·고유 표현", writing)
+        step_2 = writing.split("### 2. 필수 reference 로드", 1)[1].split(
+            "### 3. 근거 장부", 1
+        )[0]
+        step_5 = writing.split("### 5. 톤 캘리브레이션", 1)[1].split(
+            "### 6. 작성", 1
+        )[0]
+        self.assertIn("`examples-*`는 여기서 읽지 않는다", step_2)
+        self.assertIn("references/examples-*.md", step_5)
 
         expected_counts = {
             "examples_blog": 3,
@@ -112,13 +121,30 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             "examples_threads": 2,
             "examples_maily": 3,
         }
+        expected_unique_sources = {
+            "examples_blog": 3,
+            "examples_linkedin": 3,
+            "examples_threads": 2,
+            "examples_maily": 2,
+        }
+        expected_sha256 = {
+            "examples_blog": "9118b2f530c96b63687a7ce04cd18e3e1d7821b3b8ad3753d1bed910a699e80e",
+            "examples_linkedin": "9a493a7ffc2b46bf7abd5f31ce25ddb7a0fc74a46fcebd6493e4e320785ea39f",
+            "examples_threads": "aaa3d76fa9bb372a1029bd3467eb65903f5d9a4a0555e668cec18c22add8ee17",
+            "examples_maily": "98508db7811f9c4641e19fb56f4905c4739653da804f7da89fc86b0c72e52a89",
+        }
         for name, expected_count in expected_counts.items():
             text = self.writing_references[name]
             with self.subTest(name=name):
                 self.assertIn("## 사용 경계", text)
                 self.assertIn("문체 교정용", text)
                 self.assertEqual(text.count("**원문 제목:**"), expected_count)
+                titles = re.findall(r"\*\*원문 제목:\*\* (.+)", text)
+                self.assertEqual(expected_unique_sources[name], len(set(titles)))
                 self.assertIn("근거가 아니다", text)
+                self.assertEqual(
+                    expected_sha256[name], hashlib.sha256(text.encode("utf-8")).hexdigest()
+                )
 
     def test_writing_explicit_source_and_untrusted_data_boundaries_are_deterministic(self):
         writing = self.skills["writing"]
@@ -131,11 +157,22 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
 
     def test_writing_preserves_unsupported_first_comments_as_manual_handoff(self):
         writing = self.skills["writing"]
+        publishing = self.skills["publishing"]
         self.assertGreaterEqual(writing.count("수동 첫 댓글 링크"), 3)
         self.assertIn("현재 발행 payload가 첫 댓글을 지원하지 않으면", writing)
         for channel in ("linkedin", "threads"):
             with self.subTest(channel=channel):
                 self.assertIn("수동 첫 댓글", self.writing_references[channel])
+        self.assertIn("`## 수동 첫 댓글`", publishing)
+        self.assertIn("For LinkedIn/Threads only", publishing)
+        self.assertIn("payload에 포함하지 않는다", publishing)
+        self.assertIn("발행 성공 뒤 수동 후속으로 다시 보여준다", publishing)
+
+    def test_threads_authoring_and_publishing_share_zero_hashtag_contract(self):
+        publishing = self.skills["publishing"]
+        self.assertIn("0 hashtags", publishing)
+        self.assertNotIn("1 hashtag max", publishing)
+        self.assertIn("500자를 넘거나 해시태그·본문 URL", publishing)
 
     def test_writing_is_one_umbrella_skill_not_per_channel_copies(self):
         skills_root = REPO_ROOT / "donggu-sns" / "skills"

@@ -71,7 +71,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 ### 2. 필수 reference 로드
 
 - `references/common-voice.md`를 읽는다.
-- 요청받은 채널 reference를 읽는다.
+- 요청받은 채널의 규칙 reference만 읽는다. `examples-*`는 여기서 읽지 않는다.
 - reference의 출력 계약과 금지 항목을 체크리스트로 잠근다.
 
 ### 3. 근거 장부
@@ -118,7 +118,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 ### 8. 전달
 
 - authoring-only: 채널별 확정 초안과 필요한 수동 첫 댓글 링크를 분리해 보여준다.
-- 파일 저장 요청: 작성 결과를 target-native 파일 도구에 넘긴다. 이 스킬은 경로·schema·frontmatter를 소유하지 않는다.
+- 파일 저장 요청: 본문과 `manual_first_comment_url`을 분리해 target-native 파일 도구에 넘긴다. LinkedIn·Threads의 외부 URL은 canonical body 밖의 `## 수동 첫 댓글` 섹션에 보존한다. 이 스킬은 그 외 경로·schema·frontmatter를 소유하지 않는다.
 - 게시 요청: `publish-sns`의 preview·approval 절차로 넘긴다. 현재 발행 payload가 첫 댓글을 지원하지 않으면 URL을 조용히 버리지 말고 수동 후속 단계로 명시한다. 이 스킬은 게시하지 않는다.
 
 ## Common Mistakes
@@ -128,6 +128,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 | reference를 읽지 않고 매트릭스만 보고 작성 | 공통 보이스 + 요청 채널 reference를 반드시 읽는다. |
 | 논지 잠금 전에 기존 글 예시부터 읽기 | 근거 장부와 현재 논지를 먼저 잠근 뒤 요청 채널 examples만 읽는다. |
 | 예시의 문장·사례·결론을 재사용 | register·리듬·전환·종결 방식만 추출하고 내용은 현재 source에서만 가져온다. |
+| LinkedIn·Threads 외부 URL을 본문에 합치기 | URL은 `manual_first_comment_url`로 분리하고 저장 시 `## 수동 첫 댓글` 섹션에 보존한다. |
 | 외부 보이스 문서나 과거 글을 자동 조회 | 금지. 스킬 내부 reference가 작성 규칙의 정본이다. |
 | 기존 글을 길이만 바꿔 재사용 | 채널별 독자·호흡·구조로 다시 쓴다. |
 | 과거 관점이나 익숙한 결론으로 수렴 | 현재 source에서 새 논지를 잠근다. |

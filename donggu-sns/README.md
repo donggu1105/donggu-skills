@@ -84,6 +84,8 @@ common-voice + 요청 채널 규칙
 
 `writing-social-content`는 저장 경로, schema, frontmatter, 이미지, 게시를 소유하지 않는다. 저장 대상이 Obsidian이어도 해당 Vault의 규칙은 저장 단계에서만 적용한다.
 
+LinkedIn·Threads의 외부 URL은 본문과 분리한 `manual_first_comment_url`로 넘긴다. 저장 단계는 이를 canonical body 밖의 `## 수동 첫 댓글` 섹션에 보존하고, `publish-sns`는 발행 성공 뒤 직접 게시할 URL로 다시 보여준다.
+
 ---
 
 ## 발행 안전 경계
@@ -91,6 +93,8 @@ common-voice + 요청 채널 규칙
 - 실제 외부 게시·수정·삭제는 `publish-sns`만 수행한다.
 - preview와 사용자 승인 없이 게시하지 않는다.
 - Maily 실제 발송은 별도 2차 확인이 필요하다.
+- native preview는 Threads 500자 초과·해시태그·명백한 본문 URL 문자열과 LinkedIn의 명백한 본문 URL 문자열을 거부한다.
+- LinkedIn·Threads 첫 댓글은 자동 발행하지 않고 `## 수동 첫 댓글`에서 재개 가능한 수동 후속으로 보존한다.
 - 외부 결과는 ledger read-back까지 확인한다.
 
 ---

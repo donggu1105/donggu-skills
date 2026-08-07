@@ -513,6 +513,73 @@ class PublishingRuntimeTests(unittest.TestCase):
                 session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
             )
 
+    def test_threads_and_linkedin_text_contracts_are_enforced_before_receipt(self):
+        invalid = (
+            ("threads", "가" * 501, "500 characters"),
+            ("threads", "본문 #AI", "hashtags"),
+            ("threads", "본문#AI", "hashtags"),
+            ("threads", "본문 #C#", "hashtags"),
+            ("threads", "본문 #F#", "hashtags"),
+            ("threads", "본문 https://example.com", "URLs"),
+            ("threads", "본문 www.example.com", "URLs"),
+            ("threads", "본문 ftp://example.com/file", "URLs"),
+            ("threads", "본문 mailto:hello@example.com", "URLs"),
+            ("linkedin", "본문 https://example.com", "URLs"),
+        )
+        for channel, content, message in invalid:
+            with self.subTest(channel=channel, message=message):
+                with self.assertRaisesRegex(self.module.ValidationError, message):
+                    self.runtime.preview(
+                        channel=channel,
+                        operation="publish",
+                        payload={"content": content},
+                        topic="contract",
+                        note_path="note.md",
+                        session_id="stateless-contract",
+                        turn_id="stateless-turn",
+                        issue_receipt=True,
+                        user_message_id=self.PREVIEW_MESSAGE_ID,
+                    )
+
+        with self.assertRaisesRegex(
+            self.module.ValidationError, "closed channel contract"
+        ):
+            self.runtime.preview(
+                channel="threads",
+                operation="publish",
+                payload={
+                    "content": "본문",
+                    "manual_first_comment_url": "https://example.com",
+                },
+                topic="contract",
+                note_path="note.md",
+                session_id="stateless-contract",
+                turn_id="stateless-turn",
+                user_message_id=self.PREVIEW_MESSAGE_ID,
+            )
+
+        self.assertEqual([], list((Path(self.tmp.name) / "receipts").glob("*.json")))
+
+        valid = self.runtime.preview(
+            channel="threads",
+            operation="publish",
+            payload={
+                "content": (
+                    "C#과 F#, README.md, Node.js, main.py, v2.alpha는 기술 표기이고 "
+                    "module.config, System.IOUtils, my.appconfig, foo.designTokens, "
+                    "example.company, ASP.NET, System.IO, ML.NET, foo.dev, Acme.com은 "
+                    "식별자나 이름이고 donggu.site/post는 scheme 없는 문자열이며 "
+                    "me@mail.example.com은 이메일이다"
+                )
+            },
+            topic="contract",
+            note_path="note.md",
+            session_id="stateless-contract",
+            turn_id="stateless-turn",
+            issue_receipt=False,
+        )
+        self.assertEqual("preview", valid["status"])
+
     def test_receipt_claim_allows_exactly_one_concurrent_winner(self):
         plan = self.preview_threads()
 

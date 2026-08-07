@@ -103,6 +103,27 @@ _APPROVAL_RE = re.compile(
     r"발행해\s*줘|삭제해\s*줘|진행해\s*줘)(?:$|[\s.!?])",
     re.IGNORECASE,
 )
+_URLISH_RE = re.compile(
+    r"(?:[a-z][a-z0-9+.-]*://|www\.|mailto:)",
+    re.IGNORECASE,
+)
+_HASHTAG_RE = re.compile(r"#[^\s#]+", re.UNICODE)
+_CODE_LANGUAGE_RE = re.compile(r"(?<!#)\b(?:C|F)#", re.IGNORECASE)
+
+
+def _validate_content_contract(channel: str, operation: str, content: str) -> str:
+    if operation != "publish":
+        return content
+    if channel == "threads":
+        if len(content) > 500:
+            raise ValidationError("threads content must not exceed 500 characters")
+        if _HASHTAG_RE.search(_CODE_LANGUAGE_RE.sub("", content)):
+            raise ValidationError("threads content must not contain hashtags")
+        if _URLISH_RE.search(content):
+            raise ValidationError("threads content must not contain URLs")
+    elif channel == "linkedin" and _URLISH_RE.search(content):
+        raise ValidationError("linkedin content must not contain URLs")
+    return content
 
 
 def _require_explicit_approval(value: Any) -> str:
@@ -215,7 +236,12 @@ def _validate_payload(
     clean: Dict[str, Any] = {}
     for field, value in payload.items():
         if field in {"title", "content", "subtitle", "caption", "category"}:
-            clean[field] = _nonempty(value, field)
+            text = _nonempty(value, field)
+            clean[field] = (
+                _validate_content_contract(channel, operation, text)
+                if field == "content"
+                else text
+            )
         elif field in {"cover_image"}:
             clean[field] = _validate_image_url(
                 value, allowed_hosts=allowed_image_hosts, resolve_dns=resolve_image_hosts,
