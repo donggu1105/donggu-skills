@@ -443,6 +443,39 @@ class LifeOSRuntimeTests(unittest.TestCase):
 
         self.assertEqual("arbitrary user bytes\n", temp.read_text(encoding="utf-8"))
 
+    def test_note_temp_replacement_during_reconciliation_is_preserved(self):
+        day = date(2026, 8, 7)
+        path = self.runtime.daily_path(day)
+        path.parent.mkdir(parents=True)
+        path.write_text("## Daily Record\ncanonical user bytes\n", encoding="utf-8")
+        path.chmod(0o600)
+        temp = path.parent / f".{path.name}.life-os-{'b' * 16}"
+        os.link(path, temp)
+        keep = path.parent / "preserve-canonical-inode"
+        unrelated = b"unrelated replacement bytes\n"
+        real_stat = life_os.os.stat
+        real_unlink = life_os.os.unlink
+        replaced = False
+
+        def replace_before_canonical_validation(name, *args, **kwargs):
+            nonlocal replaced
+            if name == path.name and kwargs.get("dir_fd") is not None and not replaced:
+                replaced = True
+                os.link(path, keep)
+                real_unlink(temp.name, dir_fd=kwargs["dir_fd"])
+                temp.write_bytes(unrelated)
+                temp.chmod(0o600)
+            return real_stat(name, *args, **kwargs)
+
+        with mock.patch.object(life_os.os, "stat", side_effect=replace_before_canonical_validation):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+                self.runtime.status(day)
+
+        self.assertTrue(replaced)
+        self.assertEqual("## Daily Record\ncanonical user bytes\n", path.read_text(encoding="utf-8"))
+        recoverable = [candidate for candidate in path.parent.iterdir() if candidate.is_file()]
+        self.assertTrue(any(candidate.read_bytes() == unrelated for candidate in recoverable))
+
     def test_status_and_date_resolution_normalize_repeated_concurrent_reads(self):
         day = date(2026, 8, 7)
         self.runtime.start_daily(day)
@@ -1081,6 +1114,127 @@ class LifeOSRuntimeTests(unittest.TestCase):
 
         self.assertEqual(b"racing bytes", destination.read_bytes())
         self.assertEqual(1, self.runtime.status(day)["next_question"])
+
+    def test_attachment_publish_fsyncs_link_before_unlink_and_fsyncs_again(self):
+        source = self.base / "attachment-order.bin"
+        source.write_bytes(b"attachment order")
+        descriptor = os.open(source, os.O_RDONLY)
+        self.addCleanup(os.close, descriptor)
+        destination = self.runtime.attachments_root / "A001 - order.bin"
+        events = []
+        directory_fd = None
+        real_link = life_os.os.link
+        real_unlink = life_os.os.unlink
+        real_fsync = life_os.os.fsync
+
+        def tracked_link(*args, **kwargs):
+            nonlocal directory_fd
+            result = real_link(*args, **kwargs)
+            directory_fd = kwargs.get("dst_dir_fd")
+            events.append("link")
+            return result
+
+        def tracked_unlink(*args, **kwargs):
+            events.append("unlink")
+            return real_unlink(*args, **kwargs)
+
+        def tracked_fsync(value):
+            if directory_fd is not None and value == directory_fd:
+                events.append("fsync-directory")
+            return real_fsync(value)
+
+        with mock.patch.object(life_os.os, "link", side_effect=tracked_link), \
+             mock.patch.object(life_os.os, "unlink", side_effect=tracked_unlink), \
+             mock.patch.object(life_os.os, "fsync", side_effect=tracked_fsync):
+            self.runtime._atomic_copy_verified(
+                descriptor, destination, hashlib.sha256(b"attachment order").hexdigest(),
+            )
+
+        self.assertEqual(
+            ["link", "fsync-directory", "unlink", "fsync-directory"], events,
+        )
+
+    def test_attachment_post_link_fsync_failure_preserves_temp_for_recovery(self):
+        source = self.base / "attachment-fsync-failure.bin"
+        source.write_bytes(b"recover after directory fsync failure")
+        descriptor = os.open(source, os.O_RDONLY)
+        self.addCleanup(os.close, descriptor)
+        destination = self.runtime.attachments_root / "A001 - recover.bin"
+        directory_fd = None
+        real_link = life_os.os.link
+        real_fsync = life_os.os.fsync
+
+        def tracked_link(*args, **kwargs):
+            nonlocal directory_fd
+            result = real_link(*args, **kwargs)
+            directory_fd = kwargs.get("dst_dir_fd")
+            return result
+
+        def fail_first_directory_fsync(value):
+            if directory_fd is not None and value == directory_fd:
+                raise OSError("injected directory fsync failure")
+            return real_fsync(value)
+
+        with mock.patch.object(life_os.os, "link", side_effect=tracked_link), \
+             mock.patch.object(life_os.os, "fsync", side_effect=fail_first_directory_fsync):
+            with self.assertRaises(life_os.LifeOSError):
+                self.runtime._atomic_copy_verified(
+                    descriptor,
+                    destination,
+                    hashlib.sha256(b"recover after directory fsync failure").hexdigest(),
+                )
+
+        entries = tuple(self.runtime.attachments_root.iterdir())
+        self.assertEqual(2, len(entries))
+        temp = next(path for path in entries if path.name.startswith(".life-os-attachment-"))
+        self.assertTrue(os.path.samefile(temp, destination))
+
+        self.runtime._reconcile_attachment_temps()
+        self.assertEqual([destination.name], [path.name for path in self.runtime.attachments_root.iterdir()])
+        self.assertEqual(b"recover after directory fsync failure", destination.read_bytes())
+
+    def test_unlinked_attachment_temp_is_retained_for_manual_recovery(self):
+        attachments = self.runtime.attachments_root
+        attachments.mkdir()
+        temp = attachments / (".life-os-attachment-" + "d" * 16)
+        temp.write_bytes(b"arbitrary attachment bytes")
+        temp.chmod(0o600)
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
+            self.runtime._reconcile_attachment_temps()
+
+        self.assertEqual(b"arbitrary attachment bytes", temp.read_bytes())
+
+    def test_attachment_temp_replacement_during_reconciliation_is_preserved(self):
+        attachments = self.runtime.attachments_root
+        attachments.mkdir()
+        canonical = attachments / "A001 - canonical.bin"
+        canonical.write_bytes(b"canonical attachment bytes")
+        canonical.chmod(0o600)
+        temp = attachments / (".life-os-attachment-" + "e" * 16)
+        os.link(canonical, temp)
+        unrelated = b"unrelated attachment replacement"
+        real_stat = life_os.os.stat
+        real_unlink = life_os.os.unlink
+        replaced = False
+
+        def replace_before_canonical_validation(name, *args, **kwargs):
+            nonlocal replaced
+            if name == canonical.name and kwargs.get("dir_fd") is not None and not replaced:
+                replaced = True
+                real_unlink(temp.name, dir_fd=kwargs["dir_fd"])
+                temp.write_bytes(unrelated)
+                temp.chmod(0o600)
+            return real_stat(name, *args, **kwargs)
+
+        with mock.patch.object(life_os.os, "stat", side_effect=replace_before_canonical_validation):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
+                self.runtime._reconcile_attachment_temps()
+
+        self.assertTrue(replaced)
+        self.assertEqual(b"canonical attachment bytes", canonical.read_bytes())
+        recoverable = [candidate for candidate in attachments.iterdir() if candidate.is_file()]
+        self.assertTrue(any(candidate.read_bytes() == unrelated for candidate in recoverable))
 
     def test_attachment_rename_crash_is_recovered_by_hash_on_retry(self):
         cache = self.base / "cache/documents"

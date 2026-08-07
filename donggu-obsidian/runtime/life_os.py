@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import ctypes
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 import fcntl
@@ -13,6 +14,7 @@ from pathlib import Path
 import re
 import secrets
 import stat
+import sys
 from typing import Any, Iterator, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -40,6 +42,7 @@ _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _ATTACHMENT_NAME = re.compile(r"^A(\d{3,}) - (.+)$")
 _ATTACHMENT_LINK = re.compile(r"\[\[Life OS/Attachments/(A\d{3,} - [^\]\r\n]+)\]\]")
 _ATTACHMENT_TEMP = re.compile(r"^\.life-os-attachment-[0-9a-f]{16}$")
+_RECOVERY_TEMP = re.compile(r"^\.life-os-recovery-[0-9a-f]{16}$")
 _DEFAULT_MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
 _SENSITIVE_MESSAGE_PATTERNS = (
     re.compile(r"<(?:@!?|@&|#)[0-9]{17,20}>"),
@@ -74,6 +77,108 @@ class _ConcurrentMutation(LifeOSError):
 
     def __init__(self) -> None:
         super().__init__("Life OS note changed concurrently; retry the operation")
+
+
+def _load_exclusive_rename() -> tuple[Any, int] | None:
+    try:
+        library = ctypes.CDLL(None, use_errno=True)
+        if sys.platform == "darwin":
+            function = library.renameatx_np
+            function.argtypes = [
+                ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p,
+                ctypes.c_uint,
+            ]
+            function.restype = ctypes.c_int
+            return function, 0x00000004 | 0x00000010
+        if sys.platform.startswith("linux"):
+            function = library.renameat2
+            function.argtypes = [
+                ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p,
+                ctypes.c_uint,
+            ]
+            function.restype = ctypes.c_int
+            return function, 0x00000001
+    except (AttributeError, OSError):
+        pass
+    return None
+
+
+_EXCLUSIVE_RENAME = _load_exclusive_rename()
+
+
+def _exclusive_rename_at(directory_fd: int, source: str, target: str) -> None:
+    if _EXCLUSIVE_RENAME is None:
+        raise OSError("exclusive rename is unavailable")
+    function, flags = _EXCLUSIVE_RENAME
+    result = function(
+        directory_fd, os.fsencode(source), directory_fd, os.fsencode(target), flags,
+    )
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+def _is_private_regular(info: os.stat_result) -> bool:
+    return (
+        stat.S_ISREG(info.st_mode)
+        and info.st_uid == os.geteuid()
+        and stat.S_IMODE(info.st_mode) == 0o600
+    )
+
+
+def _claim_and_remove_temp(
+    directory_fd: int,
+    temp_name: str,
+    canonical_name: str,
+    temp_info: os.stat_result,
+    canonical_info: os.stat_result,
+    kind: str,
+) -> None:
+    if (
+        not _is_private_regular(temp_info)
+        or not _is_private_regular(canonical_info)
+        or not os.path.samestat(temp_info, canonical_info)
+        or temp_info.st_nlink != 2
+        or canonical_info.st_nlink != 2
+    ):
+        raise LifeOSError(f"temporary {kind} conflicts with the canonical {kind}")
+
+    claimed_name = ""
+    for _attempt in range(10):
+        candidate = f".life-os-recovery-{secrets.token_hex(8)}"
+        try:
+            _exclusive_rename_at(directory_fd, temp_name, candidate)
+            claimed_name = candidate
+            break
+        except FileExistsError:
+            continue
+        except OSError:
+            raise LifeOSError(f"temporary {kind} could not be claimed safely") from None
+    if not claimed_name:
+        raise LifeOSError(f"temporary {kind} recovery name could not be allocated")
+
+    try:
+        claimed_info = os.stat(claimed_name, dir_fd=directory_fd, follow_symlinks=False)
+        current_canonical = os.stat(
+            canonical_name, dir_fd=directory_fd, follow_symlinks=False,
+        )
+    except OSError:
+        raise LifeOSError(f"temporary {kind} requires manual recovery") from None
+    if (
+        not _is_private_regular(claimed_info)
+        or not _is_private_regular(current_canonical)
+        or not os.path.samestat(claimed_info, temp_info)
+        or not os.path.samestat(current_canonical, canonical_info)
+        or not os.path.samestat(claimed_info, current_canonical)
+        or claimed_info.st_nlink != 2
+        or current_canonical.st_nlink != 2
+    ):
+        raise LifeOSError(f"temporary {kind} requires manual recovery")
+    try:
+        os.unlink(claimed_name, dir_fd=directory_fd)
+        os.fsync(directory_fd)
+    except OSError:
+        raise LifeOSError(f"temporary {kind} could not be reconciled") from None
 
 
 @dataclass(frozen=True)
@@ -639,8 +744,9 @@ class LifeOSRuntime:
                 entries = tuple(os.listdir(directory_fd))
             except OSError:
                 raise LifeOSError("attachment directory is unreadable") from None
+            if any(_RECOVERY_TEMP.fullmatch(name) for name in entries):
+                raise LifeOSError("temporary attachment requires manual recovery")
             canonical = tuple(name for name in entries if _ATTACHMENT_NAME.fullmatch(name))
-            changed = False
             for name in entries:
                 if not name.startswith(".life-os-attachment-"):
                     continue
@@ -652,11 +758,10 @@ class LifeOSRuntime:
                     raise LifeOSError("temporary attachment entry is unavailable") from None
                 if (
                     stat.S_ISLNK(info.st_mode)
-                    or not stat.S_ISREG(info.st_mode)
-                    or info.st_uid != os.geteuid()
+                    or not _is_private_regular(info)
                 ):
                     raise LifeOSError("temporary attachment entry is unsafe")
-                matches = []
+                matches: list[tuple[str, os.stat_result]] = []
                 for candidate in canonical:
                     try:
                         candidate_info = os.stat(
@@ -664,22 +769,14 @@ class LifeOSRuntime:
                         )
                     except OSError:
                         raise LifeOSError("stored attachment is unavailable") from None
-                    if stat.S_ISREG(candidate_info.st_mode) and os.path.samestat(info, candidate_info):
-                        matches.append(candidate)
-                if len(matches) > 1 or (not matches and info.st_nlink != 1):
+                    if _is_private_regular(candidate_info) and os.path.samestat(info, candidate_info):
+                        matches.append((candidate, candidate_info))
+                if len(matches) != 1:
                     raise LifeOSError("temporary attachment ownership is ambiguous")
-                if matches and info.st_nlink != 2:
-                    raise LifeOSError("temporary attachment ownership is ambiguous")
-                try:
-                    os.unlink(name, dir_fd=directory_fd)
-                except OSError:
-                    raise LifeOSError("temporary attachment could not be reconciled") from None
-                changed = True
-            if changed:
-                try:
-                    os.fsync(directory_fd)
-                except OSError:
-                    raise LifeOSError("attachment directory could not be synchronized") from None
+                canonical_name, canonical_info = matches[0]
+                _claim_and_remove_temp(
+                    directory_fd, name, canonical_name, info, canonical_info, "attachment",
+                )
 
     def _store_one_attachment(self, source: Path) -> StoredAttachment:
         with self._open_cache_attachment(source) as (source_descriptor, source_name):
@@ -888,6 +985,7 @@ class LifeOSRuntime:
             raise LifeOSError("attachment destination conflicts with an existing file")
         descriptor = -1
         temp_name = ""
+        canonical_linked = False
         try:
             with self._attachments_directory() as directory_fd:
                 for _attempt in range(10):
@@ -930,6 +1028,8 @@ class LifeOSRuntime:
                     )
                 except FileExistsError:
                     raise LifeOSError("attachment destination conflicts with an existing file") from None
+                canonical_linked = True
+                os.fsync(directory_fd)
                 os.unlink(temp_name, dir_fd=directory_fd)
                 temp_name = ""
                 os.fsync(directory_fd)
@@ -940,7 +1040,7 @@ class LifeOSRuntime:
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
-            if temp_name:
+            if temp_name and not canonical_linked:
                 try:
                     with self._attachments_directory() as directory_fd:
                         os.unlink(temp_name, dir_fd=directory_fd)
@@ -1020,9 +1120,12 @@ class LifeOSRuntime:
     def _reconcile_note_temps(directory_fd: int, name: str) -> None:
         prefix = f".{name}.life-os-"
         try:
-            entries = tuple(entry for entry in os.listdir(directory_fd) if entry.startswith(prefix))
+            directory_entries = tuple(os.listdir(directory_fd))
         except OSError:
             raise LifeOSError("note directory is unreadable") from None
+        if any(_RECOVERY_TEMP.fullmatch(entry) for entry in directory_entries):
+            raise LifeOSError("temporary note requires manual recovery")
+        entries = tuple(entry for entry in directory_entries if entry.startswith(prefix))
         if not entries:
             return
         if len(entries) != 1 or not re.fullmatch(r"[0-9a-f]{16}", entries[0][len(prefix):]):
@@ -1034,9 +1137,7 @@ class LifeOSRuntime:
             raise LifeOSError("temporary note entry is unavailable") from None
         if (
             stat.S_ISLNK(temp_info.st_mode)
-            or not stat.S_ISREG(temp_info.st_mode)
-            or temp_info.st_uid != os.geteuid()
-            or stat.S_IMODE(temp_info.st_mode) != 0o600
+            or not _is_private_regular(temp_info)
         ):
             raise LifeOSError("temporary note entry is unsafe")
         try:
@@ -1045,21 +1146,9 @@ class LifeOSRuntime:
             raise LifeOSError("unlinked temporary note requires manual recovery") from None
         except OSError:
             raise LifeOSError("canonical note is unavailable during recovery") from None
-        if (
-            stat.S_ISLNK(canonical_info.st_mode)
-            or not stat.S_ISREG(canonical_info.st_mode)
-            or canonical_info.st_uid != os.geteuid()
-            or stat.S_IMODE(canonical_info.st_mode) != 0o600
-            or not os.path.samestat(temp_info, canonical_info)
-            or temp_info.st_nlink != 2
-            or canonical_info.st_nlink != 2
-        ):
-            raise LifeOSError("temporary note conflicts with the canonical note")
-        try:
-            os.unlink(temp_name, dir_fd=directory_fd)
-            os.fsync(directory_fd)
-        except OSError:
-            raise LifeOSError("temporary note could not be reconciled") from None
+        _claim_and_remove_temp(
+            directory_fd, temp_name, name, temp_info, canonical_info, "note",
+        )
 
     @staticmethod
     def _read_text_snapshot_at(
