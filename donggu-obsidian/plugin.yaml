@@ -1,7 +1,7 @@
 manifest_version: 1
 name: donggu-obsidian
-version: "1.8.0"
-description: "Minimal native receipt runtime for the existing crash-atomic CORE helper: zero-write plan, exact natural apply, recovery-only reconciliation, descriptor-relative read-back, planned-only revoke, and committed-journal acknowledgement."
+version: "1.9.0"
+description: "Minimal native runtime for the existing crash-atomic CORE helper and Life OS Daily workflow: zero-write CORE plan, exact natural apply, recovery-only reconciliation, descriptor-relative read-back, planned-only revoke, committed-journal acknowledgement, and trusted-session Daily recording."
 author: "강동현 (donggu)"
 kind: standalone
 provides_tools:
@@ -13,3 +13,6 @@ provides_tools:
   - donggu_core_readback
   - donggu_core_revoke
   - donggu_core_ack
+  - donggu_life_os_status
+  - donggu_life_os_start_daily
+  - donggu_life_os_record

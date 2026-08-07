@@ -4,6 +4,9 @@ from __future__ import annotations
 from .tools import (
     ACK_SCHEMA,
     APPLY_SCHEMA,
+    LIFE_OS_RECORD_SCHEMA,
+    LIFE_OS_START_DAILY_SCHEMA,
+    LIFE_OS_STATUS_SCHEMA,
     PLAN_SCHEMA,
     READBACK_SCHEMA,
     RECOVER_SCHEMA,
@@ -12,6 +15,9 @@ from .tools import (
     REVOKE_SCHEMA,
     handle_ack,
     handle_apply,
+    handle_life_os_record,
+    handle_life_os_start_daily,
+    handle_life_os_status,
     handle_plan,
     handle_readback,
     handle_recover,
@@ -54,6 +60,18 @@ def register(ctx) -> None:
         (
             "donggu_core_ack", ACK_SCHEMA, handle_ack,
             "Clean a matching committed journal after verified read-back.", "✅",
+        ),
+        (
+            "donggu_life_os_status", LIFE_OS_STATUS_SCHEMA, handle_life_os_status,
+            "Read the current Life OS Daily state and next prompt.", "📋",
+        ),
+        (
+            "donggu_life_os_start_daily", LIFE_OS_START_DAILY_SCHEMA, handle_life_os_start_daily,
+            "Start a Life OS Daily flow and return its next prompt.", "🌅",
+        ),
+        (
+            "donggu_life_os_record", LIFE_OS_RECORD_SCHEMA, handle_life_os_record,
+            "Commit one trusted Life OS Discord turn and return the next prompt.", "✍️",
         ),
     ]
     for name, schema, handler, description, emoji in registrations:

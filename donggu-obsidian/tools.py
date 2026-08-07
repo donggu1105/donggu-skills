@@ -1,16 +1,25 @@
-"""Hermes schemas and handlers for the minimal native CORE receipt runtime."""
+"""Hermes schemas and handlers for the native CORE and Life OS runtimes."""
 from __future__ import annotations
 
+from datetime import date
 import json
 from pathlib import Path
 import threading
 from typing import Any, Dict, Optional
 
-from .runtime import CoreActionRuntime, CoreApprovalError, CoreRuntimeError
+from .runtime import (
+    CoreActionRuntime,
+    CoreApprovalError,
+    CoreRuntimeError,
+    LifeOSError,
+    LifeOSRuntime,
+)
 
 
 _RUNTIME: Optional[CoreActionRuntime] = None
 _RUNTIME_LOCK = threading.Lock()
+_LIFE_OS_RUNTIME: Optional[LifeOSRuntime] = None
+_LIFE_OS_RUNTIME_LOCK = threading.Lock()
 
 
 def _runtime() -> CoreActionRuntime:
@@ -20,6 +29,15 @@ def _runtime() -> CoreActionRuntime:
             if _RUNTIME is None:
                 _RUNTIME = CoreActionRuntime.from_package()
     return _RUNTIME
+
+
+def _life_os_runtime() -> LifeOSRuntime:
+    global _LIFE_OS_RUNTIME
+    if _LIFE_OS_RUNTIME is None:
+        with _LIFE_OS_RUNTIME_LOCK:
+            if _LIFE_OS_RUNTIME is None:
+                _LIFE_OS_RUNTIME = LifeOSRuntime.from_environment()
+    return _LIFE_OS_RUNTIME
 
 
 def _trusted_session_id(kwargs: dict) -> str:
@@ -119,6 +137,54 @@ ACK_SCHEMA = {
     },
 }
 
+_LIFE_OS_DATE_PROPERTY = {
+    "type": "string",
+    "pattern": r"^\d{4}-\d{2}-\d{2}$",
+}
+
+LIFE_OS_STATUS_SCHEMA = {
+    "name": "donggu_life_os_status",
+    "description": "Read the current Life OS Daily state and next prompt.",
+    "parameters": {
+        "type": "object",
+        "properties": {"date": _LIFE_OS_DATE_PROPERTY},
+        "additionalProperties": False,
+    },
+}
+
+LIFE_OS_START_DAILY_SCHEMA = {
+    "name": "donggu_life_os_start_daily",
+    "description": "Start a Life OS Daily flow and return its next prompt.",
+    "parameters": {
+        "type": "object",
+        "properties": {"date": _LIFE_OS_DATE_PROPERTY},
+        "additionalProperties": False,
+    },
+}
+
+LIFE_OS_RECORD_SCHEMA = {
+    "name": "donggu_life_os_record",
+    "description": "Commit one trusted Life OS Discord turn and return the next prompt.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "operation": {
+                "type": "string",
+                "enum": ["answer", "skip", "pause", "resume", "capture", "free_record"],
+            },
+            "date": _LIFE_OS_DATE_PROPERTY,
+            "follow_up_question": {"type": "string", "minLength": 1, "maxLength": 300},
+            "attachment_paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 10,
+            },
+        },
+        "required": ["operation"],
+        "additionalProperties": False,
+    },
+}
+
 
 def _ok(payload: Dict[str, Any]) -> str:
     return json.dumps({"success": True, **payload}, ensure_ascii=False)
@@ -126,6 +192,12 @@ def _ok(payload: Dict[str, Any]) -> str:
 
 def _error(exc: Exception) -> str:
     return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+
+
+def _optional_iso_date(value: Any) -> Optional[date]:
+    if value is None:
+        return None
+    return date.fromisoformat(value)
 
 
 def handle_recovery_status(args: dict, **_kwargs) -> str:
@@ -206,4 +278,35 @@ def handle_ack(args: dict, **_kwargs) -> str:
             completion_nonce=str(args.get("completion_nonce") or ""),
         ))
     except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_life_os_status(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_life_os_runtime().status(_optional_iso_date(args.get("date"))))
+    except (CoreRuntimeError, LifeOSError, ValueError, TypeError) as exc:
+        return _error(exc)
+
+
+def handle_life_os_start_daily(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_life_os_runtime().start_daily(_optional_iso_date(args.get("date"))))
+    except (CoreRuntimeError, LifeOSError, ValueError, TypeError) as exc:
+        return _error(exc)
+
+
+def handle_life_os_record(args: dict, **kwargs) -> str:
+    try:
+        session_id = _trusted_session_id(kwargs)
+        message_id, message_text = _latest_trusted_user_message(session_id)
+        result = _life_os_runtime().record(
+            str(args.get("operation") or ""),
+            message_text=message_text,
+            message_key=f"{session_id}:{message_id}",
+            attachment_paths=tuple(Path(value) for value in args.get("attachment_paths") or ()),
+            follow_up_question=args.get("follow_up_question"),
+            target_date=_optional_iso_date(args.get("date")),
+        )
+        return _ok(result)
+    except (CoreRuntimeError, LifeOSError, ValueError, TypeError) as exc:
         return _error(exc)

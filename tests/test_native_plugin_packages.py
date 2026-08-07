@@ -217,7 +217,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-obsidian", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("1.8.0", claude["version"])
+        self.assertEqual("1.9.0", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_obsidian_latest_user_lookup_reads_past_first_fifty_messages(self):
@@ -302,6 +302,9 @@ class NativePluginPackageTests(unittest.TestCase):
                 "donggu_core_readback",
                 "donggu_core_revoke",
                 "donggu_core_ack",
+                "donggu_life_os_status",
+                "donggu_life_os_start_daily",
+                "donggu_life_os_record",
             ],
             [item["name"] for item in ctx.tools],
         )
@@ -321,11 +324,11 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertEqual({"receipt_id", "completion_nonce"}, set(ack_parameters["properties"]))
         self.assertTrue(all(item["toolset"] == "donggu_obsidian" for item in ctx.tools))
         manifest_tools = re.findall(
-            r"(?m)^  - (donggu_core_[a-z_]+)$",
+            r"(?m)^  - (donggu_(?:core|life_os)_[a-z_]+)$",
             (ROOT / "donggu-obsidian" / "plugin.yaml").read_text(encoding="utf-8"),
         )
         self.assertEqual([item["name"] for item in ctx.tools], manifest_tools)
-        self.assertEqual(8, len(manifest_tools))
+        self.assertEqual(11, len(manifest_tools))
 
     def test_registered_obsidian_apply_reads_latest_natural_text_and_reaches_real_helper_once(self):
         module_name = "donggu_obsidian_registered_apply_test"
