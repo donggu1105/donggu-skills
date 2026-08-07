@@ -26,8 +26,8 @@
     {
       "name": "donggu-sns",
       "source": "./donggu-sns",
-      "description": "SNS and YouTube editorial operations — independent text channels, Longform + Shorts Pack planning, production safety, analytics retrospectives, CORE reconciliation, visual artifacts, and gated publishing.",
-      "version": "2.7.0",
+      "description": "SNS and YouTube editorial operations — portable channel-native text authoring, Longform + Shorts Pack planning, visual artifacts, and gated publishing.",
+      "version": "2.7.1",
       "strict": false
     },
     {

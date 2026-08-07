@@ -17,6 +17,14 @@ SKILL_PATHS = {
     "approval": REPO_ROOT / "donggu-obsidian" / "skills" / "core-review-approval" / "SKILL.md",
 }
 
+WRITING_REFERENCE_PATHS = {
+    "common": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "common-voice.md",
+    "blog": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "blog.md",
+    "linkedin": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "linkedin.md",
+    "threads": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "threads.md",
+    "maily": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "maily.md",
+}
+
 
 class ObsidianContentFlowContractsTest(unittest.TestCase):
     @classmethod
@@ -25,15 +33,61 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             name: path.read_text(encoding="utf-8")
             for name, path in SKILL_PATHS.items()
         }
+        cls.writing_references = {
+            name: path.read_text(encoding="utf-8")
+            for name, path in WRITING_REFERENCE_PATHS.items()
+        }
 
-    def test_writing_owns_origin_and_adapt_lineage(self):
+    def test_writing_is_portable_authoring_router(self):
         writing = self.skills["writing"]
 
         self.assertIn("origin", writing)
         self.assertIn("adapt", writing)
-        self.assertIn("type: channel_pack", writing)
-        self.assertIn("derived_from", writing)
+        for reference in (
+            "references/common-voice.md",
+            "references/blog.md",
+            "references/linkedin.md",
+            "references/threads.md",
+            "references/maily.md",
+        ):
+            with self.subTest(reference=reference):
+                self.assertIn(reference, writing)
+        self.assertNotIn("type: channel_pack", writing)
+        self.assertNotIn("derived_from", writing)
         self.assertNotIn("type: content", writing)
+        self.assertNotIn("Personal Branding/", writing)
+        self.assertNotIn("VOICE -", writing)
+        self.assertNotIn("canon:", writing)
+
+    def test_writing_references_own_channel_contracts(self):
+        expected = {
+            "common": ("## 사실 경계", "## 금지 표현과 장치"),
+            "blog": ("2,000~2,500자", "`##` 소제목 3~6개"),
+            "linkedin": ("1,200~1,400자", "약 210자", "첫 댓글"),
+            "threads": ("500자 이하", "5~7개", "0~1개", "첫 댓글"),
+            "maily": ("1행: 제목", "2행: 부제목", "3행: 빈 줄", "해시태그는 붙이지 않는다"),
+        }
+        for channel, contracts in expected.items():
+            text = self.writing_references[channel]
+            for contract in contracts:
+                with self.subTest(channel=channel, contract=contract):
+                    self.assertIn(contract, text)
+
+    def test_writing_references_have_no_vault_runtime_dependency(self):
+        forbidden = (
+            "/Users/",
+            "Personal Branding",
+            "40_Channel_Packs",
+            "_anchors",
+            "VOICE -",
+            "canon:",
+            "CORE",
+            "[[",
+        )
+        for name, text in self.writing_references.items():
+            for token in forbidden:
+                with self.subTest(reference=name, token=token):
+                    self.assertNotIn(token, text)
 
     def test_publishing_owns_ledger_backed_review_event(self):
         publishing = self.skills["publishing"]

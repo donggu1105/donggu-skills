@@ -1,17 +1,34 @@
 ---
 name: writing-social-content
-description: Use when drafting or adapting text for Blog, LinkedIn, Threads, or Maily from a supplied source or brief. Uses built-in channel voice and format rules; never requires Vault VOICE/canon or saves files. Not for publishing, cards, or video.
+description: Use when drafting or adapting text for Blog, LinkedIn, Threads, or Maily from a supplied source or brief. Routes through bundled common-voice and channel references; does not require external voice documents or save and publish content.
 ---
 
 # Writing Social Content
 
 ## Overview
 
-Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 **portable text authoring layer**다. 채널별 보이스·분량·출력 형식을 이 파일 안에서 완결하며, Obsidian Vault·VOICE 노트·canon 글·CORE·Channel Pack·프론트매터·저장 경로를 읽거나 요구하지 않는다.
+Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하나의 **portable authoring router**이며, 공통 보이스와 채널별 규칙은 같은 스킬 디렉터리의 `references/`가 소유한다.
 
-입력은 사용자가 준 원문, URL에서 검증한 출처, 대화에서 확인된 사실, 또는 명시적 브리프다. 같은 주제를 여러 채널로 옮길 때 문장을 늘이거나 줄이지 않고 채널마다 독립적으로 읽히는 글로 다시 구성한다.
+입력은 사용자가 준 원문, 검증한 URL, 대화에서 확인된 사실 또는 명시적 브리프다. 같은 주제를 여러 채널로 옮길 때 문장을 단순히 늘이거나 줄이지 않고 채널마다 독립적으로 읽히는 글로 다시 구성한다.
 
 **Content authority**: 현재 source가 내용의 정본이다. 과거 글·메모·브랜드 코어를 자동으로 끌어오지 않는다. 사용자가 이전 관점과 연결하라고 명시했을 때만 제공된 자료 범위에서 연결한다.
+
+## Reference loading contract
+
+작성 전에 **로드된 이 `SKILL.md`의 디렉터리**를 기준으로 reference를 읽는다.
+
+1. 항상 `references/common-voice.md`를 읽는다.
+2. 요청받은 채널 reference만 읽는다.
+3. 여러 채널이면 해당 reference를 각각 읽는다.
+4. 요청하지 않은 채널 reference는 읽지 않는다.
+5. reference가 없거나 읽히지 않으면 packaging 오류로 중단한다. 외부 보이스 문서나 과거 글을 찾아 우회하지 않는다.
+
+| 채널 | 필수 reference |
+|---|---|
+| Blog | `references/blog.md` |
+| LinkedIn | `references/linkedin.md` |
+| Threads | `references/threads.md` |
+| Maily | `references/maily.md` |
 
 ## When to Use
 
@@ -22,67 +39,22 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 **por
 
 ## When NOT to Use
 
-- 파일·Vault 저장, 노트 경로·SCHEMA·frontmatter 처리
+- 파일 저장, 노트 경로·schema·frontmatter 처리
 - 실제 게시·수정·삭제 → `publish-sns`
 - Instagram 카드·캐러셀 → `make-insta-card-news`
 - 대표이미지·본문 사진 → `get-stock-image` 또는 `get-ai-image`
-- Shorts·Reels 영상 → `make-shorts`
-
-## 공통 보이스
-
-- 한국어는 구체적이고 자연스럽게 쓴다. 번역체·AI 상투어·과장 형용사·설교조 결말을 피한다.
-- 줄표 `—`·`–`, 장식용 이모지, 억지 3단 나열, “결론적으로”, “시사하는 바가 크다”, “단순한 X를 넘어”를 쓰지 않는다.
-- 장르에 맞는 1인칭을 쓴다. 주장형·에세이는 `나`, 후기·공지·편지는 `저/제가`가 기본이다.
-- 사용자가 말하지 않은 고객 장면·감정 변화·성과·습관·수치·인용을 만들지 않는다.
-- 개인 경험과 외부 source를 섞을 때 `사용자가 직접 말한 사실`과 `source가 말한 사실`의 경계를 지킨다.
-- 강한 문장은 근거 뒤에 둔다. 근거 없는 거대 담론이나 다짐으로 마치지 않는다.
-- 기존 글의 문구를 자기 인용하거나 모든 소재를 같은 FDE·ROI·문화 결론으로 끌고 가지 않는다.
+- YouTube·Shorts·Reels 영상 → `youtube` 또는 `make-shorts`
 
 ## 채널 매트릭스
 
-| 채널 | 기본 분량 | 보이스 | 구조 | 출력 계약 |
+| 채널 | 기본 분량 | 보이스 | 핵심 구조 | 출력 계약 |
 |---|---:|---|---|---|
-| **Blog** | 2,000~2,500자 | 주장·에세이=평서체, 행사·후기=정중 존댓말 | 리드 2~3문단 → `##` 소제목 3~6개 → 구체적 판단으로 마무리 | 1행 제목 + Markdown 본문 |
-| **LinkedIn** | 1,200~1,400자 | 에세이=평서체, 행사·공지=존댓말 | 첫 3줄 후크 → 현장 사실 → 주장 → 근거 → 현재 판단 | 본문 1개 + 첫 댓글 링크 별도 |
-| **Threads** | 단일 ≤500자 | 친근한 반말 | 5~7개 짧은 호흡, 한 주장, 답글 유도 | 본문 1개 + 첫 댓글 링크 별도 |
-| **Maily** | 편지 1통 분량 | 정중한 편지체 | 인사 2~3줄 → `###` 소제목 → 적용 한 가지 → 질문·맺음 | 1행 제목 / 2행 부제목 / 빈 줄 / 본문 |
+| **Blog** | 2,000~2,500자 | 주장·에세이=평서체, 행사·후기=정중 존댓말 | 리드 → 소제목 3~6개 → 구체적 판단 | 1행 제목 + Markdown 본문 |
+| **LinkedIn** | 1,200~1,400자 | 에세이=평서체, 행사·공지=존댓말 | 첫 3줄 후크 → 사실 → 주장 → 근거 → 현재 판단 | 본문 1개 + 첫 댓글 링크 |
+| **Threads** | 단일 ≤500자 | 친근한 반말·평어 | 5~7개 짧은 호흡, 한 주장, 답글 유도 | 본문 1개 + 첫 댓글 링크 |
+| **Maily** | 편지 1통 | 정중한 편지체 | 제목·부제목 → 짧은 인사 → 본론 → 질문·맺음 | 1행 제목 / 2행 부제목 / 빈 줄 / 본문 |
 
-## 채널별 하드룰
-
-### Blog
-
-- 검색어를 억지로 반복하지 않고 제목과 첫 단락에 핵심 키워드를 자연스럽게 둔다.
-- 소제목은 주장 비트 단위다. 긴 항목은 불릿이 아니라 문단으로 푼다.
-- 단락은 2~4문장, 문장 길이는 짧고 긴 것을 섞는다.
-- 다른 채널 글을 그대로 늘이지 않는다. 근거·맥락·반론 경계를 보강해 롱폼으로 다시 설계한다.
-- 이미지는 이 스킬 범위 밖이다. 텍스트 확정 뒤 별도 이미지 스킬로 넘긴다.
-
-### LinkedIn
-
-- 모바일에서 접히기 전 약 210자 안에 훅과 긴장을 만든다.
-- 1~3문장마다 줄을 나눠 읽는 속도를 조절한다.
-- 외부 URL은 본문에서 빼고 `첫 댓글`로 별도 제공한다.
-- 해시태그는 꼭 필요할 때만 마지막에 최대 5개를 쓴다.
-- 댓글 유도는 글의 판단과 직접 연결된 질문이어야 한다.
-
-### Threads
-
-- 단일 게시물은 줄바꿈 포함 500자 이하다. 최종본은 도구로 실제 글자 수를 센다.
-- 5~7개 비어 있지 않은 문단 또는 호흡으로 쓴다.
-- 외부 URL은 본문에 넣지 않고 `첫 댓글`로 분리한다.
-- 해시태그는 0~1개다.
-- 선택지 A/B를 함께 내지 않고 확정본 하나만 준다.
-- 5~7개 타래는 사용자가 명시했을 때만 작성하며 수동 게시용이라고 표시한다.
-
-### Maily
-
-- 첫 줄은 메일 제목, 둘째 줄은 받은편지함 미리보기에 쓰일 부제목이다. 부제목을 비우지 않는다.
-- `안녕하세요, 동구입니다`로 열고 안부는 2~3줄 안에 끝낸다.
-- 한 사람에게 보내는 편지처럼 쓰되 과도한 친근함이나 매호 같은 인사 복붙을 피한다.
-- 제목에 결론을 전부 쓰지 않는다. 구체적 질문·반전·미스터리 중 하나로 연다.
-- 본문은 `### 소제목`, 볼드, 인용, 짧은 목록, 가로줄을 쓸 수 있다. 링크는 본문에 넣어도 된다.
-- `오늘 한 가지만`은 실제 적용 행동이 있을 때만 사용한다. 억지 교훈이면 생략한다.
-- 해시태그를 붙이지 않는다.
+세부 규칙은 표가 아니라 각 채널 reference가 정본이다. 표와 reference가 충돌하면 reference를 따른다.
 
 ## Workflow
 
@@ -92,9 +64,15 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 **por
 - `origin`: 제공된 raw material에서 첫 글을 만든다.
 - `adapt`: 제공된 기존 글의 논지와 사실을 보존하면서 다른 채널로 재구성한다.
 - 사용자가 `초안만`, `글만`, `일단 글부터`라고 하면 authoring-only다. 파일 조회·저장·이미지 생성·게시를 하지 않는다.
-- 명시된 source와 목표 채널이 있으면 장르·구조·CORE를 다시 묻지 않는다. 결과를 materially 바꾸는 정보가 없을 때만 질문한다.
+- source와 목표 채널이 명확하면 장르·구조·논지를 다시 묻지 않는다. 결과를 실질적으로 바꾸는 정보가 없을 때만 질문한다.
 
-### 2. 근거 장부
+### 2. 필수 reference 로드
+
+- `references/common-voice.md`를 읽는다.
+- 요청받은 채널 reference를 읽는다.
+- reference의 출력 계약과 금지 항목을 체크리스트로 잠근다.
+
+### 3. 근거 장부
 
 초안 전에 내용을 네 칸으로 나눈다.
 
@@ -103,56 +81,53 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 **por
 - `INTERPRETATION`: 글쓴이의 판단이라고 드러내야 하는 문장
 - `UNSUPPORTED`: 그럴듯하지만 근거 없는 장면·인과·성과. 사용하지 않는다.
 
-### 3. 채널별 논지 잠금
+### 4. 채널별 논지 잠금
 
 - 각 채널에서 독자가 한 문장으로 기억할 논지를 하나 정한다.
-- 같은 소재라도 Blog는 맥락, LinkedIn은 압축된 주장, Threads는 한 생각, Maily는 독자에게 보내는 적용 편지로 다시 설계한다.
-- source의 문장을 기계적으로 축약·확장하지 않는다.
+- 같은 소재라도 Blog는 맥락, LinkedIn은 압축된 주장, Threads는 한 생각, Maily는 독자에게 보내는 편지로 다시 설계한다.
+- source 문장을 기계적으로 축약·확장하지 않는다.
 
-### 4. 작성
+### 5. 작성
 
-- [공통 보이스]와 목표 채널 하드룰을 적용한다.
-- 실제 사례와 인용은 원문의 범위를 넘지 않는다.
+- 공통 보이스와 목표 채널 reference를 함께 적용한다.
+- 실제 사례와 인용은 source 범위를 넘지 않는다.
 - 외부 source가 주인공인 글에서도 사용자의 경험을 꾸며 연결하지 않는다.
 - 서로 다른 채널 본문이 각각 독립적으로 발행 가능해야 한다.
 
-### 5. 검수
-
-최종본을 내기 전에 확인한다.
+### 6. 검수
 
 1. 핵심 문장마다 `USER FACT`·`SOURCE FACT`·명시적 `INTERPRETATION` 중 하나가 있는가.
 2. 인명·수치·날짜·직접 인용·URL이 source와 일치하는가.
 3. 사용자가 말하지 않은 고객 장면·감정·성과를 만들지 않았는가.
-4. `—`·`–`와 AI 상투어가 0개인가.
-5. 목표 채널의 분량·링크·해시태그·제목/부제목 계약을 통과하는가.
-6. 여러 채널을 요청했다면 내용 복사본이 아니라 channel-native 글인가.
+4. 공통 보이스의 금지 표현이 0개인가.
+5. 목표 채널 reference의 분량·링크·해시태그·제목/부제목 계약을 통과하는가.
+6. 여러 채널이면 내용 복사본이 아니라 channel-native 글인가.
 
 글자 제한이 있는 채널은 추정하지 말고 도구로 센다.
 
-### 6. 전달
+### 7. 전달
 
 - authoring-only: 채널별 확정 초안과 필요한 첫 댓글 링크만 보여준다.
-- 파일 저장 요청: 작성 결과를 target-native 파일/Vault 도구에 넘긴다. 이 스킬은 경로·SCHEMA·frontmatter를 소유하지 않는다.
+- 파일 저장 요청: 작성 결과를 target-native 파일 도구에 넘긴다. 이 스킬은 경로·schema·frontmatter를 소유하지 않는다.
 - 게시 요청: `publish-sns`의 preview·approval 절차로 넘긴다. 이 스킬은 게시하지 않는다.
 
 ## Common Mistakes
 
 | 실수 | 수정 |
 |---|---|
-| VOICE·canon·Vault 파일을 자동 조회 | 금지. 이 스킬 내부 매트릭스가 보이스 정본이다. |
+| reference를 읽지 않고 매트릭스만 보고 작성 | 공통 보이스 + 요청 채널 reference를 반드시 읽는다. |
+| 외부 보이스 문서나 과거 글을 자동 조회 | 금지. 스킬 내부 reference가 작성 규칙의 정본이다. |
 | 기존 글을 길이만 바꿔 재사용 | 채널별 독자·호흡·구조로 다시 쓴다. |
-| 과거 CORE나 익숙한 결론으로 수렴 | 현재 source에서 새 논지를 잠근다. |
+| 과거 관점이나 익숙한 결론으로 수렴 | 현재 source에서 새 논지를 잠근다. |
 | 개인 경험을 생생하게 만들려고 장면 추가 | 사용자가 직접 말한 사실만 1인칭으로 쓴다. |
-| LinkedIn·Threads 본문에 외부 URL | 첫 댓글로 분리한다. |
-| Threads 500자·Maily 부제목을 추정 | 실제 글자 수와 2행 계약을 기계적으로 검수한다. |
-| 모든 글을 다짐이나 “~해야 한다”로 마감 | 현재 판단·운영 기준·구체적 질문으로 닫는다. |
-| 이미지·저장·게시까지 한 스킬에서 처리 | 텍스트 확정 후 각 전용 스킬로 넘긴다. |
+| 글자 제한·제목/부제목을 추정 | 채널 reference 계약을 기계적으로 검수한다. |
+| 이미지·저장·게시까지 한 스킬에서 처리 | 텍스트 확정 뒤 전용 스킬로 넘긴다. |
 
 ## 경계
 
 - **글자만 쓴다.** 파일 저장·이미지·카드·영상·게시를 수행하지 않는다.
-- **Vault를 보이스 소스로 쓰지 않는다.** 사용자가 Vault 파일을 source로 직접 지정하면 일반 source처럼 그 파일 하나만 읽을 수 있지만, VOICE·canon·CORE를 자동 확장 조회하지 않는다.
-- **게시하지 않는다.** 실제 외부 변경은 `publish-sns`가 별도 승인 절차로 수행한다.
+- **외부 보이스 저장소를 요구하지 않는다.** 사용자가 파일 하나를 source로 직접 지정하면 일반 source로 읽을 수 있지만 주변 파일을 자동 확장 조회하지 않는다.
+- **게시하지 않는다.** 외부 변경은 `publish-sns`가 별도 승인 절차로 수행한다.
 
 ## 관련 Skill
 
@@ -160,7 +135,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 **por
 - 자연스러운 한국어 윤문: `korean-humanizer`
 - 이미지: `get-stock-image` · `get-ai-image`
 - 카드: `make-insta-card-news`
-- 영상: `make-shorts`
+- 영상: `youtube` · `make-shorts`
 - 게시: `publish-sns`
 
 ## 태그
