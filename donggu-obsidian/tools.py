@@ -7,6 +7,7 @@ from datetime import date
 import hashlib
 import json
 from pathlib import Path
+import re
 import threading
 import time
 from typing import Any, Dict, Iterator, Optional
@@ -34,9 +35,10 @@ _HERMES_LIVE_SESSION_IDENTITY_NAMES = (
     "HERMES_SESSION_CHAT_ID", "HERMES_SESSION_CHAT_TYPE",
     "HERMES_SESSION_CHAT_NAME", "HERMES_SESSION_THREAD_ID",
     "HERMES_SESSION_USER_ID", "HERMES_SESSION_USER_NAME",
-    "HERMES_SESSION_KEY", "HERMES_SESSION_ID", "HERMES_UI_SESSION_ID",
+    "HERMES_SESSION_KEY", "HERMES_UI_SESSION_ID",
     "HERMES_SESSION_MESSAGE_ID", "HERMES_SESSION_PROFILE",
 )
+_HERMES_CRON_SESSION_ID = re.compile(r"cron_[0-9a-f]{12}_[0-9]{8}_[0-9]{6}\Z")
 
 
 class _TrustedTurnCache:
@@ -242,10 +244,12 @@ def _authorize_life_os_call(operation: str) -> None:
     channel_id = _life_os_channel_id()
     cron_marker = get_session_env("HERMES_CRON_SESSION", "")
     if cron_marker:
+        cron_session_id = get_session_env("HERMES_SESSION_ID", "")
         if (
             cron_marker != "1"
             or operation != "start"
             or any(get_session_env(name, "") != "" for name in _HERMES_LIVE_SESSION_IDENTITY_NAMES)
+            or bool(cron_session_id and _HERMES_CRON_SESSION_ID.fullmatch(cron_session_id) is None)
             or get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM", "").strip().lower() != "discord"
             or get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID", "") != channel_id
             or get_session_env("HERMES_CRON_AUTO_DELIVER_THREAD_ID", "") != ""

@@ -225,7 +225,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-obsidian", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("1.9.1", claude["version"])
+        self.assertEqual("1.9.2", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_obsidian_latest_user_lookup_reads_past_first_fifty_messages(self):

@@ -154,7 +154,9 @@ class LifeOSPluginTests(unittest.TestCase):
         return lambda name, default="": values.get(name, default)
 
     @staticmethod
-    def cron_context(*, marker="1", platform="discord", chat_id="456", thread_id=""):
+    def cron_context(
+        *, marker="1", platform="discord", chat_id="456", thread_id="", session_id="",
+    ):
         values = {
             "HERMES_SESSION_PLATFORM": "",
             "HERMES_SESSION_SOURCE": "",
@@ -165,7 +167,7 @@ class LifeOSPluginTests(unittest.TestCase):
             "HERMES_SESSION_USER_ID": "",
             "HERMES_SESSION_USER_NAME": "",
             "HERMES_SESSION_KEY": "",
-            "HERMES_SESSION_ID": "",
+            "HERMES_SESSION_ID": session_id,
             "HERMES_UI_SESSION_ID": "",
             "HERMES_SESSION_MESSAGE_ID": "",
             "HERMES_SESSION_PROFILE": "",
@@ -348,6 +350,22 @@ class LifeOSPluginTests(unittest.TestCase):
                     denied = json.loads(self.tools.handle_life_os_start_daily({}))
                 self.assertFalse(denied["success"])
                 runtime.start_daily.assert_not_called()
+
+    def test_origin_guard_accepts_hermes_scheduler_cron_session_id(self):
+        runtime = mock.Mock()
+        runtime.start_daily.return_value = {"status": "active"}
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        context = self.cron_context(
+            session_id="cron_0123456789ab_20260807_222758",
+        )
+
+        with mock.patch.dict(sys.modules, {
+            "gateway.session_context": types.SimpleNamespace(get_session_env=context),
+        }):
+            result = json.loads(self.tools.handle_life_os_start_daily({}))
+
+        self.assertTrue(result["success"])
+        runtime.start_daily.assert_called_once_with(None, resume=True)
 
     def test_origin_guard_rejects_invalid_and_duplicate_life_os_bindings(self):
         runtime = mock.Mock()
