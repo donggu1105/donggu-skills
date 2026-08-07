@@ -66,6 +66,41 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("<!-- life-os:record:start -->", text)
         self.assertEqual(1, result["next_question"])
 
+    def test_start_daily_rejects_symlinked_year_with_existing_daily(self):
+        day = date(2026, 8, 7)
+        external_year = self.base / "external-periodic/2026"
+        external_daily = external_year / "Daily/08/2026-08-07.md"
+        external_daily.parent.mkdir(parents=True)
+        original = "## Daily Record\nexternal content\n"
+        external_daily.write_text(original, encoding="utf-8")
+        (self.vault / "Life OS/0. PeriodicNotes/2026").symlink_to(
+            external_year, target_is_directory=True,
+        )
+
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.start_daily(day)
+
+        self.assertEqual(original, external_daily.read_text(encoding="utf-8"))
+
+    def test_status_rejects_missing_life_root_after_runtime_construction(self):
+        (self.vault / "Life OS").rename(self.vault / "Life OS removed")
+
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.status(date(2026, 8, 7))
+
+    def test_start_daily_rejects_template_replaced_by_symlink(self):
+        day = date(2026, 8, 7)
+        template = self.vault / "Life OS/0. PeriodicNotes/Templates/Daily.md"
+        external = self.base / "external-template.md"
+        external.write_text("## Daily Record\nexternal template\n", encoding="utf-8")
+        template.rename(template.with_name("Daily original.md"))
+        template.symlink_to(external)
+
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.start_daily(day)
+
+        self.assertFalse(self.runtime.daily_path(day).exists())
+
     def test_record_changes_only_bounded_block(self):
         self.runtime.start_daily(date(2026, 8, 7))
         path = self.runtime.daily_path(date(2026, 8, 7))
@@ -150,6 +185,23 @@ class LifeOSRuntimeTests(unittest.TestCase):
             )
 
         self.assertFalse(external_note.exists())
+
+    def test_capture_rejects_life_root_replaced_by_symlink(self):
+        day = date(2026, 8, 7)
+        original_life = self.vault / "Life OS"
+        moved_life = self.vault / "Life OS original"
+        external = self.base / "external-life"
+        external.mkdir()
+        original_life.rename(moved_life)
+        original_life.symlink_to(external, target_is_directory=True)
+
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.record(
+                "capture", message_text="outside?", message_key="capture:life-swap",
+                target_date=day,
+            )
+
+        self.assertFalse((external / "-1. Capture").exists())
 
     def test_capture_rejects_fifo_promptly_without_mutation(self):
         day = date(2026, 8, 7)
@@ -673,7 +725,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         real_replace = life_os.os.replace
 
         def fail_before_note_rename(source_path, destination_path, *args, **kwargs):
-            if Path(destination_path) == note_path:
+            if destination_path == note_path.name and kwargs.get("dst_dir_fd") is not None:
                 raise OSError("injected pre-note-rename crash")
             return real_replace(source_path, destination_path, *args, **kwargs)
 

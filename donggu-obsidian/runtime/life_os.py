@@ -13,7 +13,6 @@ from pathlib import Path
 import re
 import secrets
 import stat
-import tempfile
 from typing import Any, Iterator, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -44,6 +43,10 @@ _DEFAULT_MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
 
 class LifeOSError(Exception):
     """The configured Life OS data cannot be read or safely mutated."""
+
+
+class _DailyMissing(Exception):
+    """The selected date has no Daily directory or note yet."""
 
 
 @dataclass(frozen=True)
@@ -224,7 +227,9 @@ class LifeOSRuntime:
         self._vault_identity = self.vault_root.lstat()
         self._life_identity = self.life_root.lstat()
         self.periodic_root = _checked_child(self.life_root, "0. PeriodicNotes")
+        self._periodic_identity = self.periodic_root.lstat()
         self.template_root = _checked_child(self.periodic_root, "Templates")
+        self._template_root_identity = self.template_root.lstat()
         self.cache_roots = tuple(Path(root).expanduser() for root in cache_roots) if cache_roots is not None else None
         if max_attachment_bytes is not None:
             if isinstance(max_attachment_bytes, bool) or not isinstance(max_attachment_bytes, int) or max_attachment_bytes < 0:
@@ -245,6 +250,7 @@ class LifeOSRuntime:
             raise LifeOSError("Daily template is unavailable") from None
         if stat.S_ISLNK(template_info.st_mode) or not stat.S_ISREG(template_info.st_mode):
             raise LifeOSError("Daily template must be a non-symlink file")
+        self._template_identity = template_info
 
     @classmethod
     def from_environment(cls) -> "LifeOSRuntime":
@@ -293,9 +299,9 @@ class LifeOSRuntime:
         selected = target_date or self.resolve_target_date()
         with self._mutation_lock():
             path = self.daily_path(selected)
-            if not path.exists():
+            text = self._read_daily(selected)
+            if text is None:
                 return self._result(path, self._initial_state(selected))
-            text = self._read_document(path)
             if text.count(_START) == 0 and text.count(_END) == 0 and _STATE_PREFIX not in text:
                 return self._result(path, self._initial_state(selected))
             document, state = self._parse_block(text, selected)
@@ -309,7 +315,7 @@ class LifeOSRuntime:
             document, state = self._read_or_install_block(path, selected)
             if state.status == "not_started" or (resume and state.status == "paused"):
                 state = replace(state, status="active")
-                self._commit_document(path, self._render(document, state))
+                self._commit_document(selected, self._render(document, state))
             return self._result(path, state)
 
     def record(
@@ -344,7 +350,7 @@ class LifeOSRuntime:
                 key,
                 follow_up_question=follow_up_question,
             )
-            self._commit_document(path, self._render(document, state))
+            self._commit_document(selected, self._render(document, state))
             return self._result(path, state)
 
     def _apply_operation(
@@ -438,10 +444,9 @@ class LifeOSRuntime:
         return replace(document, content=document.content + entry), next_state
 
     def _optional_state(self, selected: date) -> WorkflowState | None:
-        path = self.daily_path(selected)
-        if not path.exists():
+        text = self._read_daily(selected)
+        if text is None:
             return None
-        text = self._read_document(path)
         if text.count(_START) == 0 and text.count(_END) == 0 and _STATE_PREFIX not in text:
             return None
         _document, state = self._parse_block(text, selected)
@@ -744,28 +749,50 @@ class LifeOSRuntime:
 
     @contextmanager
     def _capture_directory(self) -> Iterator[int]:
-        path = self.life_root / "-1. Capture"
+        vault_fd = -1
+        life_fd = -1
         directory_fd = -1
         try:
-            path.mkdir(mode=0o755, exist_ok=True)
-            path_info = path.lstat()
-            if stat.S_ISLNK(path_info.st_mode) or not stat.S_ISDIR(path_info.st_mode):
+            vault_fd = os.open(self.vault_root, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
+            if not os.path.samestat(self._vault_identity, os.fstat(vault_fd)):
+                raise LifeOSError("Vault root changed after runtime construction")
+            life_fd = os.open("Life OS", os.O_RDONLY | _DIRECTORY | _NOFOLLOW, dir_fd=vault_fd)
+            if not os.path.samestat(self._life_identity, os.fstat(life_fd)):
+                raise LifeOSError("Life OS directory changed after runtime construction")
+            try:
+                os.mkdir("-1. Capture", mode=0o755, dir_fd=life_fd)
+            except FileExistsError:
+                pass
+            before = os.stat("-1. Capture", dir_fd=life_fd, follow_symlinks=False)
+            if stat.S_ISLNK(before.st_mode) or not stat.S_ISDIR(before.st_mode):
                 raise LifeOSError("Capture directory must be a non-symlink directory")
-            directory_fd = os.open(path, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
-            if not os.path.samestat(path_info, os.fstat(directory_fd)):
+            directory_fd = os.open(
+                "-1. Capture", os.O_RDONLY | _DIRECTORY | _NOFOLLOW, dir_fd=life_fd,
+            )
+            if not os.path.samestat(before, os.fstat(directory_fd)):
                 raise LifeOSError("Capture directory changed during validation")
         except LifeOSError:
             if directory_fd >= 0:
                 os.close(directory_fd)
+            if life_fd >= 0:
+                os.close(life_fd)
+            if vault_fd >= 0:
+                os.close(vault_fd)
             raise
         except OSError:
             if directory_fd >= 0:
                 os.close(directory_fd)
+            if life_fd >= 0:
+                os.close(life_fd)
+            if vault_fd >= 0:
+                os.close(vault_fd)
             raise LifeOSError("Capture directory is unavailable") from None
         try:
             yield directory_fd
         finally:
             os.close(directory_fd)
+            os.close(life_fd)
+            os.close(vault_fd)
 
     @staticmethod
     def _read_capture_at(directory_fd: int, name: str) -> str | None:
@@ -850,6 +877,46 @@ class LifeOSRuntime:
     def _template_path(self) -> Path:
         return self.template_root / "Daily.md"
 
+    def _read_template(self) -> str:
+        descriptors: list[int] = []
+        try:
+            vault_fd = os.open(self.vault_root, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
+            descriptors.append(vault_fd)
+            if not os.path.samestat(self._vault_identity, os.fstat(vault_fd)):
+                raise LifeOSError("Vault root changed after runtime construction")
+            life_fd = os.open("Life OS", os.O_RDONLY | _DIRECTORY | _NOFOLLOW, dir_fd=vault_fd)
+            descriptors.append(life_fd)
+            if not os.path.samestat(self._life_identity, os.fstat(life_fd)):
+                raise LifeOSError("Life OS directory changed after runtime construction")
+            periodic_fd = os.open(
+                "0. PeriodicNotes", os.O_RDONLY | _DIRECTORY | _NOFOLLOW, dir_fd=life_fd,
+            )
+            descriptors.append(periodic_fd)
+            if not os.path.samestat(self._periodic_identity, os.fstat(periodic_fd)):
+                raise LifeOSError("Periodic notes directory changed after runtime construction")
+            template_root_fd = os.open(
+                "Templates", os.O_RDONLY | _DIRECTORY | _NOFOLLOW, dir_fd=periodic_fd,
+            )
+            descriptors.append(template_root_fd)
+            if not os.path.samestat(self._template_root_identity, os.fstat(template_root_fd)):
+                raise LifeOSError("Template directory changed after runtime construction")
+            before = os.stat("Daily.md", dir_fd=template_root_fd, follow_symlinks=False)
+            if not os.path.samestat(self._template_identity, before):
+                raise LifeOSError("Daily template changed after runtime construction")
+            template_fd = os.open("Daily.md", os.O_RDONLY | _NOFOLLOW, dir_fd=template_root_fd)
+            descriptors.append(template_fd)
+            if not os.path.samestat(before, os.fstat(template_fd)):
+                raise LifeOSError("Daily template changed during validation")
+            with os.fdopen(template_fd, "rb", closefd=False) as stream:
+                return stream.read().decode("utf-8")
+        except LifeOSError:
+            raise
+        except (OSError, UnicodeError):
+            raise LifeOSError("Daily template is unreadable") from None
+        finally:
+            for descriptor in reversed(descriptors):
+                os.close(descriptor)
+
     def _initial_state(self, selected: date) -> WorkflowState:
         return WorkflowState(
             version=1,
@@ -881,61 +948,130 @@ class LifeOSRuntime:
 
     def _ensure_daily(self, selected: date) -> Path:
         path = self.daily_path(selected)
-        if path.exists():
-            info = path.lstat()
-            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-                raise LifeOSError("Daily note must be a non-symlink file")
+        if self._read_daily(selected) is not None:
             return path
-        try:
-            template = self._template_path().read_bytes().decode("utf-8")
-        except (OSError, UnicodeError):
-            raise LifeOSError("Daily template is unreadable") from None
+        template = self._read_template()
         rendered, count = _SNAPSHOT_LINE.subn("", template)
         if count > 1 or _TEMPLATE_EXPRESSION.search(rendered) or "<%" in rendered:
             raise LifeOSError("Daily template contains an unsupported expression")
-        self._prepare_daily_parent(selected)
-        self._atomic_replace(path, rendered)
+        self._atomic_replace_daily(selected, rendered)
         return path
 
-    def _prepare_daily_parent(self, selected: date) -> Path:
-        current = self.periodic_root
-        for name in (f"{selected:%Y}", "Daily", f"{selected:%m}"):
-            child = current / name
-            try:
-                child.mkdir(mode=0o755, exist_ok=True)
-                info = child.lstat()
-            except OSError:
-                raise LifeOSError("Daily directory is unavailable") from None
-            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-                raise LifeOSError("Daily directory must be a non-symlink directory")
-            current = child
-        return current
+    @contextmanager
+    def _daily_directory(self, selected: date, *, create: bool) -> Iterator[int]:
+        descriptors: list[int] = []
+        try:
+            vault_fd = os.open(self.vault_root, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
+            descriptors.append(vault_fd)
+            if not os.path.samestat(self._vault_identity, os.fstat(vault_fd)):
+                raise LifeOSError("Vault root changed after runtime construction")
+            life_fd = os.open("Life OS", os.O_RDONLY | _DIRECTORY | _NOFOLLOW, dir_fd=vault_fd)
+            descriptors.append(life_fd)
+            if not os.path.samestat(self._life_identity, os.fstat(life_fd)):
+                raise LifeOSError("Life OS directory changed after runtime construction")
+            periodic_fd = os.open(
+                "0. PeriodicNotes", os.O_RDONLY | _DIRECTORY | _NOFOLLOW, dir_fd=life_fd,
+            )
+            descriptors.append(periodic_fd)
+            if not os.path.samestat(self._periodic_identity, os.fstat(periodic_fd)):
+                raise LifeOSError("Periodic notes directory changed after runtime construction")
+            current_fd = periodic_fd
+            for name in (f"{selected:%Y}", "Daily", f"{selected:%m}"):
+                if create:
+                    try:
+                        os.mkdir(name, mode=0o755, dir_fd=current_fd)
+                    except FileExistsError:
+                        pass
+                try:
+                    before = os.stat(name, dir_fd=current_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    if create:
+                        raise LifeOSError("Daily directory changed during validation") from None
+                    raise _DailyMissing from None
+                if stat.S_ISLNK(before.st_mode) or not stat.S_ISDIR(before.st_mode):
+                    raise LifeOSError("Daily directory must be a non-symlink directory")
+                child_fd = os.open(
+                    name, os.O_RDONLY | _DIRECTORY | _NOFOLLOW, dir_fd=current_fd,
+                )
+                descriptors.append(child_fd)
+                if not os.path.samestat(before, os.fstat(child_fd)):
+                    raise LifeOSError("Daily directory changed during validation")
+                current_fd = child_fd
+        except _DailyMissing:
+            for descriptor in reversed(descriptors):
+                os.close(descriptor)
+            raise
+        except LifeOSError:
+            for descriptor in reversed(descriptors):
+                os.close(descriptor)
+            raise
+        except OSError:
+            for descriptor in reversed(descriptors):
+                os.close(descriptor)
+            raise LifeOSError("Daily directory is unavailable") from None
+        try:
+            yield current_fd
+        finally:
+            for descriptor in reversed(descriptors):
+                os.close(descriptor)
+
+    def _read_daily(self, selected: date) -> str | None:
+        try:
+            with self._daily_directory(selected, create=False) as directory_fd:
+                return self._read_daily_at(directory_fd, f"{selected:%Y-%m-%d}.md")
+        except _DailyMissing:
+            return None
+
+    @staticmethod
+    def _read_daily_at(directory_fd: int, name: str) -> str | None:
+        descriptor = -1
+        try:
+            descriptor = os.open(
+                name, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=directory_fd,
+            )
+        except FileNotFoundError:
+            return None
+        except OSError:
+            raise LifeOSError("Daily note is unavailable") from None
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                raise LifeOSError("Daily note must be a non-symlink file")
+            with os.fdopen(descriptor, "rb", closefd=True) as stream:
+                descriptor = -1
+                return stream.read().decode("utf-8")
+        except LifeOSError:
+            raise
+        except (OSError, UnicodeError):
+            raise LifeOSError("Daily note is unreadable") from None
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+    def _atomic_replace_daily(self, selected: date, text: str) -> None:
+        with self._daily_directory(selected, create=True) as directory_fd:
+            self._atomic_replace_at(directory_fd, f"{selected:%Y-%m-%d}.md", text)
 
     def _read_or_install_block(self, path: Path, selected: date) -> tuple[_Document, WorkflowState]:
-        text = self._read_document(path)
+        text = self._read_daily(selected)
+        if text is None:
+            raise LifeOSError("Daily note is unavailable")
         start_count, end_count = text.count(_START), text.count(_END)
         if start_count == 0 and end_count == 0:
             if _STATE_PREFIX in text:
                 raise LifeOSError("Daily note contains an orphaned Life OS state")
             document = self._install_block(text)
             state = self._initial_state(selected)
-            self._commit_document(path, self._render(document, state))
+            self._commit_document(selected, self._render(document, state))
             return document, state
         return self._parse_block(text, selected)
 
     def _read_block(self, path: Path, selected: date) -> tuple[_Document, WorkflowState]:
-        return self._parse_block(self._read_document(path), selected)
-
-    def _read_document(self, path: Path) -> str:
-        try:
-            info = path.lstat()
-            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-                raise LifeOSError("Daily note must be a non-symlink file")
-            return path.read_bytes().decode("utf-8")
-        except LifeOSError:
-            raise
-        except (OSError, UnicodeError):
-            raise LifeOSError("Daily note is unreadable") from None
+        del path
+        text = self._read_daily(selected)
+        if text is None:
+            raise LifeOSError("Daily note is unavailable")
+        return self._parse_block(text, selected)
 
     def _install_block(self, text: str) -> _Document:
         heading_pattern = re.compile(rf"(?m)^{re.escape(_DAILY_HEADING)}(?:\r?\n|$)")
@@ -1071,38 +1207,8 @@ class LifeOSRuntime:
         state_line = f"{_STATE_PREFIX}{_canonical_state(state)} %%\n"
         return document.prefix + _START + content + state_line + _END + document.suffix
 
-    def _commit_document(self, path: Path, text: str) -> None:
-        self._atomic_replace(path, text)
-
-    @staticmethod
-    def _atomic_replace(path: Path, text: str) -> None:
-        data = text.encode("utf-8")
-        descriptor = -1
-        temp_name = ""
-        try:
-            descriptor, temp_name = tempfile.mkstemp(prefix=f".{path.name}.life-os-", dir=str(path.parent))
-            with os.fdopen(descriptor, "wb", closefd=True) as stream:
-                descriptor = -1
-                stream.write(data)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temp_name, path)
-            temp_name = ""
-            directory_fd = os.open(path.parent, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        except OSError:
-            raise LifeOSError("Daily note could not be committed atomically") from None
-        finally:
-            if descriptor >= 0:
-                os.close(descriptor)
-            if temp_name:
-                try:
-                    os.unlink(temp_name)
-                except OSError:
-                    pass
+    def _commit_document(self, selected: date, text: str) -> None:
+        self._atomic_replace_daily(selected, text)
 
     def _result(self, path: Path, state: WorkflowState, **extra: Any) -> dict[str, Any]:
         result: dict[str, Any] = {
