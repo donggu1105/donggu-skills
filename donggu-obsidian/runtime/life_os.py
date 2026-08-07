@@ -38,6 +38,7 @@ _ALLOWED_STATUSES = {"not_started", "active", "paused", "completed"}
 _DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _ATTACHMENT_NAME = re.compile(r"^A(\d{3,}) - (.+)$")
+_ATTACHMENT_LINK = re.compile(r"\[\[Life OS/Attachments/(A\d{3,} - [^\]\r\n]+)\]\]")
 _DEFAULT_MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
 
 
@@ -243,6 +244,9 @@ class LifeOSRuntime:
                 self.max_attachment_bytes = _DEFAULT_MAX_ATTACHMENT_BYTES
         external_state_root = _checked_external_state_root(self.vault_root, state_root)
         self.state_root = _prepare_private_state_root(external_state_root)
+        canonical_vault = os.path.realpath(self.vault_root)
+        namespace_name = hashlib.sha256(canonical_vault.encode("utf-8")).hexdigest()
+        self.state_namespace = _prepare_private_state_root(self.state_root / namespace_name)
         template = self._template_path()
         try:
             template_info = template.lstat()
@@ -305,8 +309,7 @@ class LifeOSRuntime:
             if text.count(_START) == 0 and text.count(_END) == 0 and _STATE_PREFIX not in text:
                 return self._result(path, self._initial_state(selected))
             document, state = self._parse_block(text, selected)
-            del document
-            return self._result(path, state)
+            return self._result(path, state, content=document.content)
 
     def start_daily(self, target_date: date | None = None, *, resume: bool = False) -> dict[str, Any]:
         selected = target_date or datetime.now(self.timezone).date()
@@ -316,7 +319,7 @@ class LifeOSRuntime:
             if state.status == "not_started" or (resume and state.status == "paused"):
                 state = replace(state, status="active")
                 self._commit_document(selected, self._render(document, state))
-            return self._result(path, state)
+            return self._result(path, state, content=document.content)
 
     def record(
         self,
@@ -339,7 +342,7 @@ class LifeOSRuntime:
             path = self._ensure_daily(selected)
             document, state = self._read_or_install_block(path, selected)
             if self._message_already_committed(document.content, key):
-                return self._result(path, state, duplicate=True)
+                return self._result(path, state, content=document.content, duplicate=True)
             stored = self._store_attachments(attachment_paths)
             text = self._text_with_attachments(text, stored)
             document, state = self._apply_operation(
@@ -351,7 +354,7 @@ class LifeOSRuntime:
                 follow_up_question=follow_up_question,
             )
             self._commit_document(selected, self._render(document, state))
-            return self._result(path, state)
+            return self._result(path, state, content=document.content)
 
     def _apply_operation(
         self,
@@ -932,15 +935,32 @@ class LifeOSRuntime:
 
     @contextmanager
     def _mutation_lock(self) -> Iterator[None]:
-        lock_path = self.state_root / "mutation.lock"
-        flags = os.O_CREAT | os.O_RDWR | _NOFOLLOW
+        lock_path = self.state_namespace / "mutation.lock"
+        descriptor = -1
+        created = False
         try:
-            descriptor = os.open(lock_path, flags, 0o600)
+            try:
+                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR | _NOFOLLOW, 0o600)
+                created = True
+            except FileExistsError:
+                descriptor = os.open(lock_path, os.O_RDWR | _NOFOLLOW)
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_size != 0:
+                raise LifeOSError("Existing Life OS mutation lock is unsafe")
+            if created:
+                os.fchmod(descriptor, 0o600)
+            elif stat.S_IMODE(info.st_mode) != 0o600:
+                raise LifeOSError("Existing Life OS mutation lock must have mode 0600")
+        except LifeOSError:
+            if descriptor >= 0:
+                os.close(descriptor)
+            raise
         except OSError:
+            if descriptor >= 0:
+                os.close(descriptor)
             raise LifeOSError("Life OS mutation lock is unavailable") from None
         with os.fdopen(descriptor, "a+b", closefd=True) as stream:
             try:
-                os.fchmod(stream.fileno(), 0o600)
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
                 yield
             finally:
@@ -1210,12 +1230,33 @@ class LifeOSRuntime:
     def _commit_document(self, selected: date, text: str) -> None:
         self._atomic_replace_daily(selected, text)
 
-    def _result(self, path: Path, state: WorkflowState, **extra: Any) -> dict[str, Any]:
+    @classmethod
+    def _attachment_references(cls, content: str | None) -> list[str]:
+        references: list[str] = []
+        seen: set[str] = set()
+        for match in _ATTACHMENT_LINK.finditer(content or ""):
+            filename = match.group(1)
+            name_match = _ATTACHMENT_NAME.fullmatch(filename)
+            if name_match is None or int(name_match.group(1)) < 1:
+                continue
+            readable_name = name_match.group(2)
+            if cls._readable_name(readable_name) != readable_name:
+                continue
+            reference = match.group(0)
+            if reference not in seen:
+                references.append(reference)
+                seen.add(reference)
+        return references
+
+    def _result(
+        self, path: Path, state: WorkflowState, *, content: str | None = None, **extra: Any,
+    ) -> dict[str, Any]:
         result: dict[str, Any] = {
             "path": str(path),
             **asdict(state),
             "answered": list(state.answered),
             "skipped": list(state.skipped),
+            "attachments": self._attachment_references(content),
             "question": (
                 state.pending_follow_up["question"]
                 if state.pending_follow_up is not None

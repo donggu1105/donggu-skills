@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 from datetime import date
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -372,6 +373,44 @@ class LifeOSRuntimeTests(unittest.TestCase):
             attachment_paths=[duplicate], target_date=day,
         )
         self.assertEqual([stored], list((self.vault / "Life OS/Attachments").iterdir()))
+
+    def test_status_reports_only_bounded_canonical_attachment_references(self):
+        cache = self.base / "cache/documents"
+        cache.mkdir(parents=True)
+        source = cache / "uuid-status.pdf"
+        source.write_bytes(b"status attachment")
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+
+        recorded = self.runtime.record(
+            "answer", message_text="첨부", message_key="status:attachment",
+            attachment_paths=[source], target_date=day,
+        )
+        expected = ["[[Life OS/Attachments/A001 - status.pdf]]"]
+        self.assertEqual(expected, recorded.get("attachments"))
+
+        path = self.runtime.daily_path(day)
+        path.write_text(
+            path.read_text(encoding="utf-8")
+            + "\noutside [[Life OS/Attachments/A999 - outside.pdf]]\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(expected, self.runtime.status(day).get("attachments"))
+
+    def test_empty_and_noncanonical_attachment_references_are_not_reported(self):
+        day = date(2026, 8, 7)
+        self.assertEqual([], self.runtime.status(day).get("attachments"))
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace(
+                "### Daily Check-in\n\n",
+                "### Daily Check-in\n\n[[Life OS/Attachments/A1 - bad.pdf]]\n",
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual([], self.runtime.status(day).get("attachments"))
 
     def test_runtime_accepts_explicit_temporary_attachment_policy(self):
         roots = (self.base / "explicit-cache/documents",)
@@ -922,6 +961,85 @@ class LifeOSRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(private, runtime.state_root)
         self.assertEqual(0o700, private.stat().st_mode & 0o777)
+
+    def test_lock_uses_canonical_vault_digest_namespace_and_private_modes(self):
+        expected_name = hashlib.sha256(
+            os.path.realpath(self.vault).encode("utf-8")
+        ).hexdigest()
+        namespace = self.runtime.state_root / expected_name
+        self.assertEqual(namespace, self.runtime.state_namespace)
+        self.assertRegex(namespace.name, r"^[0-9a-f]{64}$")
+        self.assertEqual(0o700, namespace.stat().st_mode & 0o777)
+
+        self.runtime.status(date(2026, 8, 7))
+        lock = namespace / "mutation.lock"
+        self.assertEqual(0o600, lock.stat().st_mode & 0o777)
+        self.assertEqual(b"", lock.read_bytes())
+        self.assertNotIn(self.vault.name, str(lock.relative_to(self.runtime.state_root)))
+
+    def test_shared_state_base_separates_vault_lock_namespaces(self):
+        other_vault = self.base / "other-vault"
+        template = other_vault / "Life OS/0. PeriodicNotes/Templates/Daily.md"
+        template.parent.mkdir(parents=True)
+        template.write_text("## Daily Record\n%%Your Record%%\n", encoding="utf-8")
+        other = LifeOSRuntime(
+            vault_root=other_vault,
+            state_root=self.runtime.state_root,
+            timezone=ZoneInfo("Asia/Seoul"),
+        )
+
+        self.assertNotEqual(self.runtime.state_namespace, other.state_namespace)
+        self.assertEqual(self.runtime.state_root, other.state_root)
+        self.assertTrue(self.runtime.state_namespace.is_dir())
+        self.assertTrue(other.state_namespace.is_dir())
+
+    def test_existing_lock_namespace_must_be_private_owned_directory(self):
+        state_base = self.base / "namespace-state"
+        state_base.mkdir(mode=0o700)
+        os.chmod(state_base, 0o700)
+        digest = hashlib.sha256(os.path.realpath(self.vault).encode("utf-8")).hexdigest()
+        namespace = state_base / digest
+        namespace.mkdir(mode=0o755)
+        os.chmod(namespace, 0o755)
+
+        with self.assertRaises(life_os.LifeOSError):
+            LifeOSRuntime(
+                vault_root=self.vault,
+                state_root=state_base,
+                timezone=ZoneInfo("Asia/Seoul"),
+            )
+        self.assertEqual(0o755, namespace.stat().st_mode & 0o777)
+
+    def test_lock_namespace_rejects_symlink_and_foreign_owner(self):
+        digest = hashlib.sha256(os.path.realpath(self.vault).encode("utf-8")).hexdigest()
+
+        symlink_base = self.base / "symlink-namespace-state"
+        symlink_base.mkdir(mode=0o700)
+        os.chmod(symlink_base, 0o700)
+        external = self.base / "external-namespace"
+        external.mkdir(mode=0o700)
+        (symlink_base / digest).symlink_to(external, target_is_directory=True)
+        with self.assertRaises(life_os.LifeOSError):
+            LifeOSRuntime(
+                vault_root=self.vault,
+                state_root=symlink_base,
+                timezone=ZoneInfo("Asia/Seoul"),
+            )
+
+        foreign_base = self.base / "foreign-namespace-state"
+        foreign_base.mkdir(mode=0o700)
+        os.chmod(foreign_base, 0o700)
+        foreign_namespace = foreign_base / digest
+        foreign_namespace.mkdir(mode=0o700)
+        os.chmod(foreign_namespace, 0o700)
+        owner = os.geteuid()
+        with mock.patch.object(life_os.os, "geteuid", side_effect=(owner, owner + 1)):
+            with self.assertRaises(life_os.LifeOSError):
+                LifeOSRuntime(
+                    vault_root=self.vault,
+                    state_root=foreign_base,
+                    timezone=ZoneInfo("Asia/Seoul"),
+                )
 
     def test_state_root_rejects_paths_canonically_nested_under_vault_without_creation(self):
         internal = self.vault / "Life OS/.state"
