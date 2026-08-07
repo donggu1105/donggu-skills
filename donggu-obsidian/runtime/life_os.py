@@ -1087,6 +1087,7 @@ class LifeOSRuntime:
         vault_fd = -1
         life_fd = -1
         attachments_fd = -1
+        created = False
         try:
             vault_fd = os.open(self.vault_root, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
             if not os.path.samestat(self._vault_identity, os.fstat(vault_fd)):
@@ -1096,6 +1097,7 @@ class LifeOSRuntime:
                 raise LifeOSError("Life OS directory changed after runtime construction")
             try:
                 os.mkdir("Attachments", mode=0o755, dir_fd=life_fd)
+                created = True
             except FileExistsError:
                 pass
             before = os.stat("Attachments", dir_fd=life_fd, follow_symlinks=False)
@@ -1106,6 +1108,8 @@ class LifeOSRuntime:
             )
             if not os.path.samestat(before, os.fstat(attachments_fd)):
                 raise LifeOSError("attachment directory changed during validation")
+            if created:
+                os.fsync(life_fd)
         except LifeOSError:
             if attachments_fd >= 0:
                 os.close(attachments_fd)
@@ -1253,6 +1257,7 @@ class LifeOSRuntime:
         vault_fd = -1
         life_fd = -1
         directory_fd = -1
+        created = False
         try:
             vault_fd = os.open(self.vault_root, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
             if not os.path.samestat(self._vault_identity, os.fstat(vault_fd)):
@@ -1262,6 +1267,7 @@ class LifeOSRuntime:
                 raise LifeOSError("Life OS directory changed after runtime construction")
             try:
                 os.mkdir("-1. Capture", mode=0o755, dir_fd=life_fd)
+                created = True
             except FileExistsError:
                 pass
             before = os.stat("-1. Capture", dir_fd=life_fd, follow_symlinks=False)
@@ -1272,6 +1278,8 @@ class LifeOSRuntime:
             )
             if not os.path.samestat(before, os.fstat(directory_fd)):
                 raise LifeOSError("Capture directory changed during validation")
+            if created:
+                os.fsync(life_fd)
         except LifeOSError:
             if directory_fd >= 0:
                 os.close(directory_fd)
@@ -1448,11 +1456,12 @@ class LifeOSRuntime:
         prefix: str,
         transaction_id: str,
         target_name: str,
-    ) -> None:
+    ) -> str:
         final_name = f"{prefix}{transaction_id}-{target_name}"
         try:
             _exclusive_rename_at(archive_fd, stage_name, final_name)
             os.fsync(archive_fd)
+            return final_name
         except OSError:
             raise LifeOSError(
                 "note archive transaction requires manual recovery"
@@ -1572,16 +1581,59 @@ class LifeOSRuntime:
                 if not _published_temp_matches(
                     directory_fd, name, writer_fd, writer_identity,
                 ):
-                    _quarantine_published_entry(directory_fd, name, "note")
-                if _entry_matches_identity_at(
-                    archive_fd, stage_name, old_fd, old_identity,
-                ):
-                    self._finalize_note_stage(
+                    displaced_fd, displaced_identity = _open_stable_entry_at(
+                        directory_fd, name,
+                    )
+                    if not _entry_matches_identity_at(
+                        archive_fd, stage_name, old_fd, old_identity,
+                    ):
+                        raise LifeOSError(
+                            "note archive transaction requires manual recovery"
+                        )
+                    final_name = self._finalize_note_stage(
                         archive_fd, stage_name, _NOTE_ARCHIVE_PREFIX,
                         transaction_id, name,
                     )
                     stage_name = ""
-                    return
+                    if (
+                        not _entry_matches_identity_at(
+                            archive_fd, final_name, old_fd, old_identity,
+                        )
+                        or not _entry_matches_identity_at(
+                            directory_fd, name, displaced_fd, displaced_identity,
+                        )
+                    ):
+                        raise LifeOSError(
+                            "note archive transaction requires manual recovery"
+                        )
+                    raise _ConcurrentMutation
+                if _entry_matches_identity_at(
+                    archive_fd, stage_name, old_fd, old_identity,
+                ):
+                    final_name = self._finalize_note_stage(
+                        archive_fd, stage_name, _NOTE_ARCHIVE_PREFIX,
+                        transaction_id, name,
+                    )
+                    stage_name = ""
+                    if _published_temp_matches(
+                        directory_fd, name, writer_fd, writer_identity,
+                    ):
+                        return
+                    displaced_fd, displaced_identity = _open_stable_entry_at(
+                        directory_fd, name,
+                    )
+                    if (
+                        not _entry_matches_identity_at(
+                            archive_fd, final_name, old_fd, old_identity,
+                        )
+                        or not _entry_matches_identity_at(
+                            directory_fd, name, displaced_fd, displaced_identity,
+                        )
+                    ):
+                        raise LifeOSError(
+                            "note archive transaction requires manual recovery"
+                        )
+                    raise _ConcurrentMutation
                 displaced_fd, displaced_identity = _open_stable_entry_at(
                     archive_fd, stage_name,
                 )
@@ -2017,9 +2069,11 @@ class LifeOSRuntime:
                 raise LifeOSError("Periodic notes directory changed after runtime construction")
             current_fd = periodic_fd
             for name in (f"{selected:%Y}", "Daily", f"{selected:%m}"):
+                created = False
                 if create:
                     try:
                         os.mkdir(name, mode=0o755, dir_fd=current_fd)
+                        created = True
                     except FileExistsError:
                         pass
                 try:
@@ -2036,6 +2090,8 @@ class LifeOSRuntime:
                 descriptors.append(child_fd)
                 if not os.path.samestat(before, os.fstat(child_fd)):
                     raise LifeOSError("Daily directory changed during validation")
+                if created:
+                    os.fsync(current_fd)
                 current_fd = child_fd
         except _DailyMissing:
             for descriptor in reversed(descriptors):

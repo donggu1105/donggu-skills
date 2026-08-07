@@ -69,6 +69,56 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("<!-- life-os:record:start -->", text)
         self.assertEqual(1, result["next_question"])
 
+    def test_first_daily_directories_fsync_verified_parents_before_descent_and_publish(self):
+        names = ("2026", "Daily", "08")
+        events = []
+        parents = {}
+        real_mkdir = life_os.os.mkdir
+        real_open = life_os.os.open
+        real_fsync = life_os.os.fsync
+        real_rename = life_os._exclusive_rename_at
+
+        def track_mkdir(name, *args, **kwargs):
+            result = real_mkdir(name, *args, **kwargs)
+            if name in names:
+                parents[name] = kwargs["dir_fd"]
+                events.append(f"mkdir:{name}")
+            return result
+
+        def track_open(name, *args, **kwargs):
+            descriptor = real_open(name, *args, **kwargs)
+            if name in names and f"open:{name}" not in events:
+                events.append(f"open:{name}")
+            return descriptor
+
+        def track_fsync(descriptor):
+            for name, parent_fd in parents.items():
+                if descriptor == parent_fd:
+                    events.append(f"fsync-parent:{name}")
+            return real_fsync(descriptor)
+
+        def track_publish(directory_fd, source, target):
+            if "publish" not in events:
+                events.append("publish")
+            return real_rename(directory_fd, source, target)
+
+        with mock.patch.object(life_os.os, "mkdir", side_effect=track_mkdir):
+            with mock.patch.object(life_os.os, "open", side_effect=track_open):
+                with mock.patch.object(life_os.os, "fsync", side_effect=track_fsync):
+                    with mock.patch.object(
+                        life_os, "_exclusive_rename_at", side_effect=track_publish,
+                    ):
+                        self.runtime.start_daily(date(2026, 8, 7))
+
+        self.assertEqual(
+            [
+                "mkdir:2026", "open:2026", "fsync-parent:2026",
+                "mkdir:Daily", "open:Daily", "fsync-parent:Daily",
+                "mkdir:08", "open:08", "fsync-parent:08", "publish",
+            ],
+            events,
+        )
+
     def test_exchange_rename_swaps_cross_directory_entries_on_macos(self):
         if sys.platform != "darwin":
             self.skipTest("macOS renameatx_np coverage")
@@ -321,7 +371,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         residuals = list(directory.iterdir())
         self.assertTrue(any(os.path.samestat(outside_identity, path.stat()) for path in residuals))
 
-    def test_existing_note_rejects_temp_regular_file_replaced_before_replace(self):
+    def test_existing_note_rejects_temp_regular_replacement_without_touching_canonical(self):
         directory = self.base / "existing-note-regular-replacement"
         directory.mkdir()
         destination = directory / "note.md"
@@ -354,18 +404,17 @@ class LifeOSRuntimeTests(unittest.TestCase):
             return real_exchange(source_fd, source, target_fd, target)
 
         with mock.patch.object(life_os, "_exchange_rename_at", side_effect=replace_then_commit):
-            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+            with self.assertRaisesRegex(life_os.LifeOSError, "changed concurrently"):
                 self.runtime._atomic_publish_note_at(
                     directory_fd, destination.name, "intended update\n", expected,
                 )
 
-        self.assertFalse(destination.exists())
-        vault_recovery = [path for path in directory.iterdir() if path.name.startswith(".life-os-")]
-        self.assertTrue(any(path.read_bytes() == unrelated for path in vault_recovery))
+        self.assertEqual(unrelated, destination.read_bytes())
+        self.assertFalse(any(path.name.startswith(".life-os-") for path in directory.iterdir()))
         state_recovery = list((self.runtime.state_namespace / "note-archives").iterdir())
         self.assertTrue(any(path.is_file() and path.read_bytes() == original for path in state_recovery))
 
-    def test_existing_note_rejects_temp_symlink_replaced_before_replace(self):
+    def test_existing_note_rejects_temp_symlink_replacement_without_touching_canonical(self):
         directory = self.base / "existing-note-symlink-replacement"
         directory.mkdir()
         destination = directory / "note.md"
@@ -392,14 +441,14 @@ class LifeOSRuntimeTests(unittest.TestCase):
             return real_exchange(source_fd, source, target_fd, target)
 
         with mock.patch.object(life_os, "_exchange_rename_at", side_effect=replace_then_commit):
-            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+            with self.assertRaisesRegex(life_os.LifeOSError, "changed concurrently"):
                 self.runtime._atomic_publish_note_at(
                     directory_fd, destination.name, "intended update\n", expected,
                 )
 
-        self.assertFalse(destination.exists())
-        vault_recovery = [path for path in directory.iterdir() if path.name.startswith(".life-os-")]
-        self.assertTrue(any(path.is_symlink() and path.readlink() == outside for path in vault_recovery))
+        self.assertTrue(destination.is_symlink())
+        self.assertEqual(outside, destination.readlink())
+        self.assertFalse(any(path.name.startswith(".life-os-") for path in directory.iterdir()))
         self.assertEqual(b"outside update bytes", outside.read_bytes())
         state_recovery = list((self.runtime.state_namespace / "note-archives").iterdir())
         self.assertTrue(any(path.is_file() and path.read_bytes() == original for path in state_recovery))
@@ -635,6 +684,76 @@ class LifeOSRuntimeTests(unittest.TestCase):
             for entry in archives.iterdir()
             if entry.is_file()
         ))
+
+    def test_daily_replays_replacement_before_first_post_exchange_writer_check(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        external_text = path.read_text(encoding="utf-8") + "\n첫 검증 전 외부 교체\n"
+        real_matches = life_os._published_temp_matches
+        injected = False
+
+        def replace_before_check(directory_fd, name, source_descriptor, expected):
+            nonlocal injected
+            if not injected and name == path.name:
+                injected = True
+                external = path.parent / ".external-before-first-check"
+                external.write_text(external_text, encoding="utf-8")
+                os.replace(external, path)
+                self.assertEqual(external_text, path.read_text(encoding="utf-8"))
+            return real_matches(directory_fd, name, source_descriptor, expected)
+
+        with mock.patch.object(
+            life_os, "_published_temp_matches", side_effect=replace_before_check,
+        ):
+            result = self.runtime.record(
+                "answer", message_text="산책했다",
+                message_key="post-exchange:daily:first", target_date=day,
+            )
+
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("첫 검증 전 외부 교체", text)
+        self.assertEqual(1, text.count("%% life-os-message: post-exchange:daily:first %%"))
+        self.assertFalse(any(name.startswith(".life-os-recovery-") for name in os.listdir(path.parent)))
+        duplicate = self.runtime.record(
+            "answer", message_text="산책했다",
+            message_key="post-exchange:daily:first", target_date=day,
+        )
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(1, path.read_text(encoding="utf-8").count(
+            "%% life-os-message: post-exchange:daily:first %%"
+        ))
+
+    def test_daily_replays_replacement_after_first_post_exchange_writer_check(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        external_text = path.read_text(encoding="utf-8") + "\narchive 확정 전 외부 교체\n"
+        real_matches = life_os._entry_matches_identity_at
+        injected = False
+
+        def replace_after_check(directory_fd, name, source_descriptor, expected):
+            nonlocal injected
+            if not injected and name.startswith(life_os._NOTE_STAGE_PREFIX):
+                injected = True
+                external = path.parent / ".external-after-first-check"
+                external.write_text(external_text, encoding="utf-8")
+                os.replace(external, path)
+                self.assertEqual(external_text, path.read_text(encoding="utf-8"))
+            return real_matches(directory_fd, name, source_descriptor, expected)
+
+        with mock.patch.object(
+            life_os, "_entry_matches_identity_at", side_effect=replace_after_check,
+        ):
+            result = self.runtime.record(
+                "answer", message_text="산책했다",
+                message_key="post-exchange:daily:final", target_date=day,
+            )
+
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("archive 확정 전 외부 교체", text)
+        self.assertEqual(1, text.count("%% life-os-message: post-exchange:daily:final %%"))
+        self.assertFalse(any(name.startswith(".life-os-recovery-") for name in os.listdir(path.parent)))
 
     def test_start_daily_rejects_symlinked_year_with_existing_daily(self):
         day = date(2026, 8, 7)
@@ -874,6 +993,55 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("책 아이디어", text)
         self.assertFalse(self.runtime.daily_path(date(2026, 8, 7)).exists())
 
+    def test_first_capture_directory_fsyncs_verified_parent_before_publish(self):
+        events = []
+        parent_fd = None
+        real_mkdir = life_os.os.mkdir
+        real_open = life_os.os.open
+        real_fsync = life_os.os.fsync
+        real_rename = life_os._exclusive_rename_at
+
+        def track_mkdir(name, *args, **kwargs):
+            nonlocal parent_fd
+            result = real_mkdir(name, *args, **kwargs)
+            if name == "-1. Capture":
+                parent_fd = kwargs["dir_fd"]
+                events.append("mkdir")
+            return result
+
+        def track_open(name, *args, **kwargs):
+            descriptor = real_open(name, *args, **kwargs)
+            if name == "-1. Capture" and "open" not in events:
+                events.append("open")
+            return descriptor
+
+        def track_fsync(descriptor):
+            if (
+                parent_fd is not None
+                and descriptor == parent_fd
+                and "fsync-parent" not in events
+            ):
+                events.append("fsync-parent")
+            return real_fsync(descriptor)
+
+        def track_publish(directory_fd, temp, target):
+            if "publish" not in events:
+                events.append("publish")
+            return real_rename(directory_fd, temp, target)
+
+        with mock.patch.object(life_os.os, "mkdir", side_effect=track_mkdir):
+            with mock.patch.object(life_os.os, "open", side_effect=track_open):
+                with mock.patch.object(life_os.os, "fsync", side_effect=track_fsync):
+                    with mock.patch.object(
+                        life_os, "_exclusive_rename_at", side_effect=track_publish,
+                    ):
+                        self.runtime.record(
+                            "capture", message_text="첫 캡처",
+                            message_key="mkdir-fsync:capture", target_date=date(2026, 8, 7),
+                        )
+
+        self.assertEqual(["mkdir", "open", "fsync-parent", "publish"], events)
+
     def test_new_capture_hard_death_after_exclusive_rename_is_idempotent_on_retry(self):
         day = date(2026, 8, 7)
         child = (
@@ -1066,6 +1234,74 @@ class LifeOSRuntimeTests(unittest.TestCase):
             for entry in archives.iterdir()
             if entry.is_file()
         ))
+
+    def test_capture_replays_replacement_before_first_post_exchange_writer_check(self):
+        day = date(2026, 8, 7)
+        first = self.runtime.record(
+            "capture", message_text="첫 캡처", message_key="post-exchange:capture:seed",
+            target_date=day,
+        )
+        path = Path(first["path"])
+        external_text = path.read_text(encoding="utf-8") + "\n첫 검증 전 캡처 교체\n"
+        real_matches = life_os._published_temp_matches
+        injected = False
+
+        def replace_before_check(directory_fd, name, source_descriptor, expected):
+            nonlocal injected
+            if not injected and name == path.name:
+                injected = True
+                external = path.parent / ".external-capture-before-check"
+                external.write_text(external_text, encoding="utf-8")
+                os.replace(external, path)
+                self.assertEqual(external_text, path.read_text(encoding="utf-8"))
+            return real_matches(directory_fd, name, source_descriptor, expected)
+
+        with mock.patch.object(
+            life_os, "_published_temp_matches", side_effect=replace_before_check,
+        ):
+            result = self.runtime.record(
+                "capture", message_text="둘째 캡처",
+                message_key="post-exchange:capture:first", target_date=day,
+            )
+
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("첫 검증 전 캡처 교체", text)
+        self.assertEqual(1, text.count("%% life-os-message: post-exchange:capture:first %%"))
+        self.assertFalse(any(name.startswith(".life-os-recovery-") for name in os.listdir(path.parent)))
+
+    def test_capture_replays_replacement_after_first_post_exchange_writer_check(self):
+        day = date(2026, 8, 7)
+        first = self.runtime.record(
+            "capture", message_text="첫 캡처", message_key="post-exchange:capture:seed-final",
+            target_date=day,
+        )
+        path = Path(first["path"])
+        external_text = path.read_text(encoding="utf-8") + "\narchive 전 캡처 교체\n"
+        real_matches = life_os._entry_matches_identity_at
+        injected = False
+
+        def replace_after_check(directory_fd, name, source_descriptor, expected):
+            nonlocal injected
+            if not injected and name.startswith(life_os._NOTE_STAGE_PREFIX):
+                injected = True
+                external = path.parent / ".external-capture-after-check"
+                external.write_text(external_text, encoding="utf-8")
+                os.replace(external, path)
+                self.assertEqual(external_text, path.read_text(encoding="utf-8"))
+            return real_matches(directory_fd, name, source_descriptor, expected)
+
+        with mock.patch.object(
+            life_os, "_entry_matches_identity_at", side_effect=replace_after_check,
+        ):
+            result = self.runtime.record(
+                "capture", message_text="둘째 캡처",
+                message_key="post-exchange:capture:final", target_date=day,
+            )
+
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("archive 전 캡처 교체", text)
+        self.assertEqual(1, text.count("%% life-os-message: post-exchange:capture:final %%"))
+        self.assertFalse(any(name.startswith(".life-os-recovery-") for name in os.listdir(path.parent)))
 
     def test_capture_rejects_symlinked_parent_with_existing_dated_file(self):
         day = date(2026, 8, 7)
@@ -1285,6 +1521,55 @@ class LifeOSRuntimeTests(unittest.TestCase):
             attachment_paths=[duplicate], target_date=day,
         )
         self.assertEqual([stored], list((self.vault / "Life OS/Attachments").iterdir()))
+
+    def test_first_attachments_directory_fsyncs_verified_parent_before_publish(self):
+        source = self.base / "cache/documents/first-attachment.bin"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"first attachment")
+        events = []
+        parent_fd = None
+        real_mkdir = life_os.os.mkdir
+        real_open = life_os.os.open
+        real_fsync = life_os.os.fsync
+        real_rename = life_os._exclusive_rename_at
+
+        def track_mkdir(name, *args, **kwargs):
+            nonlocal parent_fd
+            result = real_mkdir(name, *args, **kwargs)
+            if name == "Attachments":
+                parent_fd = kwargs["dir_fd"]
+                events.append("mkdir")
+            return result
+
+        def track_open(name, *args, **kwargs):
+            descriptor = real_open(name, *args, **kwargs)
+            if name == "Attachments" and "open" not in events:
+                events.append("open")
+            return descriptor
+
+        def track_fsync(descriptor):
+            if (
+                parent_fd is not None
+                and descriptor == parent_fd
+                and "fsync-parent" not in events
+            ):
+                events.append("fsync-parent")
+            return real_fsync(descriptor)
+
+        def track_publish(directory_fd, temp, target):
+            if "publish" not in events:
+                events.append("publish")
+            return real_rename(directory_fd, temp, target)
+
+        with mock.patch.object(life_os.os, "mkdir", side_effect=track_mkdir):
+            with mock.patch.object(life_os.os, "open", side_effect=track_open):
+                with mock.patch.object(life_os.os, "fsync", side_effect=track_fsync):
+                    with mock.patch.object(
+                        life_os, "_exclusive_rename_at", side_effect=track_publish,
+                    ):
+                        self.runtime._store_one_attachment(source)
+
+        self.assertEqual(["mkdir", "open", "fsync-parent", "publish"], events)
 
     def test_status_reports_only_bounded_canonical_attachment_references(self):
         cache = self.base / "cache/documents"
