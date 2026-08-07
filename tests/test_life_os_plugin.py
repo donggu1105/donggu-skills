@@ -570,6 +570,44 @@ class LifeOSPluginTests(unittest.TestCase):
         self.assertEqual(1, runtime.record.call_count)
         self.assertEqual(ordinary, runtime.record.call_args.kwargs["message_text"])
 
+    def test_native_handler_rejects_sensitive_follow_up_without_note_mutation(self):
+        runtime_module = importlib.import_module(self.module_name + ".runtime.life_os")
+        temp_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_directory.cleanup)
+        vault = Path(temp_directory.name) / "vault"
+        template = vault / "Life OS/0. PeriodicNotes/Templates/Daily.md"
+        template.parent.mkdir(parents=True)
+        template.write_text("## Daily Record\n%%Your Record%%\n", encoding="utf-8")
+        runtime = runtime_module.LifeOSRuntime(
+            vault_root=vault,
+            state_root=Path(temp_directory.name) / "state",
+            timezone=ZoneInfo("Asia/Seoul"),
+            cache_roots=(),
+        )
+        day = date(2026, 8, 7)
+        runtime.start_daily(day)
+        path = runtime.daily_path(day)
+        before = path.read_bytes()
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        discord_type, event = self.discord_event(text="오늘은 산책했다")
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [{"id": 25, "role": "user", "content": "prepared"}]
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+            "gateway": types.ModuleType("gateway"),
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            payload = json.loads(self.tools.handle_life_os_record({
+                "operation": "answer",
+                "date": day.isoformat(),
+                "follow_up_question": "api_key=" + "e" * 32,
+            }))
+
+        self.assertFalse(payload["success"])
+        self.assertEqual(before, path.read_bytes())
+
     def test_record_handler_converts_paths_and_date(self):
         runtime = mock.Mock()
         runtime.record.return_value = {"status": "completed"}

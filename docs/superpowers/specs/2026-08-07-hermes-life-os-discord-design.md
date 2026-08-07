@@ -324,8 +324,13 @@ commits the note link. No private manifest is needed in the attachment folder.
   personal path is written into the lock filename.
 - The private state directory and lock use modes `0700` and `0600`. No lock or
   manifest is stored in the Vault or attachment directory.
-- Note replacement uses a sibling temporary file, flush, fsync, atomic rename,
-  and parent-directory fsync.
+- New-note publication uses a sibling temporary file and exclusive rename.
+  Existing-note updates stage new bytes in the private per-Vault
+  `note-archives/` directory and require a same-filesystem atomic exchange with
+  the Vault canonical. The displaced canonical is retained permanently as a
+  private committed archive; incomplete stage entries block later updates for
+  manual recovery. Archives are removed only by explicit verified GC after a
+  separate backup, never on the commit path.
 - A trusted Hermes key derived from session, row, platform, and source
   identities appears once in the bounded record block. A private per-Vault
   claim binds that key to one operation and target across Daily and Capture.

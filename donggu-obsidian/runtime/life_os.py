@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import ctypes
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
+import errno
 import fcntl
 import hashlib
 import importlib
@@ -43,6 +44,9 @@ _ATTACHMENT_NAME = re.compile(r"^A(\d{3,}) - (.+)$")
 _ATTACHMENT_LINK = re.compile(r"\[\[Life OS/Attachments/(A\d{3,} - [^\]\r\n]+)\]\]")
 _ATTACHMENT_TEMP = re.compile(r"^\.life-os-attachment-[0-9a-f]{16}$")
 _DEFAULT_MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
+_NOTE_STAGE_PREFIX = ".life-os-note-stage-"
+_NOTE_ARCHIVE_PREFIX = ".life-os-note-archive-"
+_NOTE_ABORTED_PREFIX = ".life-os-note-aborted-"
 _SENSITIVE_MESSAGE_PATTERNS = (
     re.compile(r"<(?:@!?|@&|#)[0-9]{17,20}>"),
     re.compile(r"(?<![0-9])[0-9]{17,20}(?![0-9])"),
@@ -105,12 +109,60 @@ def _load_exclusive_rename() -> tuple[Any, int] | None:
 _EXCLUSIVE_RENAME = _load_exclusive_rename()
 
 
+def _load_exchange_rename() -> tuple[Any, int] | None:
+    try:
+        library = ctypes.CDLL(None, use_errno=True)
+        if sys.platform == "darwin":
+            function = library.renameatx_np
+            function.argtypes = [
+                ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p,
+                ctypes.c_uint,
+            ]
+            function.restype = ctypes.c_int
+            return function, 0x00000002 | 0x00000010
+        if sys.platform.startswith("linux"):
+            function = library.renameat2
+            function.argtypes = [
+                ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p,
+                ctypes.c_uint,
+            ]
+            function.restype = ctypes.c_int
+            return function, 0x00000002
+    except (AttributeError, OSError):
+        pass
+    return None
+
+
+_EXCHANGE_RENAME = _load_exchange_rename()
+
+
 def _exclusive_rename_at(directory_fd: int, source: str, target: str) -> None:
     if _EXCLUSIVE_RENAME is None:
         raise OSError("exclusive rename is unavailable")
     function, flags = _EXCLUSIVE_RENAME
     result = function(
         directory_fd, os.fsencode(source), directory_fd, os.fsencode(target), flags,
+    )
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+def _exchange_rename_at(
+    source_directory_fd: int,
+    source: str,
+    target_directory_fd: int,
+    target: str,
+) -> None:
+    if _EXCHANGE_RENAME is None:
+        raise OSError(errno.ENOTSUP, "atomic exchange is unavailable")
+    function, flags = _EXCHANGE_RENAME
+    result = function(
+        source_directory_fd,
+        os.fsencode(source),
+        target_directory_fd,
+        os.fsencode(target),
+        flags,
     )
     if result != 0:
         error = ctypes.get_errno()
@@ -151,6 +203,9 @@ class _TextSnapshot:
     device: int
     inode: int
     size: int
+    uid: int
+    mode: int
+    nlink: int
     mtime_ns: int
     ctime_ns: int
     sha256: str
@@ -164,6 +219,20 @@ class _TempIdentity:
     mtime_ns: int
     ctime_ns: int
     sha256: str
+
+
+@dataclass(frozen=True)
+class _EntryIdentity:
+    device: int
+    inode: int
+    size: int
+    uid: int
+    mode: int
+    nlink: int
+    mtime_ns: int
+    ctime_ns: int
+    sha256: str | None
+    link_target: str | None
 
 
 def checked_life_os_message_text(value: str) -> str:
@@ -392,6 +461,109 @@ def _published_temp_matches(
             os.close(descriptor)
 
 
+def _open_stable_entry_at(
+    directory_fd: int, name: str,
+) -> tuple[int, _EntryIdentity]:
+    descriptor = -1
+    try:
+        before = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if stat.S_ISREG(before.st_mode):
+            descriptor = os.open(
+                name, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=directory_fd,
+            )
+            if not os.path.samestat(before, os.fstat(descriptor)):
+                raise OSError()
+            digest = _file_sha256_fd(descriptor)
+            link_target = None
+        elif stat.S_ISLNK(before.st_mode):
+            digest = None
+            link_target = os.readlink(name, dir_fd=directory_fd)
+        else:
+            raise OSError()
+        after = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        before_identity = (
+            before.st_dev, before.st_ino, before.st_size, before.st_uid,
+            before.st_mode, before.st_nlink, before.st_mtime_ns, before.st_ctime_ns,
+        )
+        after_identity = (
+            after.st_dev, after.st_ino, after.st_size, after.st_uid,
+            after.st_mode, after.st_nlink, after.st_mtime_ns, after.st_ctime_ns,
+        )
+        if before_identity != after_identity:
+            raise OSError()
+        return descriptor, _EntryIdentity(
+            device=after.st_dev,
+            inode=after.st_ino,
+            size=after.st_size,
+            uid=after.st_uid,
+            mode=after.st_mode,
+            nlink=after.st_nlink,
+            mtime_ns=after.st_mtime_ns,
+            ctime_ns=after.st_ctime_ns,
+            sha256=digest,
+            link_target=link_target,
+        )
+    except (LifeOSError, OSError):
+        if descriptor >= 0:
+            os.close(descriptor)
+        raise LifeOSError("note exchange entry is unavailable for manual recovery") from None
+
+
+def _entry_matches_identity_at(
+    directory_fd: int,
+    name: str,
+    source_descriptor: int,
+    expected: _EntryIdentity,
+) -> bool:
+    descriptor = -1
+    try:
+        before = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if (
+            before.st_dev != expected.device
+            or before.st_ino != expected.inode
+            or before.st_size != expected.size
+            or before.st_uid != expected.uid
+            or before.st_mode != expected.mode
+            or before.st_nlink != expected.nlink
+            or before.st_mtime_ns != expected.mtime_ns
+        ):
+            return False
+        if stat.S_ISREG(before.st_mode):
+            descriptor = os.open(
+                name, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=directory_fd,
+            )
+            opened = os.fstat(descriptor)
+            if (
+                not os.path.samestat(before, opened)
+                or source_descriptor < 0
+                or not os.path.samestat(os.fstat(source_descriptor), opened)
+            ):
+                return False
+            digest = _file_sha256_fd(descriptor)
+            if digest != expected.sha256:
+                return False
+        elif stat.S_ISLNK(before.st_mode):
+            if source_descriptor >= 0 or os.readlink(name, dir_fd=directory_fd) != expected.link_target:
+                return False
+        else:
+            return False
+        after = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        return (
+            os.path.samestat(before, after)
+            and before.st_size == after.st_size
+            and before.st_uid == after.st_uid
+            and before.st_mode == after.st_mode
+            and before.st_nlink == after.st_nlink
+            and before.st_mtime_ns == after.st_mtime_ns
+            and before.st_ctime_ns == after.st_ctime_ns
+        )
+    except (LifeOSError, OSError):
+        return False
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def _quarantine_published_entry(directory_fd: int, name: str, kind: str) -> None:
     for _attempt in range(10):
         recovery_name = f".life-os-recovery-{secrets.token_hex(8)}"
@@ -455,6 +627,10 @@ class LifeOSRuntime:
         self._state_namespace_identity = self.state_namespace.lstat()
         self.claims_root = _prepare_private_state_root(self.state_namespace / "claims")
         self._claims_root_identity = self.claims_root.lstat()
+        self.note_archives_root = _prepare_private_state_root(
+            self.state_namespace / "note-archives"
+        )
+        self._note_archives_root_identity = self.note_archives_root.lstat()
         template = self._template_path()
         try:
             template_info = template.lstat()
@@ -1190,6 +1366,9 @@ class LifeOSRuntime:
                 device=after.st_dev,
                 inode=after.st_ino,
                 size=after.st_size,
+                uid=after.st_uid,
+                mode=after.st_mode,
+                nlink=after.st_nlink,
                 mtime_ns=after.st_mtime_ns,
                 ctime_ns=after.st_ctime_ns,
                 sha256=hashlib.sha256(data).hexdigest(),
@@ -1212,9 +1391,11 @@ class LifeOSRuntime:
         expected: _TextSnapshot | None,
     ) -> None:
         data = text.encode("utf-8")
+        if expected is not None:
+            self._exchange_publish_note_at(directory_fd, name, data, expected)
+            return
         descriptor = -1
         temp_name = ""
-        recovery_name = ""
         try:
             for _attempt in range(10):
                 candidate = f".{name}.life-os-{secrets.token_hex(8)}"
@@ -1242,42 +1423,16 @@ class LifeOSRuntime:
                 hashlib.sha256(data).hexdigest(),
                 "note",
             )
-            if expected is None:
-                try:
-                    _exclusive_rename_at(directory_fd, temp_name, name)
-                except FileExistsError:
-                    raise _ConcurrentMutation from None
-                temp_name = ""
-                if not _published_temp_matches(
-                    directory_fd, name, descriptor, temp_identity,
-                ):
-                    _quarantine_published_entry(directory_fd, name, "note")
-                os.fsync(directory_fd)
-            else:
-                current = LifeOSRuntime._read_text_snapshot_at(
-                    directory_fd,
-                    name,
-                    unavailable="note is unavailable",
-                    nonregular="note must be a non-symlink file",
-                    unreadable="note is unreadable",
-                )
-                if current != expected:
-                    raise _ConcurrentMutation
-                recovery_name = self._write_note_recovery_backup(name, expected)
-                os.replace(
-                    temp_name,
-                    name,
-                    src_dir_fd=directory_fd,
-                    dst_dir_fd=directory_fd,
-                )
-                temp_name = ""
-                if not _published_temp_matches(
-                    directory_fd, name, descriptor, temp_identity,
-                ):
-                    _quarantine_published_entry(directory_fd, name, "note")
-                os.fsync(directory_fd)
-                self._remove_note_recovery_backup(recovery_name)
-                recovery_name = ""
+            try:
+                _exclusive_rename_at(directory_fd, temp_name, name)
+            except FileExistsError:
+                raise _ConcurrentMutation from None
+            temp_name = ""
+            if not _published_temp_matches(
+                directory_fd, name, descriptor, temp_identity,
+            ):
+                _quarantine_published_entry(directory_fd, name, "note")
+            os.fsync(directory_fd)
         except _ConcurrentMutation:
             raise
         except OSError:
@@ -1286,50 +1441,191 @@ class LifeOSRuntime:
             if descriptor >= 0:
                 os.close(descriptor)
 
-    def _write_note_recovery_backup(self, name: str, expected: _TextSnapshot) -> str:
-        if not name or "/" in name or "\x00" in name:
-            raise LifeOSError("note recovery target is invalid")
-        descriptor = -1
-        recovery_name = ""
-        data = expected.text.encode("utf-8")
-        if hashlib.sha256(data).hexdigest() != expected.sha256:
-            raise LifeOSError("note recovery snapshot is invalid")
-        with self._state_namespace_directory() as namespace_fd:
-            try:
-                for _attempt in range(10):
-                    candidate = f".life-os-note-recovery-{secrets.token_hex(8)}-{name}"
-                    try:
-                        descriptor = os.open(
-                            candidate,
-                            os.O_CREAT | os.O_EXCL | os.O_WRONLY | _NOFOLLOW,
-                            0o600,
-                            dir_fd=namespace_fd,
+    @staticmethod
+    def _finalize_note_stage(
+        archive_fd: int,
+        stage_name: str,
+        prefix: str,
+        transaction_id: str,
+        target_name: str,
+    ) -> None:
+        final_name = f"{prefix}{transaction_id}-{target_name}"
+        try:
+            _exclusive_rename_at(archive_fd, stage_name, final_name)
+            os.fsync(archive_fd)
+        except OSError:
+            raise LifeOSError(
+                "note archive transaction requires manual recovery"
+            ) from None
+
+    @staticmethod
+    def _open_expected_note_entry(
+        directory_fd: int, name: str, expected: _TextSnapshot,
+    ) -> tuple[int, _EntryIdentity]:
+        descriptor, identity = _open_stable_entry_at(directory_fd, name)
+        if (
+            not stat.S_ISREG(identity.mode)
+            or identity.device != expected.device
+            or identity.inode != expected.inode
+            or identity.size != expected.size
+            or identity.uid != expected.uid
+            or identity.mode != expected.mode
+            or identity.nlink != expected.nlink
+            or identity.mtime_ns != expected.mtime_ns
+            or identity.ctime_ns != expected.ctime_ns
+            or identity.sha256 != expected.sha256
+        ):
+            if descriptor >= 0:
+                os.close(descriptor)
+            raise _ConcurrentMutation
+        return descriptor, identity
+
+    def _exchange_publish_note_at(
+        self,
+        directory_fd: int,
+        name: str,
+        data: bytes,
+        expected: _TextSnapshot,
+    ) -> None:
+        writer_fd = -1
+        old_fd = -1
+        displaced_fd = -1
+        stage_name = ""
+        transaction_id = secrets.token_hex(8)
+        try:
+            with self._note_archives_directory() as archive_fd:
+                try:
+                    entries = tuple(os.listdir(archive_fd))
+                except OSError:
+                    raise LifeOSError("Life OS note archive is unreadable") from None
+                if any(entry.startswith(_NOTE_STAGE_PREFIX) for entry in entries):
+                    raise LifeOSError("note archive transaction requires manual recovery")
+                if os.fstat(archive_fd).st_dev != os.fstat(directory_fd).st_dev:
+                    raise LifeOSError("note archive and Vault must use the same filesystem")
+                if _EXCHANGE_RENAME is None:
+                    raise LifeOSError("atomic note exchange is unavailable")
+                stage_name = f"{_NOTE_STAGE_PREFIX}{transaction_id}-{name}"
+                try:
+                    writer_fd = os.open(
+                        stage_name,
+                        os.O_CREAT | os.O_EXCL | os.O_RDWR | _NOFOLLOW,
+                        0o600,
+                        dir_fd=archive_fd,
+                    )
+                    with os.fdopen(writer_fd, "wb", closefd=False) as stream:
+                        stream.write(data)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    writer_identity = _open_verified_temp_at(
+                        archive_fd,
+                        stage_name,
+                        writer_fd,
+                        hashlib.sha256(data).hexdigest(),
+                        "note",
+                    )
+                    os.fsync(archive_fd)
+                except (LifeOSError, OSError):
+                    raise LifeOSError("note archive candidate could not be persisted") from None
+                current = LifeOSRuntime._read_text_snapshot_at(
+                    directory_fd,
+                    name,
+                    unavailable="note is unavailable",
+                    nonregular="note must be a non-symlink file",
+                    unreadable="note is unreadable",
+                )
+                if current != expected:
+                    self._finalize_note_stage(
+                        archive_fd, stage_name, _NOTE_ABORTED_PREFIX,
+                        transaction_id, name,
+                    )
+                    stage_name = ""
+                    raise _ConcurrentMutation
+                try:
+                    old_fd, old_identity = self._open_expected_note_entry(
+                        directory_fd, name, expected,
+                    )
+                except _ConcurrentMutation:
+                    self._finalize_note_stage(
+                        archive_fd, stage_name, _NOTE_ABORTED_PREFIX,
+                        transaction_id, name,
+                    )
+                    stage_name = ""
+                    raise
+                try:
+                    _exchange_rename_at(archive_fd, stage_name, directory_fd, name)
+                except OSError as exc:
+                    if exc.errno in {
+                        errno.EXDEV, errno.ENOTSUP, errno.EOPNOTSUPP,
+                        errno.EINVAL, errno.ENOSYS,
+                    }:
+                        self._finalize_note_stage(
+                            archive_fd, stage_name, _NOTE_ABORTED_PREFIX,
+                            transaction_id, name,
                         )
-                        recovery_name = candidate
-                        break
-                    except FileExistsError:
-                        continue
-                if descriptor < 0:
-                    raise OSError()
-                with os.fdopen(descriptor, "wb", closefd=True) as stream:
-                    descriptor = -1
-                    stream.write(data)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                os.fsync(namespace_fd)
-            except OSError:
+                        stage_name = ""
+                        raise LifeOSError("atomic note exchange is unavailable") from None
+                    raise LifeOSError(
+                        "note archive transaction requires manual recovery"
+                    ) from None
+                os.fsync(archive_fd)
+                os.fsync(directory_fd)
+                if not _published_temp_matches(
+                    directory_fd, name, writer_fd, writer_identity,
+                ):
+                    _quarantine_published_entry(directory_fd, name, "note")
+                if _entry_matches_identity_at(
+                    archive_fd, stage_name, old_fd, old_identity,
+                ):
+                    self._finalize_note_stage(
+                        archive_fd, stage_name, _NOTE_ARCHIVE_PREFIX,
+                        transaction_id, name,
+                    )
+                    stage_name = ""
+                    return
+                displaced_fd, displaced_identity = _open_stable_entry_at(
+                    archive_fd, stage_name,
+                )
+                if not _published_temp_matches(
+                    directory_fd, name, writer_fd, writer_identity,
+                ):
+                    raise LifeOSError(
+                        "note archive rollback requires manual recovery"
+                    )
+                try:
+                    _exchange_rename_at(archive_fd, stage_name, directory_fd, name)
+                except OSError:
+                    raise LifeOSError(
+                        "note archive rollback requires manual recovery"
+                    ) from None
+                os.fsync(archive_fd)
+                os.fsync(directory_fd)
+                if (
+                    not _entry_matches_identity_at(
+                        directory_fd, name, displaced_fd, displaced_identity,
+                    )
+                    or not _published_temp_matches(
+                        archive_fd, stage_name, writer_fd, writer_identity,
+                    )
+                ):
+                    raise LifeOSError(
+                        "note archive rollback requires manual recovery"
+                    )
+                self._finalize_note_stage(
+                    archive_fd, stage_name, _NOTE_ABORTED_PREFIX,
+                    transaction_id, name,
+                )
+                stage_name = ""
+                raise _ConcurrentMutation
+        except _ConcurrentMutation:
+            raise
+        except LifeOSError:
+            raise
+        except OSError:
+            raise LifeOSError("note could not be committed atomically") from None
+        finally:
+            for descriptor in (displaced_fd, old_fd, writer_fd):
                 if descriptor >= 0:
                     os.close(descriptor)
-                raise LifeOSError("note recovery backup could not be persisted") from None
-        return recovery_name
-
-    def _remove_note_recovery_backup(self, recovery_name: str) -> None:
-        with self._state_namespace_directory() as namespace_fd:
-            try:
-                os.unlink(recovery_name, dir_fd=namespace_fd)
-                os.fsync(namespace_fd)
-            except OSError:
-                raise LifeOSError("note recovery backup could not be finalized") from None
 
     @staticmethod
     def _atomic_replace_at(directory_fd: int, name: str, text: str) -> None:
@@ -1488,6 +1784,33 @@ class LifeOSRuntime:
         finally:
             os.close(namespace_fd)
             os.close(state_fd)
+
+    @contextmanager
+    def _note_archives_directory(self) -> Iterator[int]:
+        descriptor = -1
+        with self._state_namespace_directory() as namespace_fd:
+            try:
+                descriptor = os.open(
+                    "note-archives",
+                    os.O_RDONLY | _DIRECTORY | _NOFOLLOW,
+                    dir_fd=namespace_fd,
+                )
+                info = os.fstat(descriptor)
+                if (
+                    not os.path.samestat(self._note_archives_root_identity, info)
+                    or not stat.S_ISDIR(info.st_mode)
+                    or info.st_uid != os.geteuid()
+                    or stat.S_IMODE(info.st_mode) != 0o700
+                ):
+                    raise LifeOSError("Life OS note archive changed after runtime construction")
+                yield descriptor
+            except LifeOSError:
+                raise
+            except OSError:
+                raise LifeOSError("Life OS note archive is unavailable") from None
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
 
     @contextmanager
     def _mutation_lock(self) -> Iterator[int]:
@@ -1826,6 +2149,7 @@ class LifeOSRuntime:
         follow_up_count = payload["follow_up_count"]
         if isinstance(follow_up_count, bool) or not isinstance(follow_up_count, int) or not 0 <= follow_up_count <= 2:
             raise ValueError("invalid follow-up count")
+        status = payload["status"]
         pending = payload["pending_follow_up"]
         if pending is not None:
             if (
@@ -1837,12 +2161,17 @@ class LifeOSRuntime:
                 or not isinstance(pending["question"], str)
                 or not 1 <= len(pending["question"]) <= 300
                 or pending["question"] != pending["question"].strip()
+                or status not in {"active", "paused"}
+                or follow_up_count < 1
             ):
                 raise ValueError("invalid pending follow-up")
+            try:
+                self._checked_follow_up(pending["question"])
+            except LifeOSError:
+                raise ValueError("invalid pending follow-up") from None
         last_key = payload["last_message_key"]
         if last_key is not None and (not isinstance(last_key, str) or not last_key):
             raise ValueError("invalid last message key")
-        status = payload["status"]
         if status == "not_started" and (answered or skipped or next_question != 1):
             raise ValueError("invalid not-started state")
         if status == "completed" and (next_question is not None or set(answered) | set(skipped) != set(range(1, len(QUESTIONS) + 1))):
@@ -1887,9 +2216,7 @@ class LifeOSRuntime:
 
     @staticmethod
     def _checked_follow_up(value: str) -> str:
-        if not isinstance(value, str):
-            raise LifeOSError("follow-up question is invalid")
-        question = value.strip()
+        question = checked_life_os_message_text(value)
         if not 1 <= len(question) <= 300 or any(
             marker in question for marker in (_START, _END, _STATE_PREFIX, _MESSAGE_PREFIX)
         ):

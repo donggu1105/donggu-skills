@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 from datetime import date
+import errno
 import hashlib
 import json
 import os
@@ -67,6 +68,143 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("```LifeOS\nTaskDoneListByTime\n```", text)
         self.assertIn("<!-- life-os:record:start -->", text)
         self.assertEqual(1, result["next_question"])
+
+    def test_exchange_rename_swaps_cross_directory_entries_on_macos(self):
+        if sys.platform != "darwin":
+            self.skipTest("macOS renameatx_np coverage")
+        left = self.base / "exchange-left"
+        right = self.base / "exchange-right"
+        left.mkdir()
+        right.mkdir()
+        (left / "candidate").write_bytes(b"new")
+        (right / "canonical").write_bytes(b"old")
+        left_fd = os.open(left, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        right_fd = os.open(right, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, left_fd)
+        self.addCleanup(os.close, right_fd)
+
+        life_os._exchange_rename_at(left_fd, "candidate", right_fd, "canonical")
+
+        self.assertEqual(b"old", (left / "candidate").read_bytes())
+        self.assertEqual(b"new", (right / "canonical").read_bytes())
+
+    def test_existing_note_update_uses_exchange_without_replace_or_unlink(self):
+        directory = self.base / "exchange-update"
+        directory.mkdir()
+        destination = directory / "note.md"
+        destination.write_text("old\n", encoding="utf-8")
+        destination.chmod(0o600)
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, directory_fd)
+        expected = self.runtime._read_text_snapshot_at(
+            directory_fd,
+            destination.name,
+            unavailable="note unavailable",
+            nonregular="note nonregular",
+            unreadable="note unreadable",
+        )
+
+        with mock.patch.object(life_os.os, "replace", side_effect=AssertionError("os.replace")):
+            with mock.patch.object(life_os.os, "unlink", side_effect=AssertionError("os.unlink")):
+                self.runtime._atomic_publish_note_at(
+                    directory_fd, destination.name, "new\n", expected,
+                )
+
+        self.assertEqual("new\n", destination.read_text(encoding="utf-8"))
+        archives = self.runtime.state_namespace / "note-archives"
+        self.assertTrue(any(entry.read_bytes() == b"old\n" for entry in archives.iterdir()))
+
+    def test_existing_note_exchange_fsyncs_archive_before_vault(self):
+        directory = self.base / "exchange-fsync-order"
+        directory.mkdir()
+        destination = directory / "note.md"
+        destination.write_text("old\n", encoding="utf-8")
+        destination.chmod(0o600)
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, directory_fd)
+        expected = self.runtime._read_text_snapshot_at(
+            directory_fd,
+            destination.name,
+            unavailable="note unavailable",
+            nonregular="note nonregular",
+            unreadable="note unreadable",
+        )
+        events = []
+        exchange_fds = None
+        real_exchange = life_os._exchange_rename_at
+        real_fsync = life_os.os.fsync
+
+        def track_exchange(source_fd, source, target_fd, target):
+            nonlocal exchange_fds
+            exchange_fds = (source_fd, target_fd)
+            events.append("exchange")
+            return real_exchange(source_fd, source, target_fd, target)
+
+        def track_fsync(descriptor):
+            if exchange_fds is not None:
+                if descriptor == exchange_fds[0]:
+                    events.append("fsync-archive")
+                elif descriptor == exchange_fds[1]:
+                    events.append("fsync-vault")
+            return real_fsync(descriptor)
+
+        with mock.patch.object(life_os, "_exchange_rename_at", side_effect=track_exchange):
+            with mock.patch.object(life_os.os, "fsync", side_effect=track_fsync):
+                self.runtime._atomic_publish_note_at(
+                    directory_fd, destination.name, "new\n", expected,
+                )
+
+        self.assertEqual(
+            ["exchange", "fsync-archive", "fsync-vault"], events[:3],
+        )
+
+    def test_existing_note_update_fails_closed_when_exchange_is_unsupported(self):
+        directory = self.base / "unsupported-exchange"
+        directory.mkdir()
+        destination = directory / "note.md"
+        destination.write_text("old\n", encoding="utf-8")
+        destination.chmod(0o600)
+        before = destination.read_bytes()
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, directory_fd)
+        expected = self.runtime._read_text_snapshot_at(
+            directory_fd,
+            destination.name,
+            unavailable="note unavailable",
+            nonregular="note nonregular",
+            unreadable="note unreadable",
+        )
+
+        with mock.patch.object(
+            life_os,
+            "_exchange_rename_at",
+            side_effect=OSError(errno.ENOTSUP, "unsupported"),
+            create=True,
+        ):
+            with self.assertRaises(life_os.LifeOSError):
+                self.runtime._atomic_publish_note_at(
+                    directory_fd, destination.name, "new\n", expected,
+                )
+
+        self.assertEqual(before, destination.read_bytes())
+        archives = self.runtime.state_namespace / "note-archives"
+        self.assertFalse(any(entry.name.startswith(".life-os-note-stage-") for entry in archives.iterdir()))
+
+    def test_incomplete_note_archive_stage_blocks_later_update(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        before = path.read_bytes()
+        archives = self.runtime.state_namespace / "note-archives"
+        archives.mkdir(mode=0o700, exist_ok=True)
+        (archives / ".life-os-note-stage-deadbeef-daily.md").write_bytes(b"ambiguous")
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "manual recovery"):
+            self.runtime.record(
+                "answer", message_text="답", message_key="blocked:stage", target_date=day,
+            )
+
+        self.assertEqual(before, path.read_bytes())
 
     def test_new_note_publish_uses_exclusive_rename_without_unlink(self):
         directory = self.base / "publish-order"
@@ -201,21 +339,21 @@ class LifeOSRuntimeTests(unittest.TestCase):
         )
         self.assertIsNotNone(expected)
         unrelated = b"unrelated update replacement"
-        real_replace = life_os.os.replace
+        real_exchange = life_os._exchange_rename_at
 
-        def replace_then_commit(source, target, *args, **kwargs):
-            os.unlink(source, dir_fd=kwargs["src_dir_fd"])
+        def replace_then_commit(source_fd, source, target_fd, target):
+            os.unlink(source, dir_fd=source_fd)
             replacement = os.open(
                 source,
                 os.O_CREAT | os.O_EXCL | os.O_WRONLY,
                 0o600,
-                dir_fd=kwargs["src_dir_fd"],
+                dir_fd=source_fd,
             )
             os.write(replacement, unrelated)
             os.close(replacement)
-            return real_replace(source, target, *args, **kwargs)
+            return real_exchange(source_fd, source, target_fd, target)
 
-        with mock.patch.object(life_os.os, "replace", side_effect=replace_then_commit):
+        with mock.patch.object(life_os, "_exchange_rename_at", side_effect=replace_then_commit):
             with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
                 self.runtime._atomic_publish_note_at(
                     directory_fd, destination.name, "intended update\n", expected,
@@ -224,7 +362,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertFalse(destination.exists())
         vault_recovery = [path for path in directory.iterdir() if path.name.startswith(".life-os-")]
         self.assertTrue(any(path.read_bytes() == unrelated for path in vault_recovery))
-        state_recovery = list(self.runtime.state_namespace.iterdir())
+        state_recovery = list((self.runtime.state_namespace / "note-archives").iterdir())
         self.assertTrue(any(path.is_file() and path.read_bytes() == original for path in state_recovery))
 
     def test_existing_note_rejects_temp_symlink_replaced_before_replace(self):
@@ -246,14 +384,14 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(expected)
         outside = self.base / "outside-update"
         outside.write_bytes(b"outside update bytes")
-        real_replace = life_os.os.replace
+        real_exchange = life_os._exchange_rename_at
 
-        def replace_then_commit(source, target, *args, **kwargs):
-            os.unlink(source, dir_fd=kwargs["src_dir_fd"])
-            os.symlink(outside, source, dir_fd=kwargs["src_dir_fd"])
-            return real_replace(source, target, *args, **kwargs)
+        def replace_then_commit(source_fd, source, target_fd, target):
+            os.unlink(source, dir_fd=source_fd)
+            os.symlink(outside, source, dir_fd=source_fd)
+            return real_exchange(source_fd, source, target_fd, target)
 
-        with mock.patch.object(life_os.os, "replace", side_effect=replace_then_commit):
+        with mock.patch.object(life_os, "_exchange_rename_at", side_effect=replace_then_commit):
             with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
                 self.runtime._atomic_publish_note_at(
                     directory_fd, destination.name, "intended update\n", expected,
@@ -263,7 +401,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         vault_recovery = [path for path in directory.iterdir() if path.name.startswith(".life-os-")]
         self.assertTrue(any(path.is_symlink() and path.readlink() == outside for path in vault_recovery))
         self.assertEqual(b"outside update bytes", outside.read_bytes())
-        state_recovery = list(self.runtime.state_namespace.iterdir())
+        state_recovery = list((self.runtime.state_namespace / "note-archives").iterdir())
         self.assertTrue(any(path.is_file() and path.read_bytes() == original for path in state_recovery))
 
     def test_existing_note_rejects_identical_hardlink_replaced_before_verification_open(self):
@@ -297,7 +435,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
             return real_open(parent_fd, name, descriptor, digest, kind)
 
         with mock.patch.object(life_os, "_open_verified_temp_at", side_effect=replace_then_open):
-            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+            with self.assertRaisesRegex(life_os.LifeOSError, "note archive"):
                 self.runtime._atomic_publish_note_at(
                     directory_fd, destination.name, intended.decode(), expected,
                 )
@@ -307,7 +445,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(original, destination.read_bytes())
         self.assertTrue(os.path.samestat(outside_identity, outside.stat()))
         self.assertEqual(intended, outside.read_bytes())
-        residuals = [path for path in directory.iterdir() if path != destination]
+        residuals = list((self.runtime.state_namespace / "note-archives").iterdir())
         self.assertTrue(any(os.path.samestat(outside_identity, path.stat()) for path in residuals))
 
     def test_new_daily_hard_death_after_exclusive_rename_is_idempotent_on_retry(self):
@@ -347,6 +485,52 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("- [ ] Breakfast", text)
         self.assertEqual(1, text.count("<!-- life-os:record:start -->"))
         self.assertFalse(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
+
+    def test_existing_daily_hard_death_after_exchange_preserves_pending_archive(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        child = (
+            "import importlib.util, os, pathlib, sys\n"
+            "module_path, vault, state = map(pathlib.Path, sys.argv[1:])\n"
+            "spec = importlib.util.spec_from_file_location('child_exchange_crash', module_path)\n"
+            "module = importlib.util.module_from_spec(spec)\n"
+            "sys.modules[spec.name] = module\n"
+            "spec.loader.exec_module(module)\n"
+            "runtime = module.LifeOSRuntime(vault_root=vault, state_root=state, "
+            "timezone=module.ZoneInfo('Asia/Seoul'), cache_roots=(), max_attachment_bytes=1024)\n"
+            "real_exchange = module._exchange_rename_at\n"
+            "def die_after_exchange(*args, **kwargs):\n"
+            "    real_exchange(*args, **kwargs)\n"
+            "    os._exit(76)\n"
+            "module._exchange_rename_at = die_after_exchange\n"
+            "runtime.record('answer', message_text='교환 뒤 기록', "
+            "message_key='crash:exchange', target_date=module.date(2026, 8, 7))\n"
+        )
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                child,
+                str(MODULE_PATH),
+                str(self.vault),
+                str(self.base / "state"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(76, proc.returncode, proc.stderr)
+        path = self.runtime.daily_path(day)
+        self.assertIn("교환 뒤 기록", path.read_text(encoding="utf-8"))
+        archives = self.runtime.state_namespace / "note-archives"
+        self.assertTrue(any(entry.name.startswith(".life-os-note-stage-") for entry in archives.iterdir()))
+        before = path.read_bytes()
+        with self.assertRaisesRegex(life_os.LifeOSError, "manual recovery"):
+            self.runtime.record(
+                "answer", message_text="재시도", message_key="crash:retry", target_date=day,
+            )
+        self.assertEqual(before, path.read_bytes())
 
     def test_concurrent_new_daily_creation_is_never_replaced(self):
         day = date(2026, 8, 7)
@@ -402,6 +586,55 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertTrue(injected)
         self.assertIn(outside.strip(), text)
         self.assertEqual(1, text.count("%% life-os-message: race:daily %%"))
+
+    def test_daily_destination_replacement_at_commit_is_archived_and_replayed(self):
+        day = date(2026, 8, 7)
+        path = self.runtime.daily_path(day)
+        self.runtime.start_daily(day)
+        external_text = path.read_text(encoding="utf-8") + "\n외부 원자적 교체\n"
+        real_exchange = life_os._exchange_rename_at
+        injected = False
+        external_identity = None
+
+        def replace_destination_then_commit(source_fd, source, target_fd, target):
+            nonlocal injected, external_identity
+            if not injected and target == path.name:
+                injected = True
+                external = path.parent / ".external-daily"
+                external.write_text(external_text, encoding="utf-8")
+                os.replace(
+                    external.name,
+                    target,
+                    src_dir_fd=target_fd,
+                    dst_dir_fd=target_fd,
+                )
+                external_identity = os.stat(
+                    target, dir_fd=target_fd, follow_symlinks=False,
+                )
+            return real_exchange(source_fd, source, target_fd, target)
+
+        with mock.patch.object(
+            life_os, "_exchange_rename_at", side_effect=replace_destination_then_commit,
+        ):
+            result = self.runtime.record(
+                "answer",
+                message_text="산책했다",
+                message_key="destination-race:daily",
+                target_date=day,
+            )
+
+        self.assertTrue(injected)
+        self.assertIsNotNone(external_identity)
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("외부 원자적 교체", text)
+        self.assertEqual(1, text.count("%% life-os-message: destination-race:daily %%"))
+        archives = self.runtime.state_namespace / "note-archives"
+        self.assertTrue(any(
+            os.path.samestat(external_identity, entry.stat())
+            and entry.read_text(encoding="utf-8") == external_text
+            for entry in archives.iterdir()
+            if entry.is_file()
+        ))
 
     def test_start_daily_rejects_symlinked_year_with_existing_daily(self):
         day = date(2026, 8, 7)
@@ -581,6 +814,56 @@ class LifeOSRuntimeTests(unittest.TestCase):
         text = self.runtime.daily_path(day).read_text(encoding="utf-8")
         self.assertEqual(1, text.count("문서를 연다"))
 
+    def test_sensitive_follow_up_is_rejected_without_note_mutation(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        before = path.read_bytes()
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "sensitive"):
+            self.runtime.record(
+                "answer",
+                message_text="오늘은 산책했다",
+                message_key="sensitive:follow-up",
+                follow_up_question="api_key=" + "e" * 32,
+                target_date=day,
+            )
+
+        self.assertEqual(before, path.read_bytes())
+
+    def test_sensitive_pending_follow_up_state_is_rejected_without_note_mutation(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        self.runtime.record(
+            "answer",
+            message_text="첫 답",
+            message_key="pending-sensitive:answer",
+            follow_up_question="정상 꼬리질문?",
+            target_date=day,
+        )
+        path = self.runtime.daily_path(day)
+        original = path.read_text(encoding="utf-8")
+        state_match = life_os._STATE_PATTERN.search(original)
+        self.assertIsNotNone(state_match)
+        payload = json.loads(state_match.group(1))
+        payload["pending_follow_up"]["question"] = "/Users/" + "example/private.txt"
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        tampered = original[:state_match.start(1)] + raw + original[state_match.end(1):]
+        path.write_text(tampered, encoding="utf-8")
+        before = path.read_bytes()
+
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.status(day)
+        with self.assertRaises(life_os.LifeOSError):
+            self.runtime.record(
+                "answer",
+                message_text="응답",
+                message_key="pending-sensitive:response",
+                target_date=day,
+            )
+
+        self.assertEqual(before, path.read_bytes())
+
     def test_capture_appends_timestamped_entry_without_starting_daily(self):
         result = self.runtime.record(
             "capture", message_text="책 아이디어", message_key="s2:1",
@@ -733,6 +1016,56 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertTrue(injected)
         self.assertIn(outside.strip(), text)
         self.assertEqual(1, text.count("%% life-os-message: race:capture:second %%"))
+
+    def test_capture_destination_replacement_at_commit_is_archived_and_replayed(self):
+        day = date(2026, 8, 7)
+        first = self.runtime.record(
+            "capture", message_text="첫 캡처", message_key="destination-race:capture:first",
+            target_date=day,
+        )
+        path = Path(first["path"])
+        external_text = path.read_text(encoding="utf-8") + "\n외부 캡처 교체\n"
+        real_exchange = life_os._exchange_rename_at
+        injected = False
+        external_identity = None
+
+        def replace_destination_then_commit(source_fd, source, target_fd, target):
+            nonlocal injected, external_identity
+            if not injected and target == path.name:
+                injected = True
+                external = path.parent / ".external-capture"
+                external.write_text(external_text, encoding="utf-8")
+                os.replace(
+                    external.name,
+                    target,
+                    src_dir_fd=target_fd,
+                    dst_dir_fd=target_fd,
+                )
+                external_identity = os.stat(
+                    target, dir_fd=target_fd, follow_symlinks=False,
+                )
+            return real_exchange(source_fd, source, target_fd, target)
+
+        with mock.patch.object(
+            life_os, "_exchange_rename_at", side_effect=replace_destination_then_commit,
+        ):
+            result = self.runtime.record(
+                "capture", message_text="둘째 캡처",
+                message_key="destination-race:capture:second", target_date=day,
+            )
+
+        self.assertTrue(injected)
+        self.assertIsNotNone(external_identity)
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("외부 캡처 교체", text)
+        self.assertEqual(1, text.count("%% life-os-message: destination-race:capture:second %%"))
+        archives = self.runtime.state_namespace / "note-archives"
+        self.assertTrue(any(
+            os.path.samestat(external_identity, entry.stat())
+            and entry.read_text(encoding="utf-8") == external_text
+            for entry in archives.iterdir()
+            if entry.is_file()
+        ))
 
     def test_capture_rejects_symlinked_parent_with_existing_dated_file(self):
         day = date(2026, 8, 7)
@@ -1657,14 +1990,14 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.runtime.start_daily(day)
         note_path = self.runtime.daily_path(day)
         original = note_path.read_text(encoding="utf-8")
-        real_replace = life_os.os.replace
+        real_exchange = life_os._exchange_rename_at
 
-        def fail_before_note_rename(source_path, destination_path, *args, **kwargs):
-            if destination_path == note_path.name and kwargs.get("dst_dir_fd") is not None:
+        def fail_before_note_exchange(source_fd, source_path, target_fd, destination_path):
+            if destination_path == note_path.name:
                 raise OSError("injected pre-note-rename crash")
-            return real_replace(source_path, destination_path, *args, **kwargs)
+            return real_exchange(source_fd, source_path, target_fd, destination_path)
 
-        with mock.patch.object(life_os.os, "replace", side_effect=fail_before_note_rename):
+        with mock.patch.object(life_os, "_exchange_rename_at", side_effect=fail_before_note_exchange):
             with self.assertRaises(life_os.LifeOSError):
                 self.runtime.record(
                     "answer", message_text="note try", message_key="crash:note",
@@ -1672,7 +2005,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 )
         self.assertEqual(original, note_path.read_text(encoding="utf-8"))
 
-        with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+        with self.assertRaisesRegex(life_os.LifeOSError, "manual recovery"):
             self.runtime.record(
                 "answer", message_text="note try", message_key="crash:note",
                 attachment_paths=[source], target_date=day,
@@ -1680,7 +2013,8 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(["A001 - note-crash.pdf"], [path.name for path in self.runtime.attachments_root.iterdir()])
         self.assertEqual(original, note_path.read_text(encoding="utf-8"))
         self.assertTrue(any(
-            name.startswith(f".{note_path.name}.life-os-") for name in os.listdir(note_path.parent)
+            name.startswith(life_os._NOTE_STAGE_PREFIX)
+            for name in os.listdir(self.runtime.note_archives_root)
         ))
 
     def test_concurrent_records_are_serialized_with_sequential_attachments(self):
@@ -1822,6 +2156,52 @@ class LifeOSRuntimeTests(unittest.TestCase):
         )
         with self.assertRaises(life_os.LifeOSError):
             self.runtime.status(day)
+
+    def test_status_and_record_reject_impossible_pending_follow_up_states(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        original = path.read_text(encoding="utf-8")
+        state_match = life_os._STATE_PATTERN.search(original)
+        self.assertIsNotNone(state_match)
+        base = json.loads(state_match.group(1))
+        impossible = (
+            {
+                "status": "completed",
+                "next_question": None,
+                "answered": [1, 2, 3, 4, 5],
+                "skipped": [],
+                "follow_up_count": 1,
+                "pending_follow_up": {"for_question": 5, "question": "남은 질문?"},
+            },
+            {
+                "status": "active",
+                "next_question": 2,
+                "answered": [1],
+                "skipped": [],
+                "follow_up_count": 0,
+                "pending_follow_up": {"for_question": 1, "question": "남은 질문?"},
+            },
+        )
+        for updates in impossible:
+            with self.subTest(updates=updates):
+                payload = {**base, **updates}
+                raw = json.dumps(
+                    payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True,
+                )
+                tampered = original[:state_match.start(1)] + raw + original[state_match.end(1):]
+                path.write_text(tampered, encoding="utf-8")
+                before = path.read_bytes()
+                with self.assertRaises(life_os.LifeOSError):
+                    self.runtime.status(day)
+                with self.assertRaises(life_os.LifeOSError):
+                    self.runtime.record(
+                        "answer",
+                        message_text="응답",
+                        message_key="impossible:response",
+                        target_date=day,
+                    )
+                self.assertEqual(before, path.read_bytes())
 
     def test_existing_state_root_requires_private_mode_and_current_owner_without_chmod(self):
         permissive = self.base / "permissive-state"

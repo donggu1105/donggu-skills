@@ -186,6 +186,29 @@ class LifeOSSkillContractTests(unittest.TestCase):
         note = self.vault / "Life OS/0. PeriodicNotes/2026/Daily/08/2026-08-07.md"
         self.assertIn("산책을 했다", note.read_text(encoding="utf-8"))
 
+    def test_cli_rejects_sensitive_follow_up_without_note_mutation(self):
+        day = "2026-08-07"
+        start = self.run_cli("start", "--date", day)
+        self.assertEqual(0, start.returncode, start.stderr)
+        note = self.vault / "Life OS/0. PeriodicNotes/2026/Daily/08/2026-08-07.md"
+        before = note.read_bytes()
+
+        record = self.run_cli(
+            "record",
+            "answer",
+            "--date",
+            day,
+            "--message-key",
+            "manual:sensitive-follow-up",
+            "--follow-up-question",
+            "api_key=" + "e" * 32,
+            input_text="오늘은 산책했다",
+        )
+
+        self.assertEqual(2, record.returncode)
+        self.assertIn("sensitive", record.stderr)
+        self.assertEqual(before, note.read_bytes())
+
     def test_cli_explicit_start_resumes_paused_daily_without_resetting_progress(self):
         day = "2026-08-07"
         self.assertEqual(0, self.run_cli("start", "--date", day).returncode)
@@ -256,7 +279,9 @@ class LifeOSSkillContractTests(unittest.TestCase):
         for token in (
             "수동 복구", ".<note>.life-os-", ".life-os-attachment-",
             ".life-os-recovery-", "DONGGU_LIFE_OS_STATE_ROOT", "비교",
-            "삭제하지",
+            "note-archives/", ".life-os-note-stage-", ".life-os-note-archive-",
+            ".life-os-note-aborted-", "같은 filesystem", "atomic exchange",
+            "verified GC", "삭제하지",
         ):
             self.assertIn(token, plugin)
 

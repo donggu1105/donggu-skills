@@ -157,11 +157,14 @@ Life OS/Attachments/
 
 runtime이 temporary/manual recovery 오류를 반환하면 쓰기를 멈추고 `.<note>.life-os-*`,
 `.life-os-attachment-*`, `.life-os-recovery-*` 파일과
-`DONGGU_LIFE_OS_STATE_ROOT` 아래 `.life-os-note-recovery-*` 백업을 먼저 byte-for-byte
-보존한다. 복구 파일을 canonical 파일 및 원본과 크기·SHA-256으로 비교하고, symlink는
-대상을 따라가지 말고 링크 자체와 대상을 따로 확인한다. 비교와 백업이 끝나기 전에는
-어떤 residual도 삭제하지 않는다. 어느 사본이 canonical이어야 하는지 확인한 뒤에만
-Vault 밖에 추가 백업하고 수동으로 정리한다.
+`DONGGU_LIFE_OS_STATE_ROOT`의 Vault별 `note-archives/` 아래
+`.life-os-note-stage-*`, `.life-os-note-archive-*`, `.life-os-note-aborted-*`를 먼저
+byte-for-byte 보존한다. 기존 노트 갱신은 state archive와 Vault가 같은 filesystem에
+있고 atomic exchange를 지원할 때만 실행되며, 교체된 canonical은 private archive에
+누적된다. pending stage가 남으면 이후 갱신은 수동 복구 전까지 중단된다. 복구 파일을
+canonical 파일 및 원본과 크기·SHA-256으로 비교하고, symlink는 대상을 따라가지 말고
+링크 자체와 대상을 따로 확인한다. 비교와 별도 백업이 끝나기 전에는 어떤 residual이나
+archive도 삭제하지 않는다. 명시적인 verified GC 또는 수동 검증 후에만 정리한다.
 
 ---
 
