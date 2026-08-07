@@ -184,7 +184,7 @@ donggu-skills/                       ← marketplace repo
 
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
-| **donggu-obsidian** | ✅ `v1.9.0` | 6 | Obsidian PKM vault operations and Life OS check-ins |
+| **donggu-obsidian** | ✅ `v1.9.1` | 6 | Obsidian PKM vault operations and Life OS check-ins |
 | **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |

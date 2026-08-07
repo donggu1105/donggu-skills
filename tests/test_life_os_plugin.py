@@ -62,7 +62,9 @@ class LifeOSPluginTests(unittest.TestCase):
             self.tools._TRUSTED_TURNS.clear()
         self.hermes_config: Any = {
             "discord": {
-                "channel_skill_bindings": [{"id": "456", "skill": "life-os"}],
+                "channel_skill_bindings": [
+                    {"id": "456", "skill": "donggu-obsidian:life-os"},
+                ],
             },
         }
         hermes_cli = types.ModuleType("hermes_cli")
@@ -352,9 +354,15 @@ class LifeOSPluginTests(unittest.TestCase):
         setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
         invalid_bindings = (
             "not-a-list",
-            [{"id": "456", "skill": "life-os"}, {"id": "456", "skill": "other"}],
-            [{"id": "456", "skill": "life-os"}, {"id": "999", "skill": "life-os"}],
-            [{"id": "456", "skills": ["life-os", "other"]}],
+            [
+                {"id": "456", "skill": "donggu-obsidian:life-os"},
+                {"id": "456", "skill": "other"},
+            ],
+            [
+                {"id": "456", "skill": "donggu-obsidian:life-os"},
+                {"id": "999", "skill": "donggu-obsidian:life-os"},
+            ],
+            [{"id": "456", "skills": ["donggu-obsidian:life-os", "other"]}],
         )
         for bindings in invalid_bindings:
             with self.subTest(bindings=bindings):
@@ -368,12 +376,25 @@ class LifeOSPluginTests(unittest.TestCase):
                 self.assertFalse(denied["success"])
         runtime.start_daily.assert_not_called()
 
+    def test_origin_guard_rejects_bare_life_os_skill_binding(self):
+        runtime = mock.Mock()
+        runtime.start_daily.return_value = {"status": "active"}
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        self.hermes_config["discord"]["channel_skill_bindings"] = [
+            {"id": "456", "skill": "life-os"},
+        ]
+
+        denied = json.loads(self.tools.handle_life_os_start_daily({}))
+
+        self.assertFalse(denied["success"])
+        runtime.start_daily.assert_not_called()
+
     def test_origin_guard_accepts_exact_single_item_skills_binding(self):
         runtime = mock.Mock()
         runtime.status.return_value = {"status": "active"}
         setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
         self.hermes_config["discord"]["channel_skill_bindings"] = [
-            {"id": "456", "skills": ["life-os"]},
+            {"id": "456", "skills": ["donggu-obsidian:life-os"]},
         ]
         result = json.loads(self.tools.handle_life_os_status({}))
         self.assertTrue(result["success"])

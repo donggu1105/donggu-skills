@@ -277,6 +277,22 @@ class LifeOSSkillContractTests(unittest.TestCase):
         self.assertNotIn("require_mention: false", plugin)
         self.assertIn("기존 global `require_mention` 값은 보존", plugin)
 
+    def test_all_hermes_deployment_docs_use_the_qualified_plugin_skill(self):
+        for path in (DESIGN, PLAN, PLUGIN_README):
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.name):
+                self.assertIn("donggu-obsidian:life-os", text)
+                self.assertNotIn("skill: life-os", text)
+                self.assertNotIn("--skill life-os", text)
+                self.assertNotIn("Use the life-os skill", text)
+        plan = PLAN.read_text(encoding="utf-8")
+        self.assertIn(
+            'skill_view("donggu-obsidian:life-os", preprocess=False)',
+            plan,
+        )
+        root = ROOT_README.read_text(encoding="utf-8")
+        self.assertIn("| **donggu-obsidian** | ✅ `v1.9.1`", root)
+
     def test_public_docs_explain_safe_manual_residual_recovery(self):
         plugin = PLUGIN_README.read_text(encoding="utf-8")
         for token in (

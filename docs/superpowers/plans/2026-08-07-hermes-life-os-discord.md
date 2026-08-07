@@ -35,9 +35,9 @@
 - `tests/test_life_os_plugin.py`: Hermes schema, handler, trusted-message, and registration tests.
 - `tests/test_life_os_skill_contract.py`: skill prose, CLI, question, routing, and safety contract tests.
 - `tests/test_native_plugin_packages.py`: expected Obsidian version and full native tool surface.
-- `donggu-obsidian/.claude-plugin/plugin.json`: Claude package version `1.9.0`.
+- `donggu-obsidian/.claude-plugin/plugin.json`: Claude package version `1.9.1`.
 - `donggu-obsidian/plugin.yaml`: Hermes version, description, and eleven provided tools.
-- `.claude-plugin/marketplace.json`: marketplace version `1.9.0`.
+- `.claude-plugin/marketplace.json`: marketplace version `1.9.1`.
 - `donggu-obsidian/README.md`: Hermes-first Life OS install/config/use guide.
 - `README.md`: marketplace Life OS listing and corrected skill counts.
 
@@ -410,7 +410,7 @@ git commit -m "feat(obsidian): archive Life OS attachments atomically"
 
 ---
 
-### Task 4: Hermes native tools and plugin version 1.9.0
+### Task 4: Hermes native tools and plugin version 1.9.1
 
 **Files:**
 - Modify: `donggu-obsidian/tools.py`
@@ -503,15 +503,15 @@ def handle_life_os_record(args: dict, **kwargs) -> str:
 
 Status and start handlers accept only an optional ISO date; start does not require a persisted user message so cron can call it in a fresh session.
 
-- [ ] **Step 4: Register the three tools and bump every manifest to 1.9.0**
+- [ ] **Step 4: Register the three tools and bump every manifest to 1.9.1**
 
-Append the Life OS registrations after the eight CORE registrations. Register the trusted-turn capture as `pre_gateway_dispatch`, declare it in `provides_hooks`, and extend `provides_tools` in the same order. Set `donggu-obsidian` to `1.9.0` in Claude JSON, Hermes YAML, and marketplace JSON. Update the Hermes description to mention both CORE and Life OS without removing the CORE contract.
+Append the Life OS registrations after the eight CORE registrations. Register the trusted-turn capture as `pre_gateway_dispatch`, declare it in `provides_hooks`, and extend `provides_tools` in the same order. Register the bundled `life-os` skill through `ctx.register_skill()` so Hermes resolves `donggu-obsidian:life-os`. Set `donggu-obsidian` to `1.9.1` in Claude JSON, Hermes YAML, and marketplace JSON. Update the Hermes description to mention both CORE and Life OS without removing the CORE contract.
 
 - [ ] **Step 5: Run plugin and manifest tests**
 
 Run: `python3 -m unittest tests.test_life_os_plugin tests.test_native_plugin_packages -v`
 
-Expected: all tests pass; exactly eleven Obsidian native tools are registered and all three version sources equal `1.9.0`.
+Expected: all tests pass; exactly eleven Obsidian native tools and the namespaced Life OS skill are registered, and all three version sources equal `1.9.1`.
 
 - [ ] **Step 6: Commit Task 4**
 
@@ -533,7 +533,7 @@ git commit -m "feat(obsidian): expose Hermes Life OS native tools"
 
 **Interfaces:**
 - Claude Code command: `/donggu-obsidian:life-os`.
-- Hermes channel binding skill name: `life-os`.
+- Hermes channel binding skill name: `donggu-obsidian:life-os`.
 - CLI actions: `status`, `start`, and `record`; JSON goes to stdout and errors to stderr with exit code 2.
 
 - [ ] **Step 1: Write failing skill and CLI contract tests**
@@ -707,7 +707,8 @@ Expected: the two hashes match exactly.
 
 **Interfaces:**
 - Produces a concrete Discord channel ID used by routing and cron.
-- Produces enabled Hermes plugin version `1.9.0` and discoverable skill `life-os`.
+- Produces enabled Hermes plugin version `1.9.1` and the explicitly loadable
+  plugin skill `donggu-obsidian:life-os`.
 
 - [ ] **Step 1: Re-read the Vault rules and validate deployment prerequisites**
 
@@ -791,7 +792,7 @@ Because Hermes requires `channel_skill_bindings` to be a YAML list, inspect the 
 ```yaml
 channel_skill_bindings:
   - id: "the decimal ID returned by Step 2"
-    skill: life-os
+    skill: donggu-obsidian:life-os
 ```
 
 If a bindings list already exists, append or replace only the entry with the same ID. Leave `allowed_channels` absent when absent; if it already exists, append the ID without removing entries. Run `hermes config check` after the patch.
@@ -813,11 +814,13 @@ If the Codex link already exists, verify it resolves to that exact canonical dir
 hermes gateway restart
 hermes gateway status
 hermes plugins list --plain --no-bundled
-hermes skills list --source local --enabled-only
+(cd ~/.hermes/hermes-agent && ./venv/bin/python -c 'import json; from tools.skills_tool import skill_view; result = json.loads(skill_view("donggu-obsidian:life-os", preprocess=False)); assert result.get("success"), result')
 hermes tools list --platform discord
 ```
 
-Expected: gateway healthy; `donggu-obsidian` enabled at `1.9.0`; `life-os` discoverable; `donggu_obsidian` toolset enabled on Discord.
+Expected: gateway healthy; `donggu-obsidian` enabled at `1.9.1`; qualified
+`skill_view` succeeds; the plugin skill remains absent from the flat skill
+index by design; `donggu_obsidian` toolset is enabled on Discord.
 
 ---
 
@@ -829,7 +832,7 @@ Expected: gateway healthy; `donggu-obsidian` enabled at `1.9.0`; `life-os` disco
 - Deliver the first real question to Discord `#life-os`.
 
 **Interfaces:**
-- Cron consumes the installed `life-os` skill and `donggu_life_os_start_daily` tool.
+- Cron consumes the installed `donggu-obsidian:life-os` skill and `donggu_life_os_start_daily` tool.
 - Discord replies consume the channel binding and `donggu_life_os_record` tool.
 
 - [ ] **Step 1: Create or reconcile the unique cron job**
@@ -840,7 +843,7 @@ when present; otherwise create the job and capture the returned ID:
 ```bash
 LIFE_OS_VAULT_ROOT="$(pwd)"
 LIFE_OS_CRON_NAME='Life OS 데일리 체크인 (22:00)'
-LIFE_OS_CRON_PROMPT='Use the life-os skill. Call donggu_life_os_start_daily for the current KST date. Return only its pending question; if completed, return 오늘 Daily 기록은 이미 완료됐어요.'
+LIFE_OS_CRON_PROMPT='Use the donggu-obsidian:life-os skill. Call donggu_life_os_start_daily for the current KST date. Return only its pending question; if completed, return 오늘 Daily 기록은 이미 완료됐어요.'
 LIFE_OS_CHANNEL_ID="$(hermes --oneshot 'Read-only Discord lookup: list channels in the guild named 대장간 and return only the decimal ID of the unique text channel named life-os whose parent category is 알림. Do not mutate anything.' --toolsets discord_admin)"
 case "$LIFE_OS_CHANNEL_ID" in ''|*[!0-9]*) exit 1 ;; esac
 
@@ -868,7 +871,7 @@ case "$LIFE_OS_CRON_MATCH_COUNT" in
     LIFE_OS_CRON_CREATE="$(hermes cron create '0 22 * * *' "$LIFE_OS_CRON_PROMPT" \
       --name "$LIFE_OS_CRON_NAME" \
       --deliver "discord:${LIFE_OS_CHANNEL_ID}" \
-      --skill life-os \
+      --skill donggu-obsidian:life-os \
       --workdir "$LIFE_OS_VAULT_ROOT")"
     LIFE_OS_CRON_JOB_ID="$(printf '%s\n' "$LIFE_OS_CRON_CREATE" | \
       python3 -c 'import re,sys; text=sys.stdin.read(); match=re.search(r"Created job:\s*([0-9a-f]{12})\b", text); print(match.group(1) if match else "")')"
@@ -880,7 +883,7 @@ case "$LIFE_OS_CRON_MATCH_COUNT" in
       --prompt "$LIFE_OS_CRON_PROMPT" \
       --name "$LIFE_OS_CRON_NAME" \
       --deliver "discord:${LIFE_OS_CHANNEL_ID}" \
-      --skill life-os \
+      --skill donggu-obsidian:life-os \
       --workdir "$LIFE_OS_VAULT_ROOT"
     ;;
   *)

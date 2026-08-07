@@ -28,6 +28,7 @@ _LIFE_OS_RUNTIME_LOCK = threading.Lock()
 _TRUSTED_TURN_TTL_SECONDS = 300.0
 _TRUSTED_TURN_LIMIT = 256
 _ATTACHMENT_ONLY_TEXT = "첨부 파일"
+_LIFE_OS_SKILL_NAME = "donggu-obsidian:life-os"
 _HERMES_LIVE_SESSION_IDENTITY_NAMES = (
     "HERMES_SESSION_PLATFORM", "HERMES_SESSION_SOURCE",
     "HERMES_SESSION_CHAT_ID", "HERMES_SESSION_CHAT_TYPE",
@@ -224,9 +225,9 @@ def _life_os_channel_id() -> str:
             skills = [item.strip() for item in configured]
         if not skills or len(set(skills)) != len(skills):
             raise CoreRuntimeError("Life OS Discord channel binding is invalid")
-        if skills == ["life-os"]:
+        if skills == [_LIFE_OS_SKILL_NAME]:
             life_os_ids.append(channel_id)
-        elif "life-os" in skills:
+        elif _LIFE_OS_SKILL_NAME in skills:
             raise CoreRuntimeError("Life OS Discord channel binding is invalid")
     if len(life_os_ids) != 1:
         raise CoreRuntimeError("exactly one Life OS Discord channel binding is required")

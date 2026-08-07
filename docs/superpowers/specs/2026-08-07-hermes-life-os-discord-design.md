@@ -118,12 +118,13 @@ discord:
     - "<life-os-channel-id>"
   channel_skill_bindings:
     - id: "<life-os-channel-id>"
-      skill: life-os
+      skill: donggu-obsidian:life-os
   channel_prompts:
     "<life-os-channel-id>": |-
-      This is the dedicated Life OS channel. Use the life-os skill for every
-      user turn. The native Life OS tools are the only automated Vault write
-      path. Never write outside Life OS and never retain a Hermes cache path.
+      This is the dedicated Life OS channel. Use the
+      donggu-obsidian:life-os skill for every user turn. The native Life OS
+      tools are the only automated Vault write path. Never write outside Life
+      OS and never retain a Hermes cache path.
 ```
 
 If `allowed_channels` already exists as a non-empty allowlist, deployment
@@ -163,7 +164,8 @@ characters, and is ignored after the two-follow-up limit.
 For Hermes turns, a `pre_gateway_dispatch` hook captures only normalized text
 from the real Discord message before gateway preparation and binds it to the
 Discord message, platform, chat, user, thread, and profile identities. The
-hook and native handlers require the exact configured `life-os` Discord
+hook and native handlers require the exact configured
+`donggu-obsidian:life-os` Discord
 channel binding and an exact match with Hermes session context. Cron may call only
 `donggu_life_os_start_daily` when its Discord auto-delivery target is that
 channel; status and record are forbidden from cron. The record handler uses
@@ -215,7 +217,7 @@ not silently start the five-question sequence.
 One Hermes job runs at `0 22 * * *` in `Asia/Seoul` with:
 
 - a unique stable name;
-- the `life-os` skill attached;
+- the `donggu-obsidian:life-os` skill attached;
 - the Vault root as `workdir`;
 - delivery to the exact Discord channel ID;
 - a self-contained prompt that calls `donggu_life_os_start_daily` and returns
@@ -369,7 +371,7 @@ plugin.
 
 ## Versioning and distribution
 
-- Bump `donggu-obsidian` from `1.8.0` to `1.9.0` in both Claude and Hermes
+- Bump `donggu-obsidian` from `1.8.0` to `1.9.1` in both Claude and Hermes
   manifests because this adds a public skill and native tools.
 - Extend, rather than replace, the existing CORE tool registrations.
 - Update package README with Life OS configuration and Hermes-first usage.
@@ -402,7 +404,9 @@ Deployment checks then verify:
 
 1. Claude and Hermes manifest versions match.
 2. `hermes plugins list` shows `donggu-obsidian` enabled.
-3. Hermes discovers `life-os` and all three native tools.
+3. Qualified `skill_view("donggu-obsidian:life-os")` succeeds and all three
+   native tools are available. The plugin skill remains absent from the flat
+   skill index by Hermes design.
 4. The Discord text channel exists under the intended parent and is visible to
    the bot.
 5. Free-response, skill binding, and prompt contain the exact channel ID. An
