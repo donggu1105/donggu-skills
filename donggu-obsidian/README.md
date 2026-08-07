@@ -3,7 +3,7 @@
 > Obsidian PKM vault operations skill collection — part of [`donggu-skills`](../) marketplace.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
-[![Skills](https://img.shields.io/badge/skills-3-green)](#-skills)
+[![Skills](https://img.shields.io/badge/skills-6-green)](#-skills)
 [![Compatible](https://img.shields.io/badge/PKM-LYT%20%7C%20PARA%20%7C%20Zettelkasten-blue)](#-사용-가정)
 
 LYT / PARA / Zettelkasten 스타일 PKM vault 운영의 정기 의례 자동화. **콘텐츠 파이프라인** (저널 → CORE → Channel Pack → CASE)을 운영하는 PKM 사용자용.
@@ -15,8 +15,63 @@ LYT / PARA / Zettelkasten 스타일 PKM vault 운영의 정기 의례 자동화.
 | Skill | 호출 | 사용 시점 | Output |
 |---|---|---|---|
 | **checking-vault-health** | `donggu-obsidian:checking-vault-health` | 월 1회 시스템 회고, 주말 추출 직전 | 4 layer 보고서 (P0-P4 + 긍정 신호 + 한 줄 요약) |
+| **core-review-approval** | `donggu-obsidian:core-review-approval` | 검토된 CORE 후보 적용 시 | native preview/apply 및 복구 |
+| **decompose-canon** | `donggu-obsidian:decompose-canon` | 명시적으로 선택한 canon 분해 시 | atomic 후보와 검토 handoff |
 | **extract-core** | `donggu-obsidian:extract-core` | 주말 1회 (저널 5-7건 누적 후) | atomic claim 후보 3-5개 (점수 + 채택 권장) |
 | **finding-duplicate-notes** | `donggu-obsidian:finding-duplicate-notes` | 월 1회 또는 atomic 의심 노트 발견 시 | 5 패턴 중복 발견 + 조치 추천 |
+| **life-os** | `/donggu-obsidian:life-os` | Daily 체크인, 빠른 Capture, 첨부 기록 시 | 질문별 즉시 저장된 Daily 기록 |
+
+---
+
+## 🌙 Life OS 설치와 연결
+
+Hermes에는 repository subdirectory plugin을 설치한다.
+
+```bash
+hermes plugins install --force --enable donggu1105/donggu-skills/donggu-obsidian
+```
+
+대상 Vault와 private lock-state 경로를 로컬 환경에만 설정한다.
+
+| 환경 키 | 값 |
+|---|---|
+| `DONGGU_LIFE_OS_VAULT_ROOT` | `Life OS/`를 포함한 절대 Vault root |
+| `DONGGU_LIFE_OS_STATE_ROOT` | Vault 밖의 mode `0700` private state directory; 기본값은 `$XDG_STATE_HOME/donggu-life-os` 또는 `~/.local/state/donggu-life-os` |
+| `DONGGU_LIFE_OS_TIMEZONE` | `Asia/Seoul` (기본값) |
+
+실제 Discord ID는 공개 저장소에 넣지 말고 Hermes 로컬 설정에서만 바인딩한다.
+
+```yaml
+discord:
+  channel_skill_bindings:
+    - id: "<life-os-channel-id>"
+      skill: life-os
+```
+
+22시 체크인은 `Asia/Seoul` 기준 cron `0 22 * * *`으로 `life-os` skill과 `donggu_life_os_start_daily`를 호출한다. 기존 active 상태를 초기화하거나 두 번째 reminder를 만들지 않고, pending question 또는 이미 완료됐다는 결과만 전달한다.
+
+Claude Code에서는 `/donggu-obsidian:life-os`를 호출한다. Codex에서는 같은 skill directory를 `~/.codex/skills/life-os` 공유 링크로 연결한다.
+
+```bash
+LIFE_OS_SKILL_SOURCE="$(pwd)/donggu-obsidian/skills/life-os"
+LIFE_OS_CODEX_SKILLS="$(python3 -c 'from pathlib import Path; print(Path.home() / ".codex/skills")')"
+ln -s "$LIFE_OS_SKILL_SOURCE" "$LIFE_OS_CODEX_SKILLS/life-os"
+```
+
+수동 진단이나 Hermes 외 실행에는 shared runtime CLI를 사용한다. `status`, `start`, `record`는 stdout에 JSON을 출력하고 오류는 stderr와 exit code 2로 반환한다.
+
+```bash
+python3 donggu-obsidian/skills/life-os/scripts/life-os.py \
+  --vault-root "$DONGGU_LIFE_OS_VAULT_ROOT" status
+```
+
+첨부는 임시 cache path나 URL을 노트에 남기지 않는다. runtime이 실제 파일을 flat Vault layout에 저장하고 Daily 또는 Capture에서 직접 링크한다.
+
+```text
+Life OS/Attachments/
+├── A001 - readable-name.ext
+└── A002 - another-file.ext
+```
 
 ---
 

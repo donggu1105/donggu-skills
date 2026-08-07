@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin%20Marketplace-8B5CF6)](https://claude.com/claude-code)
 [![Plugins](https://img.shields.io/badge/plugins-2-blue)](#-plugins)
-[![Skills](https://img.shields.io/badge/skills-4-green)](#-plugins)
+[![Skills](https://img.shields.io/badge/skills-17-green)](#-plugins)
 
 Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되어 `donggu-<domain>:<skill>` 형식으로 호출.
 
@@ -34,8 +34,11 @@ LYT / PARA / Zettelkasten 스타일 PKM vault 운영 자동화. 매주 추출 �
 | Skill | 호출 | 용도 | Time budget |
 |---|---|---|---|
 | `checking-vault-health` | `donggu-obsidian:checking-vault-health` | 콘텐츠 파이프라인 4 layer (입구·정제·출구·큐레이션) 점검 | 10-15분 |
+| `core-review-approval` | `donggu-obsidian:core-review-approval` | 검토된 CORE 후보의 대화형 preview/apply | 5-15분 |
+| `decompose-canon` | `donggu-obsidian:decompose-canon` | 명시적으로 선택한 canon을 atomic 후보로 분해 | 15-30분 |
 | `extract-core` | `donggu-obsidian:extract-core` | 빌드 저널 → atomic CORE 승격 의례 | 20-30분 |
 | `finding-duplicate-notes` | `donggu-obsidian:finding-duplicate-notes` | 5 패턴 중복 audit (semantic / naming / absorbed / snippet / source) | 15-20분 |
+| `life-os` | `/donggu-obsidian:life-os` | Daily 대화 체크인, Capture, 첨부 기록 | 5-15분 |
 
 **Skill chain 권장 흐름**:
 
@@ -95,6 +98,7 @@ claude plugin install donggu-obsidian@donggu-skills
 
 ```
 /donggu-obsidian:checking-vault-health
+/donggu-obsidian:life-os
 ```
 
 또는 자연어 트리거:
@@ -135,8 +139,11 @@ donggu-skills/                       ← marketplace repo
 │   │   │   └── SKILL.md
 │   │   ├── extract-core/
 │   │   │   └── SKILL.md
-│   │   └── finding-duplicate-notes/
-│   │       └── SKILL.md
+│   │   ├── finding-duplicate-notes/
+│   │   │   └── SKILL.md
+│   │   └── life-os/
+│   │       ├── SKILL.md
+│   │       └── scripts/life-os.py
 │   └── README.md
 ├── donggu-docs/                     ← plugin (namespace: donggu-docs:)
 │   ├── .claude-plugin/
@@ -177,7 +184,7 @@ donggu-skills/                       ← marketplace repo
 
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
-| **donggu-obsidian** | ✅ `v1.0.0` | 3 | Obsidian PKM vault operations |
+| **donggu-obsidian** | ✅ `v1.9.0` | 6 | Obsidian PKM vault operations and Life OS check-ins |
 | **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |

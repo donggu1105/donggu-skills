@@ -1,0 +1,140 @@
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SKILL = ROOT / "donggu-obsidian" / "skills" / "life-os" / "SKILL.md"
+CLI = SKILL.parent / "scripts" / "life-os.py"
+ROOT_README = ROOT / "README.md"
+PLUGIN_README = ROOT / "donggu-obsidian" / "README.md"
+
+
+class LifeOSSkillContractTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.vault = self.base / "vault"
+        template = self.vault / "Life OS/0. PeriodicNotes/Templates/Daily.md"
+        template.parent.mkdir(parents=True)
+        template.write_text(
+            "## Project List\n<% LifeOS.Project.snapshot() %>\n\n"
+            "## Daily Record\n%%Your Record%%\n",
+            encoding="utf-8",
+        )
+        self.env = {**os.environ, "HOME": str(self.base)}
+
+    def run_cli(self, *args, input_text=""):
+        return subprocess.run(
+            [sys.executable, str(CLI), "--vault-root", str(self.vault), *args],
+            input=input_text,
+            text=True,
+            capture_output=True,
+            check=False,
+            cwd=self.base,
+            env=self.env,
+        )
+
+    def test_skill_declares_questions_routes_and_native_tools(self):
+        text = SKILL.read_text(encoding="utf-8")
+        self.assertIn("name: life-os", text)
+        for question in (
+            "오늘 어떤 일이 있었나?", "감정과 에너지는 어떤가?",
+            "진행한 일과 막힌 일은?", "생각·배움·결정은?",
+            "내일 가장 중요한 한 가지는?",
+        ):
+            self.assertEqual(1, text.count(question))
+        for tool in (
+            "donggu_life_os_status",
+            "donggu_life_os_start_daily",
+            "donggu_life_os_record",
+        ):
+            self.assertIn(tool, text)
+        self.assertIn("Hermes cache path", text)
+        self.assertIn("최대 2개", text)
+
+    def test_skill_is_imperative_and_encodes_exact_hermes_recipe(self):
+        text = SKILL.read_text(encoding="utf-8")
+        frontmatter = text.split("---", 2)[1]
+        keys = [line.split(":", 1)[0] for line in frontmatter.splitlines() if ":" in line]
+        self.assertEqual(["name", "description"], keys)
+        self.assertRegex(frontmatter, r"(?m)^description: Use when ")
+        routing = (
+            "## Routing\n\n"
+            "- “오늘 정리하자” or no explicit period in the dedicated channel → Daily.\n"
+            "- “이번 주/달/분기/연도 정리하자” → the matching existing periodic note.\n"
+            "- “일단 기록해줘” → Capture.\n"
+            "- “어제 이어서” → yesterday's Daily."
+        )
+        hermes = (
+            "## Hermes path\n\n"
+            "1. Call `donggu_life_os_status` before interpreting a normal channel message.\n"
+            "2. Start only on an explicit start command or the scheduled start prompt.\n"
+            "3. During an active check-in, call `donggu_life_os_record` once for the trusted latest turn.\n"
+            "4. Return only the tool's next question or completion summary.\n"
+            "5. Never use generic filesystem tools as a fallback when a native tool fails."
+        )
+        self.assertIn(routing, text)
+        self.assertIn(hermes, text)
+        for phrase in (
+            "건너뛰기", "그만", "이어서 하자", "free Daily record",
+            "Life OS/0. PeriodicNotes/", "Life OS/-1. Capture/",
+            "Life OS/Attachments/", "Claude Code", "Codex",
+        ):
+            self.assertIn(phrase, text)
+
+    def test_cli_status_start_and_record_use_shared_runtime(self):
+        status = self.run_cli("status", "--date", "2026-08-07")
+        self.assertEqual(0, status.returncode, status.stderr)
+        self.assertEqual("not_started", json.loads(status.stdout)["status"])
+
+        start = self.run_cli("start", "--date", "2026-08-07")
+        self.assertEqual(0, start.returncode, start.stderr)
+        self.assertEqual("오늘 어떤 일이 있었나?", json.loads(start.stdout)["question"])
+
+        record = self.run_cli(
+            "record", "answer", "--date", "2026-08-07",
+            "--message-key", "manual:test", input_text="산책을 했다",
+        )
+        self.assertEqual(0, record.returncode, record.stderr)
+        self.assertEqual("감정과 에너지는 어떤가?", json.loads(record.stdout)["question"])
+        note = self.vault / "Life OS/0. PeriodicNotes/2026/Daily/08/2026-08-07.md"
+        self.assertIn("산책을 했다", note.read_text(encoding="utf-8"))
+
+    def test_cli_reports_runtime_errors_on_stderr_with_exit_code_2(self):
+        proc = subprocess.run(
+            [sys.executable, str(CLI), "--vault-root", str(self.base / "missing"), "status"],
+            text=True,
+            capture_output=True,
+            check=False,
+            cwd=self.base,
+            env=self.env,
+        )
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual("", proc.stdout)
+        self.assertIn("Vault root is unavailable", proc.stderr)
+
+    def test_public_docs_cover_installation_configuration_and_counts(self):
+        root = ROOT_README.read_text(encoding="utf-8")
+        plugin = PLUGIN_README.read_text(encoding="utf-8")
+        self.assertIn("skills-17-green", root)
+        self.assertIn("skills-6-green", plugin)
+        for text in (root, plugin):
+            self.assertIn("life-os", text)
+            self.assertIn("/donggu-obsidian:life-os", text)
+        for token in (
+            "DONGGU_LIFE_OS_VAULT_ROOT", "DONGGU_LIFE_OS_STATE_ROOT",
+            "DONGGU_LIFE_OS_TIMEZONE", "hermes plugins install",
+            "channel_skill_bindings", "<life-os-channel-id>", "0 22 * * *",
+            "Asia/Seoul", ".codex/skills/life-os", "Life OS/Attachments/",
+        ):
+            self.assertIn(token, plugin)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,54 @@
+---
+name: life-os
+description: Use when recording or resuming Life OS Daily check-ins, periodic reflections, quick captures, or attachments from a dedicated Hermes channel, Claude Code, or Codex.
+---
+
+# Life OS
+
+Keep conversation state in the target Daily note. Ask one question at a time and commit every trusted turn immediately through the shared runtime.
+
+## Routing
+
+- “오늘 정리하자” or no explicit period in the dedicated channel → Daily.
+- “이번 주/달/분기/연도 정리하자” → the matching existing periodic note.
+- “일단 기록해줘” → Capture.
+- “어제 이어서” → yesterday's Daily.
+
+## Hermes path
+
+1. Call `donggu_life_os_status` before interpreting a normal channel message.
+2. Start only on an explicit start command or the scheduled start prompt.
+3. During an active check-in, call `donggu_life_os_record` once for the trusted latest turn.
+4. Return only the tool's next question or completion summary.
+5. Never use generic filesystem tools as a fallback when a native tool fails.
+
+For an explicit Daily start, call `donggu_life_os_start_daily` once and return its question. For a normal message with no active check-in, record a `free Daily record`; do not start the sequence. Treat the state embedded in the Daily note as the durable workflow state. Never defer a Vault mutation to private cache or batch answers for a later write.
+
+Ask these fixed questions individually, in order:
+
+1. 오늘 어떤 일이 있었나?
+2. 감정과 에너지는 어떤가?
+3. 진행한 일과 막힌 일은?
+4. 생각·배움·결정은?
+5. 내일 가장 중요한 한 가지는?
+
+After each answer, optionally propose one short, non-recursive follow-up and pass it with that same record call. Ask 최대 2개 follow-ups across the check-in. Return the committed next question only; never send several questions together.
+
+Map controls exactly:
+
+- `건너뛰기` → `skip`; commit it and return the next question.
+- `그만` → `pause`; commit it and stop asking.
+- `이어서 하자` → `resume`; commit it and return the pending question.
+- `일단 기록해줘` → `capture`; append immediately without starting Daily.
+
+Pass agent-visible attachment paths to `donggu_life_os_record`. A Hermes cache path is input only: let the native runtime copy the actual file into `Life OS/Attachments/` and link that Vault attachment. Never write a cache path, URL, wrapper note, manifest, or attachment subdirectory.
+
+Allow automated Vault writes only under:
+
+- `Life OS/0. PeriodicNotes/`
+- `Life OS/-1. Capture/`
+- `Life OS/Attachments/`
+
+## Manual path
+
+In Claude Code, invoke `/donggu-obsidian:life-os`. In Codex, link this skill as `$life-os`. When native Hermes tools are unavailable outside Hermes, run `scripts/life-os.py`; it imports the shared runtime and preserves the same Daily state, question order, immediate commits, and Vault boundaries. Do not replace the CLI with generic filesystem mutation.
