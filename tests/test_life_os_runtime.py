@@ -68,19 +68,19 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("<!-- life-os:record:start -->", text)
         self.assertEqual(1, result["next_question"])
 
-    def test_new_note_publish_fsyncs_link_before_unlink_and_fsyncs_again(self):
+    def test_new_note_publish_uses_exclusive_rename_without_unlink(self):
         directory = self.base / "publish-order"
         directory.mkdir()
         directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         self.addCleanup(os.close, directory_fd)
         events = []
-        real_link = life_os.os.link
+        real_rename = life_os._exclusive_rename_at
         real_unlink = life_os.os.unlink
         real_fsync = life_os.os.fsync
 
-        def tracked_link(*args, **kwargs):
-            result = real_link(*args, **kwargs)
-            events.append("link")
+        def tracked_rename(*args, **kwargs):
+            result = real_rename(*args, **kwargs)
+            events.append("exclusive-rename")
             return result
 
         def tracked_unlink(*args, **kwargs):
@@ -92,16 +92,14 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 events.append("fsync-directory")
             return real_fsync(descriptor)
 
-        with mock.patch.object(life_os.os, "link", side_effect=tracked_link), \
+        with mock.patch.object(life_os, "_exclusive_rename_at", side_effect=tracked_rename), \
              mock.patch.object(life_os.os, "unlink", side_effect=tracked_unlink), \
              mock.patch.object(life_os.os, "fsync", side_effect=tracked_fsync):
             self.runtime._atomic_publish_note_at(directory_fd, "note.md", "bytes\n", None)
 
-        self.assertEqual(
-            ["link", "fsync-directory", "unlink", "fsync-directory"], events,
-        )
+        self.assertEqual(["exclusive-rename", "fsync-directory"], events)
 
-    def test_new_daily_hard_death_after_link_is_reconciled_on_retry(self):
+    def test_new_daily_hard_death_after_exclusive_rename_is_idempotent_on_retry(self):
         day = date(2026, 8, 7)
         child = (
             "import importlib.util, os, pathlib, sys\n"
@@ -113,11 +111,11 @@ class LifeOSRuntimeTests(unittest.TestCase):
             "runtime = module.LifeOSRuntime(vault_root=vault, state_root=state, "
             "timezone=module.ZoneInfo('Asia/Seoul'), cache_roots=(), "
             "max_attachment_bytes=1024)\n"
-            "real_link = module.os.link\n"
-            "def die_after_link(*args, **kwargs):\n"
-            "    real_link(*args, **kwargs)\n"
+            "real_rename = module._exclusive_rename_at\n"
+            "def die_after_rename(*args, **kwargs):\n"
+            "    real_rename(*args, **kwargs)\n"
             "    os._exit(74)\n"
-            "module.os.link = die_after_link\n"
+            "module._exclusive_rename_at = die_after_rename\n"
             "runtime.start_daily(module.date(2026, 8, 7))\n"
         )
         proc = subprocess.run(
@@ -130,7 +128,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(74, proc.returncode, proc.stderr)
         path = self.runtime.daily_path(day)
         self.assertIn("- [ ] Breakfast", path.read_text(encoding="utf-8"))
-        self.assertTrue(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
+        self.assertFalse(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
 
         result = self.runtime.start_daily(day)
 
@@ -143,32 +141,26 @@ class LifeOSRuntimeTests(unittest.TestCase):
         day = date(2026, 8, 7)
         path = self.runtime.daily_path(day)
         competing = "## Daily Record\n외부에서 먼저 만든 Daily\n"
-        real_replace = life_os.os.replace
-        real_link = life_os.os.link
+        real_rename = life_os._exclusive_rename_at
         injected = False
 
-        def occupy_before_replace(source, destination, *args, **kwargs):
+        def occupy_before_rename(directory_fd, source, destination):
             nonlocal injected
             if not injected and destination == path.name:
                 injected = True
                 path.write_text(competing, encoding="utf-8")
-            return real_replace(source, destination, *args, **kwargs)
+            return real_rename(directory_fd, source, destination)
 
-        def occupy_before_link(source, destination, *args, **kwargs):
-            nonlocal injected
-            if not injected and destination == path.name:
-                injected = True
-                path.write_text(competing, encoding="utf-8")
-            return real_link(source, destination, *args, **kwargs)
+        with mock.patch.object(
+            life_os, "_exclusive_rename_at", side_effect=occupy_before_rename,
+        ):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+                self.runtime.start_daily(day)
 
-        with mock.patch.object(life_os.os, "replace", side_effect=occupy_before_replace), \
-             mock.patch.object(life_os.os, "link", side_effect=occupy_before_link):
-            result = self.runtime.start_daily(day)
-
-        text = Path(result["path"]).read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
         self.assertTrue(injected)
         self.assertIn("외부에서 먼저 만든 Daily", text)
-        self.assertEqual(1, text.count("<!-- life-os:record:start -->"))
+        self.assertTrue(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
 
     def test_external_daily_edit_before_commit_is_replayed_on_newest_document(self):
         day = date(2026, 8, 7)
@@ -388,7 +380,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("책 아이디어", text)
         self.assertFalse(self.runtime.daily_path(date(2026, 8, 7)).exists())
 
-    def test_new_capture_hard_death_after_link_is_reconciled_on_retry(self):
+    def test_new_capture_hard_death_after_exclusive_rename_is_idempotent_on_retry(self):
         day = date(2026, 8, 7)
         child = (
             "import importlib.util, os, pathlib, sys\n"
@@ -400,11 +392,11 @@ class LifeOSRuntimeTests(unittest.TestCase):
             "runtime = module.LifeOSRuntime(vault_root=vault, state_root=state, "
             "timezone=module.ZoneInfo('Asia/Seoul'), cache_roots=(), "
             "max_attachment_bytes=1024)\n"
-            "real_link = module.os.link\n"
-            "def die_after_link(*args, **kwargs):\n"
-            "    real_link(*args, **kwargs)\n"
+            "real_rename = module._exclusive_rename_at\n"
+            "def die_after_rename(*args, **kwargs):\n"
+            "    real_rename(*args, **kwargs)\n"
             "    os._exit(75)\n"
-            "module.os.link = die_after_link\n"
+            "module._exclusive_rename_at = die_after_rename\n"
             "runtime.record('capture', message_text='충돌 뒤에도 남을 캡처', "
             "message_key='crash:capture-note', target_date=module.date(2026, 8, 7))\n"
         )
@@ -418,7 +410,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(75, proc.returncode, proc.stderr)
         path = self.runtime.capture_path(day)
         self.assertIn("충돌 뒤에도 남을 캡처", path.read_text(encoding="utf-8"))
-        self.assertTrue(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
+        self.assertFalse(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
 
         result = self.runtime.record(
             "capture", message_text="충돌 뒤에도 남을 캡처",
@@ -443,7 +435,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
 
         self.assertEqual("arbitrary user bytes\n", temp.read_text(encoding="utf-8"))
 
-    def test_note_temp_replacement_during_reconciliation_is_preserved(self):
+    def test_linked_note_temp_is_retained_for_manual_recovery(self):
         day = date(2026, 8, 7)
         path = self.runtime.daily_path(day)
         path.parent.mkdir(parents=True)
@@ -451,30 +443,11 @@ class LifeOSRuntimeTests(unittest.TestCase):
         path.chmod(0o600)
         temp = path.parent / f".{path.name}.life-os-{'b' * 16}"
         os.link(path, temp)
-        keep = path.parent / "preserve-canonical-inode"
-        unrelated = b"unrelated replacement bytes\n"
-        real_stat = life_os.os.stat
-        real_unlink = life_os.os.unlink
-        replaced = False
+        with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+            self.runtime.status(day)
 
-        def replace_before_canonical_validation(name, *args, **kwargs):
-            nonlocal replaced
-            if name == path.name and kwargs.get("dir_fd") is not None and not replaced:
-                replaced = True
-                os.link(path, keep)
-                real_unlink(temp.name, dir_fd=kwargs["dir_fd"])
-                temp.write_bytes(unrelated)
-                temp.chmod(0o600)
-            return real_stat(name, *args, **kwargs)
-
-        with mock.patch.object(life_os.os, "stat", side_effect=replace_before_canonical_validation):
-            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
-                self.runtime.status(day)
-
-        self.assertTrue(replaced)
         self.assertEqual("## Daily Record\ncanonical user bytes\n", path.read_text(encoding="utf-8"))
-        recoverable = [candidate for candidate in path.parent.iterdir() if candidate.is_file()]
-        self.assertTrue(any(candidate.read_bytes() == unrelated for candidate in recoverable))
+        self.assertEqual("## Daily Record\ncanonical user bytes\n", temp.read_text(encoding="utf-8"))
 
     def test_status_and_date_resolution_normalize_repeated_concurrent_reads(self):
         day = date(2026, 8, 7)
@@ -495,34 +468,28 @@ class LifeOSRuntimeTests(unittest.TestCase):
         day = date(2026, 8, 7)
         path = self.runtime.capture_path(day)
         competing = f"# Capture — {day.isoformat()}\n\n외부 선행 캡처\n"
-        real_replace = life_os.os.replace
-        real_link = life_os.os.link
+        real_rename = life_os._exclusive_rename_at
         injected = False
 
-        def occupy_before_replace(source, destination, *args, **kwargs):
+        def occupy_before_rename(directory_fd, source, destination):
             nonlocal injected
             if not injected and destination == path.name:
                 injected = True
                 path.write_text(competing, encoding="utf-8")
-            return real_replace(source, destination, *args, **kwargs)
+            return real_rename(directory_fd, source, destination)
 
-        def occupy_before_link(source, destination, *args, **kwargs):
-            nonlocal injected
-            if not injected and destination == path.name:
-                injected = True
-                path.write_text(competing, encoding="utf-8")
-            return real_link(source, destination, *args, **kwargs)
+        with mock.patch.object(
+            life_os, "_exclusive_rename_at", side_effect=occupy_before_rename,
+        ):
+            with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+                self.runtime.record(
+                    "capture", message_text="내 캡처", message_key="race:capture:new", target_date=day,
+                )
 
-        with mock.patch.object(life_os.os, "replace", side_effect=occupy_before_replace), \
-             mock.patch.object(life_os.os, "link", side_effect=occupy_before_link):
-            result = self.runtime.record(
-                "capture", message_text="내 캡처", message_key="race:capture:new", target_date=day,
-            )
-
-        text = Path(result["path"]).read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
         self.assertTrue(injected)
         self.assertIn("외부 선행 캡처", text)
-        self.assertEqual(1, text.count("%% life-os-message: race:capture:new %%"))
+        self.assertTrue(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
 
     def test_external_capture_append_before_commit_is_replayed_on_newest_document(self):
         day = date(2026, 8, 7)
@@ -1098,14 +1065,16 @@ class LifeOSRuntimeTests(unittest.TestCase):
         day = date(2026, 8, 7)
         self.runtime.start_daily(day)
         destination = self.vault / "Life OS/Attachments/A001 - conflict.pdf"
-        real_link = life_os.os.link
+        real_rename = life_os._exclusive_rename_at
 
-        def occupy_then_link(source_name, destination_name, *args, **kwargs):
+        def occupy_then_rename(directory_fd, source_name, destination_name):
             destination.parent.mkdir(exist_ok=True)
             destination.write_bytes(b"racing bytes")
-            return real_link(source_name, destination_name, *args, **kwargs)
+            return real_rename(directory_fd, source_name, destination_name)
 
-        with mock.patch.object(life_os.os, "link", side_effect=occupy_then_link):
+        with mock.patch.object(
+            life_os, "_exclusive_rename_at", side_effect=occupy_then_rename,
+        ):
             with self.assertRaises(life_os.LifeOSError):
                 self.runtime.record(
                     "answer", message_text="conflict", message_key="conflict:race",
@@ -1115,7 +1084,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(b"racing bytes", destination.read_bytes())
         self.assertEqual(1, self.runtime.status(day)["next_question"])
 
-    def test_attachment_publish_fsyncs_link_before_unlink_and_fsyncs_again(self):
+    def test_attachment_publish_uses_exclusive_rename_without_unlink(self):
         source = self.base / "attachment-order.bin"
         source.write_bytes(b"attachment order")
         descriptor = os.open(source, os.O_RDONLY)
@@ -1123,15 +1092,15 @@ class LifeOSRuntimeTests(unittest.TestCase):
         destination = self.runtime.attachments_root / "A001 - order.bin"
         events = []
         directory_fd = None
-        real_link = life_os.os.link
+        real_rename = life_os._exclusive_rename_at
         real_unlink = life_os.os.unlink
         real_fsync = life_os.os.fsync
 
-        def tracked_link(*args, **kwargs):
+        def tracked_rename(*args, **kwargs):
             nonlocal directory_fd
-            result = real_link(*args, **kwargs)
-            directory_fd = kwargs.get("dst_dir_fd")
-            events.append("link")
+            result = real_rename(*args, **kwargs)
+            directory_fd = args[0]
+            events.append("exclusive-rename")
             return result
 
         def tracked_unlink(*args, **kwargs):
@@ -1143,31 +1112,29 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 events.append("fsync-directory")
             return real_fsync(value)
 
-        with mock.patch.object(life_os.os, "link", side_effect=tracked_link), \
+        with mock.patch.object(life_os, "_exclusive_rename_at", side_effect=tracked_rename), \
              mock.patch.object(life_os.os, "unlink", side_effect=tracked_unlink), \
              mock.patch.object(life_os.os, "fsync", side_effect=tracked_fsync):
             self.runtime._atomic_copy_verified(
                 descriptor, destination, hashlib.sha256(b"attachment order").hexdigest(),
             )
 
-        self.assertEqual(
-            ["link", "fsync-directory", "unlink", "fsync-directory"], events,
-        )
+        self.assertEqual(["exclusive-rename", "fsync-directory"], events)
 
-    def test_attachment_post_link_fsync_failure_preserves_temp_for_recovery(self):
+    def test_attachment_post_rename_fsync_failure_has_no_residual_temp(self):
         source = self.base / "attachment-fsync-failure.bin"
         source.write_bytes(b"recover after directory fsync failure")
         descriptor = os.open(source, os.O_RDONLY)
         self.addCleanup(os.close, descriptor)
         destination = self.runtime.attachments_root / "A001 - recover.bin"
         directory_fd = None
-        real_link = life_os.os.link
+        real_rename = life_os._exclusive_rename_at
         real_fsync = life_os.os.fsync
 
-        def tracked_link(*args, **kwargs):
+        def tracked_rename(*args, **kwargs):
             nonlocal directory_fd
-            result = real_link(*args, **kwargs)
-            directory_fd = kwargs.get("dst_dir_fd")
+            result = real_rename(*args, **kwargs)
+            directory_fd = args[0]
             return result
 
         def fail_first_directory_fsync(value):
@@ -1175,7 +1142,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 raise OSError("injected directory fsync failure")
             return real_fsync(value)
 
-        with mock.patch.object(life_os.os, "link", side_effect=tracked_link), \
+        with mock.patch.object(life_os, "_exclusive_rename_at", side_effect=tracked_rename), \
              mock.patch.object(life_os.os, "fsync", side_effect=fail_first_directory_fsync):
             with self.assertRaises(life_os.LifeOSError):
                 self.runtime._atomic_copy_verified(
@@ -1184,12 +1151,6 @@ class LifeOSRuntimeTests(unittest.TestCase):
                     hashlib.sha256(b"recover after directory fsync failure").hexdigest(),
                 )
 
-        entries = tuple(self.runtime.attachments_root.iterdir())
-        self.assertEqual(2, len(entries))
-        temp = next(path for path in entries if path.name.startswith(".life-os-attachment-"))
-        self.assertTrue(os.path.samefile(temp, destination))
-
-        self.runtime._reconcile_attachment_temps()
         self.assertEqual([destination.name], [path.name for path in self.runtime.attachments_root.iterdir()])
         self.assertEqual(b"recover after directory fsync failure", destination.read_bytes())
 
@@ -1205,7 +1166,21 @@ class LifeOSRuntimeTests(unittest.TestCase):
 
         self.assertEqual(b"arbitrary attachment bytes", temp.read_bytes())
 
-    def test_attachment_temp_replacement_during_reconciliation_is_preserved(self):
+    def test_linked_attachment_temp_is_retained_for_manual_recovery(self):
+        attachments = self.runtime.attachments_root
+        attachments.mkdir()
+        canonical = attachments / "A001 - canonical.bin"
+        canonical.write_bytes(b"canonical attachment bytes")
+        canonical.chmod(0o600)
+        temp = attachments / (".life-os-attachment-" + "e" * 16)
+        os.link(canonical, temp)
+        with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
+            self.runtime._reconcile_attachment_temps()
+
+        self.assertEqual(b"canonical attachment bytes", canonical.read_bytes())
+        self.assertEqual(b"canonical attachment bytes", temp.read_bytes())
+
+    def test_attachment_recovery_path_replacement_is_never_automatically_unlinked(self):
         attachments = self.runtime.attachments_root
         attachments.mkdir()
         canonical = attachments / "A001 - canonical.bin"
@@ -1214,27 +1189,41 @@ class LifeOSRuntimeTests(unittest.TestCase):
         temp = attachments / (".life-os-attachment-" + "e" * 16)
         os.link(canonical, temp)
         unrelated = b"unrelated attachment replacement"
-        real_stat = life_os.os.stat
         real_unlink = life_os.os.unlink
         replaced = False
 
-        def replace_before_canonical_validation(name, *args, **kwargs):
+        def replace_at_final_unlink(name, *args, **kwargs):
             nonlocal replaced
-            if name == canonical.name and kwargs.get("dir_fd") is not None and not replaced:
+            if str(name).startswith(".life-os-recovery-") and not replaced:
                 replaced = True
-                real_unlink(temp.name, dir_fd=kwargs["dir_fd"])
-                temp.write_bytes(unrelated)
-                temp.chmod(0o600)
-            return real_stat(name, *args, **kwargs)
+                real_unlink(name, *args, **kwargs)
+                (attachments / str(name)).write_bytes(unrelated)
+                (attachments / str(name)).chmod(0o600)
+            return real_unlink(name, *args, **kwargs)
 
-        with mock.patch.object(life_os.os, "stat", side_effect=replace_before_canonical_validation):
+        with mock.patch.object(life_os.os, "unlink", side_effect=replace_at_final_unlink):
             with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
                 self.runtime._reconcile_attachment_temps()
 
-        self.assertTrue(replaced)
-        self.assertEqual(b"canonical attachment bytes", canonical.read_bytes())
-        recoverable = [candidate for candidate in attachments.iterdir() if candidate.is_file()]
-        self.assertTrue(any(candidate.read_bytes() == unrelated for candidate in recoverable))
+        residuals = [
+            path for path in attachments.iterdir()
+            if path.name.startswith((".life-os-attachment-", ".life-os-recovery-"))
+        ]
+        self.assertTrue(residuals)
+        if replaced:
+            self.assertTrue(any(path.read_bytes() == unrelated for path in residuals))
+
+    def test_recovery_temp_is_retained_for_manual_recovery(self):
+        attachments = self.runtime.attachments_root
+        attachments.mkdir()
+        recovery = attachments / (".life-os-recovery-" + "f" * 16)
+        recovery.write_bytes(b"manual recovery bytes")
+        recovery.chmod(0o600)
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
+            self.runtime._reconcile_attachment_temps()
+
+        self.assertEqual(b"manual recovery bytes", recovery.read_bytes())
 
     def test_attachment_rename_crash_is_recovered_by_hash_on_retry(self):
         cache = self.base / "cache/documents"
@@ -1245,16 +1234,18 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.runtime.start_daily(day)
         failed = False
 
-        def fail_after_attachment_rename(source_path, destination_path, *args, **kwargs):
+        def fail_after_attachment_rename(directory_fd, source_path, destination_path):
             nonlocal failed
-            result = real_link(source_path, destination_path, *args, **kwargs)
+            result = real_rename(directory_fd, source_path, destination_path)
             if not failed:
                 failed = True
                 raise OSError("injected post-attachment-rename crash")
             return result
 
-        real_link = life_os.os.link
-        with mock.patch.object(life_os.os, "link", side_effect=fail_after_attachment_rename):
+        real_rename = life_os._exclusive_rename_at
+        with mock.patch.object(
+            life_os, "_exclusive_rename_at", side_effect=fail_after_attachment_rename,
+        ):
             with self.assertRaises(life_os.LifeOSError):
                 self.runtime.record(
                     "answer", message_text="first try", message_key="crash:attachment",
@@ -1274,7 +1265,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(1, text.count("[[Life OS/Attachments/A001 - crash.pdf]]"))
         self.assertFalse(any(name.startswith(".life-os-") for name in attachment_names))
 
-    def test_attachment_hard_process_death_after_publish_is_reconciled_on_retry(self):
+    def test_attachment_hard_process_death_after_exclusive_rename_is_idempotent_on_retry(self):
         cache = self.base / "cache/documents"
         cache.mkdir(parents=True)
         source = cache / "uuid-hard-crash.pdf"
@@ -1291,11 +1282,11 @@ class LifeOSRuntimeTests(unittest.TestCase):
             "runtime = module.LifeOSRuntime(vault_root=vault, state_root=state, "
             "timezone=module.ZoneInfo('Asia/Seoul'), cache_roots=(cache,), "
             "max_attachment_bytes=32 * 1024 * 1024)\n"
-            "real_link = module.os.link\n"
-            "def die_after_link(*args, **kwargs):\n"
-            "    real_link(*args, **kwargs)\n"
+            "real_rename = module._exclusive_rename_at\n"
+            "def die_after_rename(*args, **kwargs):\n"
+            "    real_rename(*args, **kwargs)\n"
             "    os._exit(73)\n"
-            "module.os.link = die_after_link\n"
+            "module._exclusive_rename_at = die_after_rename\n"
             "runtime.record('answer', message_text='first try', "
             "message_key='crash:hard-process', attachment_paths=(source,), "
             "target_date=module.date(2026, 8, 7))\n"
@@ -1309,9 +1300,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(73, proc.returncode, proc.stderr)
         names_after_death = sorted(path.name for path in self.runtime.attachments_root.iterdir())
-        self.assertEqual(2, len(names_after_death))
-        self.assertIn("A001 - hard-crash.pdf", names_after_death)
-        self.assertTrue(any(name.startswith(".life-os-attachment-") for name in names_after_death))
+        self.assertEqual(["A001 - hard-crash.pdf"], names_after_death)
 
         result = self.runtime.record(
             "answer", message_text="first try", message_key="crash:hard-process",
@@ -1358,7 +1347,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(life_os.LifeOSError, "temporary attachment"):
                 self.runtime._reconcile_attachment_temps()
 
-    def test_note_rename_crash_reuses_attachment_and_commits_once_on_retry(self):
+    def test_failed_note_replace_retains_temp_for_manual_recovery(self):
         cache = self.base / "cache/documents"
         cache.mkdir(parents=True)
         source = cache / "uuid-note-crash.pdf"
@@ -1382,14 +1371,16 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 )
         self.assertEqual(original, note_path.read_text(encoding="utf-8"))
 
-        result = self.runtime.record(
-            "answer", message_text="note try", message_key="crash:note",
-            attachment_paths=[source], target_date=day,
-        )
+        with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+            self.runtime.record(
+                "answer", message_text="note try", message_key="crash:note",
+                attachment_paths=[source], target_date=day,
+            )
         self.assertEqual(["A001 - note-crash.pdf"], [path.name for path in self.runtime.attachments_root.iterdir()])
-        text = Path(result["path"]).read_text(encoding="utf-8")
-        self.assertEqual(1, text.count("%% life-os-message: crash:note %%"))
-        self.assertEqual(1, text.count("[[Life OS/Attachments/A001 - note-crash.pdf]]"))
+        self.assertEqual(original, note_path.read_text(encoding="utf-8"))
+        self.assertTrue(any(
+            name.startswith(f".{note_path.name}.life-os-") for name in os.listdir(note_path.parent)
+        ))
 
     def test_concurrent_records_are_serialized_with_sequential_attachments(self):
         cache = self.base / "cache/documents"
