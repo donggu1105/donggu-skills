@@ -68,6 +68,77 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("<!-- life-os:record:start -->", text)
         self.assertEqual(1, result["next_question"])
 
+    def test_new_note_publish_fsyncs_link_before_unlink_and_fsyncs_again(self):
+        directory = self.base / "publish-order"
+        directory.mkdir()
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        self.addCleanup(os.close, directory_fd)
+        events = []
+        real_link = life_os.os.link
+        real_unlink = life_os.os.unlink
+        real_fsync = life_os.os.fsync
+
+        def tracked_link(*args, **kwargs):
+            result = real_link(*args, **kwargs)
+            events.append("link")
+            return result
+
+        def tracked_unlink(*args, **kwargs):
+            events.append("unlink")
+            return real_unlink(*args, **kwargs)
+
+        def tracked_fsync(descriptor):
+            if descriptor == directory_fd:
+                events.append("fsync-directory")
+            return real_fsync(descriptor)
+
+        with mock.patch.object(life_os.os, "link", side_effect=tracked_link), \
+             mock.patch.object(life_os.os, "unlink", side_effect=tracked_unlink), \
+             mock.patch.object(life_os.os, "fsync", side_effect=tracked_fsync):
+            self.runtime._atomic_publish_note_at(directory_fd, "note.md", "bytes\n", None)
+
+        self.assertEqual(
+            ["link", "fsync-directory", "unlink", "fsync-directory"], events,
+        )
+
+    def test_new_daily_hard_death_after_link_is_reconciled_on_retry(self):
+        day = date(2026, 8, 7)
+        child = (
+            "import importlib.util, os, pathlib, sys\n"
+            "module_path, vault, state = map(pathlib.Path, sys.argv[1:])\n"
+            "spec = importlib.util.spec_from_file_location('child_daily_crash', module_path)\n"
+            "module = importlib.util.module_from_spec(spec)\n"
+            "sys.modules[spec.name] = module\n"
+            "spec.loader.exec_module(module)\n"
+            "runtime = module.LifeOSRuntime(vault_root=vault, state_root=state, "
+            "timezone=module.ZoneInfo('Asia/Seoul'), cache_roots=(), "
+            "max_attachment_bytes=1024)\n"
+            "real_link = module.os.link\n"
+            "def die_after_link(*args, **kwargs):\n"
+            "    real_link(*args, **kwargs)\n"
+            "    os._exit(74)\n"
+            "module.os.link = die_after_link\n"
+            "runtime.start_daily(module.date(2026, 8, 7))\n"
+        )
+        proc = subprocess.run(
+            [
+                sys.executable, "-c", child, str(MODULE_PATH), str(self.vault),
+                str(self.base / "state"),
+            ],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(74, proc.returncode, proc.stderr)
+        path = self.runtime.daily_path(day)
+        self.assertIn("- [ ] Breakfast", path.read_text(encoding="utf-8"))
+        self.assertTrue(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
+
+        result = self.runtime.start_daily(day)
+
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("- [ ] Breakfast", text)
+        self.assertEqual(1, text.count("<!-- life-os:record:start -->"))
+        self.assertFalse(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
+
     def test_concurrent_new_daily_creation_is_never_replaced(self):
         day = date(2026, 8, 7)
         path = self.runtime.daily_path(day)
@@ -316,6 +387,76 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertIn("# Capture — 2026-08-07", text)
         self.assertIn("책 아이디어", text)
         self.assertFalse(self.runtime.daily_path(date(2026, 8, 7)).exists())
+
+    def test_new_capture_hard_death_after_link_is_reconciled_on_retry(self):
+        day = date(2026, 8, 7)
+        child = (
+            "import importlib.util, os, pathlib, sys\n"
+            "module_path, vault, state = map(pathlib.Path, sys.argv[1:])\n"
+            "spec = importlib.util.spec_from_file_location('child_capture_crash', module_path)\n"
+            "module = importlib.util.module_from_spec(spec)\n"
+            "sys.modules[spec.name] = module\n"
+            "spec.loader.exec_module(module)\n"
+            "runtime = module.LifeOSRuntime(vault_root=vault, state_root=state, "
+            "timezone=module.ZoneInfo('Asia/Seoul'), cache_roots=(), "
+            "max_attachment_bytes=1024)\n"
+            "real_link = module.os.link\n"
+            "def die_after_link(*args, **kwargs):\n"
+            "    real_link(*args, **kwargs)\n"
+            "    os._exit(75)\n"
+            "module.os.link = die_after_link\n"
+            "runtime.record('capture', message_text='충돌 뒤에도 남을 캡처', "
+            "message_key='crash:capture-note', target_date=module.date(2026, 8, 7))\n"
+        )
+        proc = subprocess.run(
+            [
+                sys.executable, "-c", child, str(MODULE_PATH), str(self.vault),
+                str(self.base / "state"),
+            ],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(75, proc.returncode, proc.stderr)
+        path = self.runtime.capture_path(day)
+        self.assertIn("충돌 뒤에도 남을 캡처", path.read_text(encoding="utf-8"))
+        self.assertTrue(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
+
+        result = self.runtime.record(
+            "capture", message_text="충돌 뒤에도 남을 캡처",
+            message_key="crash:capture-note", target_date=day,
+        )
+
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("충돌 뒤에도 남을 캡처", text)
+        self.assertEqual(1, text.count("%% life-os-message: crash:capture-note %%"))
+        self.assertFalse(any(name.startswith(f".{path.name}.life-os-") for name in os.listdir(path.parent)))
+
+    def test_note_temp_reconciliation_fails_closed_on_unlinked_temp(self):
+        day = date(2026, 8, 7)
+        directory = self.runtime.daily_path(day).parent
+        directory.mkdir(parents=True)
+        temp = directory / f".{day.isoformat()}.md.life-os-{'a' * 16}"
+        temp.write_text("arbitrary user bytes\n", encoding="utf-8")
+        temp.chmod(0o600)
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "temporary note"):
+            self.runtime.status(day)
+
+        self.assertEqual("arbitrary user bytes\n", temp.read_text(encoding="utf-8"))
+
+    def test_status_and_date_resolution_normalize_repeated_concurrent_reads(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        for operation in (
+            lambda: self.runtime.status(day),
+            self.runtime.resolve_target_date,
+        ):
+            with self.subTest(operation=operation):
+                with mock.patch.object(
+                    self.runtime, "_read_daily_snapshot",
+                    side_effect=life_os._ConcurrentMutation(),
+                ):
+                    with self.assertRaisesRegex(life_os.LifeOSError, "changed concurrently"):
+                        operation()
 
     def test_concurrent_new_capture_creation_is_never_replaced(self):
         day = date(2026, 8, 7)

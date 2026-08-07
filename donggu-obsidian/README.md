@@ -44,7 +44,6 @@ Life OS 답변 원문은 `pre_gateway_dispatch`에서 Discord 준비·첨부 주
 
 ```yaml
 discord:
-  require_mention: false
   free_response_channels:
     - "<life-os-channel-id>"
   channel_skill_bindings:
@@ -57,8 +56,8 @@ discord:
       credentials, IDs, or tool state.
 ```
 
-기존 `discord` 설정을 통째로 교체하지 않는다. `require_mention`만 `false`로 설정하고,
-`free_response_channels`와 기존 `channel_skill_bindings`에는 Life OS 채널 항목을 합집합으로
+기존 `discord` 설정을 통째로 교체하지 않는다. 기존 global `require_mention` 값은 보존하고,
+`free_response_channels`와 기존 `channel_skill_bindings`에는 Life OS 채널 항목만 합집합으로
 추가한다. `allowed_channels`가 없으면 계속 생략하고, 이미 있으면 기존 항목을 보존한 채
 `<life-os-channel-id>`만 추가한다. 설정 후 `hermes config check`로 검증한다.
 

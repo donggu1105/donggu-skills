@@ -240,7 +240,7 @@ class LifeOSSkillContractTests(unittest.TestCase):
             "DONGGU_LIFE_OS_TIMEZONE", "hermes plugins install",
             "channel_skill_bindings", "<life-os-channel-id>", "0 22 * * *",
             "Asia/Seoul", ".codex/skills/life-os", "Life OS/Attachments/",
-            "require_mention: false", "free_response_channels", "channel_prompts",
+            "free_response_channels", "channel_prompts",
             "allowed_channels", "hermes cron create", "hermes cron edit",
             "hermes cron list --all", 'hermes cron run "$LIFE_OS_CRON_JOB_ID"',
             'hermes cron runs "$LIFE_OS_CRON_JOB_ID" --limit 5',
@@ -248,6 +248,8 @@ class LifeOSSkillContractTests(unittest.TestCase):
             '--workdir \"$LIFE_OS_VAULT_ROOT\"',
         ):
             self.assertIn(token, plugin)
+        self.assertNotIn("require_mention: false", plugin)
+        self.assertIn("기존 global `require_mention` 값은 보존", plugin)
 
 
 if __name__ == "__main__":

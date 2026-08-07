@@ -226,6 +226,18 @@ class LifeOSPluginTests(unittest.TestCase):
         runtime.status.assert_called_once_with(date(2026, 8, 7))
         runtime.start_daily.assert_called_once_with(None, resume=True)
 
+    def test_status_handler_normalizes_private_concurrent_read_failure(self):
+        runtime = mock.Mock()
+        life_os_module = importlib.import_module(self.module_name + ".runtime.life_os")
+        runtime.status.side_effect = life_os_module._ConcurrentMutation()
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+
+        result = json.loads(self.tools.handle_life_os_status({"date": "2026-08-07"}))
+
+        self.assertFalse(result["success"])
+        self.assertIn("changed concurrently", result["error"])
+        self.assertNotIn("_ConcurrentMutation", result["error"])
+
     def test_origin_guard_rejects_wrong_discord_channel_for_hook_and_all_handlers(self):
         runtime = mock.Mock()
         setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)

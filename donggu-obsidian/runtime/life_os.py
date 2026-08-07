@@ -69,8 +69,11 @@ class _DailyMissing(Exception):
     """The selected date has no Daily directory or note yet."""
 
 
-class _ConcurrentMutation(Exception):
+class _ConcurrentMutation(LifeOSError):
     """The destination changed after Life OS read its source snapshot."""
+
+    def __init__(self) -> None:
+        super().__init__("Life OS note changed concurrently; retry the operation")
 
 
 @dataclass(frozen=True)
@@ -1004,6 +1007,7 @@ class LifeOSRuntime:
 
     @staticmethod
     def _read_capture_snapshot_at(directory_fd: int, name: str) -> _TextSnapshot | None:
+        LifeOSRuntime._reconcile_note_temps(directory_fd, name)
         return LifeOSRuntime._read_text_snapshot_at(
             directory_fd,
             name,
@@ -1011,6 +1015,51 @@ class LifeOSRuntime:
             nonregular="Capture note must be a non-symlink file",
             unreadable="Capture note is unreadable",
         )
+
+    @staticmethod
+    def _reconcile_note_temps(directory_fd: int, name: str) -> None:
+        prefix = f".{name}.life-os-"
+        try:
+            entries = tuple(entry for entry in os.listdir(directory_fd) if entry.startswith(prefix))
+        except OSError:
+            raise LifeOSError("note directory is unreadable") from None
+        if not entries:
+            return
+        if len(entries) != 1 or not re.fullmatch(r"[0-9a-f]{16}", entries[0][len(prefix):]):
+            raise LifeOSError("temporary note entry is invalid")
+        temp_name = entries[0]
+        try:
+            temp_info = os.stat(temp_name, dir_fd=directory_fd, follow_symlinks=False)
+        except OSError:
+            raise LifeOSError("temporary note entry is unavailable") from None
+        if (
+            stat.S_ISLNK(temp_info.st_mode)
+            or not stat.S_ISREG(temp_info.st_mode)
+            or temp_info.st_uid != os.geteuid()
+            or stat.S_IMODE(temp_info.st_mode) != 0o600
+        ):
+            raise LifeOSError("temporary note entry is unsafe")
+        try:
+            canonical_info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            raise LifeOSError("unlinked temporary note requires manual recovery") from None
+        except OSError:
+            raise LifeOSError("canonical note is unavailable during recovery") from None
+        if (
+            stat.S_ISLNK(canonical_info.st_mode)
+            or not stat.S_ISREG(canonical_info.st_mode)
+            or canonical_info.st_uid != os.geteuid()
+            or stat.S_IMODE(canonical_info.st_mode) != 0o600
+            or not os.path.samestat(temp_info, canonical_info)
+            or temp_info.st_nlink != 2
+            or canonical_info.st_nlink != 2
+        ):
+            raise LifeOSError("temporary note conflicts with the canonical note")
+        try:
+            os.unlink(temp_name, dir_fd=directory_fd)
+            os.fsync(directory_fd)
+        except OSError:
+            raise LifeOSError("temporary note could not be reconciled") from None
 
     @staticmethod
     def _read_text_snapshot_at(
@@ -1075,6 +1124,7 @@ class LifeOSRuntime:
         data = text.encode("utf-8")
         descriptor = -1
         temp_name = ""
+        canonical_linked = False
         try:
             for _attempt in range(10):
                 candidate = f".{name}.life-os-{secrets.token_hex(8)}"
@@ -1107,8 +1157,11 @@ class LifeOSRuntime:
                     )
                 except FileExistsError:
                     raise _ConcurrentMutation from None
+                canonical_linked = True
+                os.fsync(directory_fd)
                 os.unlink(temp_name, dir_fd=directory_fd)
                 temp_name = ""
+                os.fsync(directory_fd)
             else:
                 current = LifeOSRuntime._read_text_snapshot_at(
                     directory_fd,
@@ -1126,7 +1179,7 @@ class LifeOSRuntime:
                     dst_dir_fd=directory_fd,
                 )
                 temp_name = ""
-            os.fsync(directory_fd)
+                os.fsync(directory_fd)
         except _ConcurrentMutation:
             raise
         except OSError:
@@ -1134,7 +1187,7 @@ class LifeOSRuntime:
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
-            if temp_name:
+            if temp_name and not canonical_linked:
                 try:
                     os.unlink(temp_name, dir_fd=directory_fd)
                 except OSError:
@@ -1554,6 +1607,7 @@ class LifeOSRuntime:
 
     @staticmethod
     def _read_daily_snapshot_at(directory_fd: int, name: str) -> _TextSnapshot | None:
+        LifeOSRuntime._reconcile_note_temps(directory_fd, name)
         return LifeOSRuntime._read_text_snapshot_at(
             directory_fd,
             name,
