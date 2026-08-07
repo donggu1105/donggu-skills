@@ -154,9 +154,11 @@ when absent, and returns the pending question. It is idempotent:
 
 ### `donggu_life_os_record`
 
-Accepts only a bounded operation enum and an optional list of agent-visible
-attachment cache paths. Operations are `answer`, `skip`, `pause`, `resume`,
-`capture`, and `free_record`.
+Accepts only a bounded operation enum, an optional follow-up question, and an
+optional list of agent-visible attachment cache paths. Operations are
+`answer`, `skip`, `pause`, `resume`, `capture`, and `free_record`. A proposed
+follow-up is accepted only while answering a core question, must be 1–300
+characters, and is ignored after the two-follow-up limit.
 
 For Hermes turns, the handler reads the latest persisted user message, session
 ID, and message row ID from Hermes `SessionDB`; model-supplied answer text or
@@ -181,7 +183,9 @@ The core Daily questions are asked one at a time:
 
 The agent may ask at most two follow-up questions across the whole check-in.
 A follow-up is stored immediately after the answer that caused it, then the
-workflow returns to the next unanswered core question.
+workflow records it as `pending_follow_up`. The next answer clears that field
+and the workflow returns to the next unanswered core question. Follow-ups do
+not recursively create more follow-ups.
 
 Control phrases:
 
@@ -236,14 +240,17 @@ Automation mutates only a bounded block immediately below `## Daily Record`:
 사용자의 실제 답변
 %% life-os-message: <session-id>:<trusted-message-row-id> %%
 
-%% life-os-state: {"version":1,"date":"2026-08-07","status":"active","next_question":2,"answered":[1],"skipped":[],"follow_up_count":0,"last_message_key":"<session-id>:<trusted-message-row-id>"} %%
+%% life-os-state: {"version":1,"date":"2026-08-07","status":"active","next_question":2,"answered":[1],"skipped":[],"follow_up_count":0,"pending_follow_up":null,"last_message_key":"<session-id>:<trusted-message-row-id>"} %%
 <!-- life-os:record:end -->
 ```
 
 The state is a single canonical JSON object inside an Obsidian comment. Runtime
 parsing rejects duplicate blocks, duplicate state markers, unknown versions,
 invalid question numbers, or contradictory answered/skipped sets. It never
-repairs ambiguity by overwriting user content.
+repairs ambiguity by overwriting user content. A non-null
+`pending_follow_up` contains exactly `for_question` and `question`, references
+an answered core question, and takes precedence over `next_question` when the
+runtime selects the next prompt.
 
 All template content, LifeOS code blocks, habits, and user-authored text outside
 the bounded block are byte-preserved.
