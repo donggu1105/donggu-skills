@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import builtins
 import importlib.util
 from datetime import date
 import errno
@@ -68,6 +69,17 @@ class LifeOSRuntimeTests(unittest.TestCase):
             cache_roots=self.runtime.cache_roots,
             max_attachment_bytes=32 * 1024 * 1024,
         )
+
+    @staticmethod
+    def _hermes_config_modules(config):
+        hermes_cli = types.ModuleType("hermes_cli")
+        hermes_cli.__path__ = []
+        return {
+            "hermes_cli": hermes_cli,
+            "hermes_cli.config": types.SimpleNamespace(
+                load_config_readonly=lambda: config,
+            ),
+        }
 
     def _claim_for(self, runtime, key):
         with runtime._mutation_lock() as namespace_fd:
@@ -2544,24 +2556,111 @@ class LifeOSRuntimeTests(unittest.TestCase):
             "DONGGU_LIFE_OS_STATE_ROOT": str(configured_state),
             "DONGGU_LIFE_OS_TIMEZONE": "Asia/Seoul",
         }
-        hermes_cli = types.ModuleType("hermes_cli")
-        hermes_cli.__path__ = []
 
         with mock.patch.dict(os.environ, {
             "DONGGU_LIFE_OS_VAULT_ROOT": "",
             "DONGGU_LIFE_OS_STATE_ROOT": "",
             "DONGGU_LIFE_OS_TIMEZONE": "",
-        }, clear=False), mock.patch.dict(sys.modules, {
-            "hermes_cli": hermes_cli,
-            "hermes_cli.config": types.SimpleNamespace(
-                load_config_readonly=lambda: config,
-            ),
-        }):
+        }, clear=False), mock.patch.dict(
+            sys.modules, self._hermes_config_modules(config),
+        ):
             runtime = LifeOSRuntime.from_environment()
 
         self.assertTrue(os.path.samefile(self.vault, runtime.vault_root))
         self.assertTrue(os.path.samefile(configured_state, runtime.state_root))
         self.assertEqual("Asia/Seoul", runtime.timezone.key)
+
+    def test_from_environment_does_not_hide_hermes_internal_import_failure(self):
+        actual_import = builtins.__import__
+
+        def import_with_broken_hermes_dependency(
+            name, globals=None, locals=None, fromlist=(), level=0,
+        ):
+            if name == "hermes_cli.config":
+                raise ModuleNotFoundError(
+                    "No module named 'hermes_config_dependency'",
+                    name="hermes_config_dependency",
+                )
+            return actual_import(name, globals, locals, fromlist, level)
+
+        with mock.patch.dict(os.environ, {
+            "DONGGU_LIFE_OS_VAULT_ROOT": "",
+            "DONGGU_LIFE_OS_STATE_ROOT": "",
+            "DONGGU_LIFE_OS_TIMEZONE": "",
+        }, clear=False), mock.patch.object(
+            builtins, "__import__", side_effect=import_with_broken_hermes_dependency,
+        ):
+            with self.assertRaises(ModuleNotFoundError) as raised:
+                LifeOSRuntime.from_environment()
+
+        self.assertEqual("hermes_config_dependency", raised.exception.name)
+
+    def test_from_environment_resolves_mixed_settings_per_key(self):
+        configured_state = self.base / "mixed-state"
+        config = {
+            "DONGGU_LIFE_OS_VAULT_ROOT": str(self.base / "wrong-vault"),
+            "DONGGU_LIFE_OS_STATE_ROOT": str(configured_state),
+            "DONGGU_LIFE_OS_TIMEZONE": "UTC",
+        }
+
+        with mock.patch.dict(os.environ, {
+            "DONGGU_LIFE_OS_VAULT_ROOT": str(self.vault),
+            "DONGGU_LIFE_OS_STATE_ROOT": "",
+            "DONGGU_LIFE_OS_TIMEZONE": "Asia/Seoul",
+        }, clear=False), mock.patch.dict(
+            sys.modules, self._hermes_config_modules(config),
+        ):
+            runtime = LifeOSRuntime.from_environment()
+
+        self.assertTrue(os.path.samefile(self.vault, runtime.vault_root))
+        self.assertTrue(os.path.samefile(configured_state, runtime.state_root))
+        self.assertEqual("Asia/Seoul", runtime.timezone.key)
+
+    def test_from_environment_uses_defaults_when_hermes_is_absent(self):
+        actual_import = builtins.__import__
+        xdg_state = self.base / "xdg-state"
+
+        def import_without_hermes(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "hermes_cli.config":
+                raise ModuleNotFoundError(
+                    "No module named 'hermes_cli'", name="hermes_cli",
+                )
+            return actual_import(name, globals, locals, fromlist, level)
+
+        with mock.patch.dict(os.environ, {
+            "DONGGU_LIFE_OS_VAULT_ROOT": str(self.vault),
+            "DONGGU_LIFE_OS_STATE_ROOT": "",
+            "DONGGU_LIFE_OS_TIMEZONE": "",
+            "XDG_STATE_HOME": str(xdg_state),
+        }, clear=False), mock.patch.object(
+            builtins, "__import__", side_effect=import_without_hermes,
+        ):
+            runtime = LifeOSRuntime.from_environment()
+
+        self.assertTrue(os.path.samefile(xdg_state / "donggu-life-os", runtime.state_root))
+        self.assertEqual("Asia/Seoul", runtime.timezone.key)
+
+    def test_from_environment_rejects_non_string_hermes_setting(self):
+        configured_state = self.base / "invalid-config-state"
+        config = {
+            "DONGGU_LIFE_OS_VAULT_ROOT": 123,
+            "DONGGU_LIFE_OS_STATE_ROOT": str(configured_state),
+            "DONGGU_LIFE_OS_TIMEZONE": "Asia/Seoul",
+        }
+
+        with mock.patch.dict(os.environ, {
+            "DONGGU_LIFE_OS_VAULT_ROOT": "",
+            "DONGGU_LIFE_OS_STATE_ROOT": "",
+            "DONGGU_LIFE_OS_TIMEZONE": "",
+        }, clear=False), mock.patch.dict(
+            sys.modules, self._hermes_config_modules(config),
+        ):
+            with self.assertRaisesRegex(
+                life_os.LifeOSError, "DONGGU_LIFE_OS_VAULT_ROOT is invalid",
+            ):
+                LifeOSRuntime.from_environment()
+
+        self.assertFalse(configured_state.exists())
 
     def test_status_rejects_noncontiguous_active_and_paused_progress(self):
         day = date(2026, 8, 7)

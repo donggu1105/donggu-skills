@@ -651,8 +651,9 @@ class LifeOSRuntime:
         if any(not os.environ.get(name) for name in names):
             try:
                 from hermes_cli.config import load_config_readonly
-            except (ImportError, ModuleNotFoundError):
-                pass
+            except ModuleNotFoundError as exc:
+                if exc.name not in {"hermes_cli", "hermes_cli.config"}:
+                    raise
             else:
                 loaded = load_config_readonly()
                 if not isinstance(loaded, dict):
