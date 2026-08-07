@@ -1,139 +1,168 @@
 ---
 name: writing-social-content
-description: Use when writing a text post for the user's Obsidian-vault SNS channels — Blog, LinkedIn, Threads, or Maily newsletter — in the user's learned voice, including drafting a fresh post for a channel, writing the same topic for another channel, or formatting a note for publishing. Not for Instagram card images or short-form video.
+description: Use when drafting or adapting text for Blog, LinkedIn, Threads, or Maily from a supplied source or brief. Uses built-in channel voice and format rules; never requires Vault VOICE/canon or saves files. Not for publishing, cards, or video.
 ---
 
 # Writing Social Content
 
 ## Overview
 
-사용자의 **텍스트 SNS 채널 전부**(Blog·LinkedIn·Threads·Maily)를 한 스킬로 작성한다. 작성 계보는 `origin`과 `adapt` 두 모드로 소유하되, 모든 최종 글은 목적 채널 VOICE에 맞춘 **channel-native 본문**이다. `derived_from`은 변환 계보만 기록하며 마스터/변형 위계를 만들지 않는다. 하나의 마스터 본문을 여러 채널에 기계적으로 발행하지 않는다. 핵심은 **voice-learning** — 그 채널의 정전·기존 발행 글에서 톤·종결·시그니처를 학습해 일관 유지. 채널 차이는 [채널 매트릭스]로 흡수하고, 작성 절차(retrieve→대화형→생성→저장)는 공통이다.
+Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 **portable text authoring layer**다. 채널별 보이스·분량·출력 형식을 이 파일 안에서 완결하며, Obsidian Vault·VOICE 노트·canon 글·CORE·Channel Pack·프론트매터·저장 경로를 읽거나 요구하지 않는다.
 
-**Core**: Socratic retrieve. 자동 자산(VOICE·정전 글)은 강제, 선택 자산(GENRE·STRUCTURE·PROJECT·CORE)은 한 결정씩 물어본다.
+입력은 사용자가 준 원문, URL에서 검증한 출처, 대화에서 확인된 사실, 또는 명시적 브리프다. 같은 주제를 여러 채널로 옮길 때 문장을 늘이거나 줄이지 않고 채널마다 독립적으로 읽히는 글로 다시 구성한다.
 
-> **canon에서 배우는 건 보이스(톤·종결·시그니처·후크)지 내용·결론(CORE)이 아니다.** 새 소재는 기본 **채굴 모드** — 그 소재만의 새 앵글을 판다(기존 CORE로 수렴 금지, "얼마 전에 나는 ~썼다"式 자기 인용 금지). **수렴 모드**(기존 CORE 강화·연결)는 사용자가 명시할 때만. 매번 같은 코어로 수렴시키면 글이 다 똑같아지고 새 코어가 안 쌓인다 — 지금은 코어를 넓히는 단계라 채굴이 기본.
+**Content authority**: 현재 source가 내용의 정본이다. 과거 글·메모·브랜드 코어를 자동으로 끌어오지 않는다. 사용자가 이전 관점과 연결하라고 명시했을 때만 제공된 자료 범위에서 연결한다.
 
 ## When to Use
-- 텍스트 채널(blog·linkedin·threads·maily) 중 하나에 `origin` 모드로 첫 Channel Pack 작성
-- 기존 Channel Pack 하나를 읽고 `adapt` 모드로 다른 채널의 VOICE에 맞춰 새로 작성
-- 기존 노트를 발행 가능한 형식(`## 발행`/`## Draft`)으로 정형화
+
+- raw material에서 Blog·LinkedIn·Threads·Maily 초안을 처음 작성할 때
+- 기존 채널 글을 다른 채널의 말투·호흡·형식으로 다시 쓸 때
+- 한 source로 여러 채널의 authoring-only 초안을 만들 때
+- 게시 직전 텍스트를 채널 제한에 맞춰 정형화할 때
 
 ## When NOT to Use
-- Instagram 카드 이미지 → `donggu-sns:make-insta-card-news`
-- 세로 숏폼 영상(Shorts·Reels) → `donggu-sns:make-shorts`
-- 실제 게시·삭제 → `donggu-sns:publish-sns`
 
-## 채널 매트릭스 (단일 기준표)
+- 파일·Vault 저장, 노트 경로·SCHEMA·frontmatter 처리
+- 실제 게시·수정·삭제 → `publish-sns`
+- Instagram 카드·캐러셀 → `make-insta-card-news`
+- 대표이미지·본문 사진 → `get-stock-image` 또는 `get-ai-image`
+- Shorts·Reels 영상 → `make-shorts`
 
-| 채널 | VOICE 앵커 | 분량 | 톤 | 핵심 규칙 | 저장 / 발행 형식 |
-|---|---|---|---|---|---|
-| **blog** | `VOICE - Blog` | 2,000~2,500자 | voice 학습 | GENRE×STRUCTURE, 롱폼 | `Blog/Blog - <t>.md` · tistory 발행 = 본문 그대로(첫 줄=제목) |
-| **linkedin** | `VOICE - LinkedIn` | 1,200~1,400자 | 장르별(에세이 평서체/행사 존댓말) | 첫 3줄 후크(모바일 ~210자), 단문+줄바꿈, 끝 댓글유도, 링크는 첫 댓글 | `LinkedIn/...` · 발행 = `## Draft` 확정본 |
-| **threads** | `VOICE - Threads` | 500자 / 5~7타래 | 친근 반말 | 5~7줄 짧은 호흡, 미완 끝맺음, 링크 첫 댓글 | `Threads/...` · 발행 = `## 발행`(아래) |
-| **maily** | `VOICE - Maily` | 뉴스레터 편지 | 편지체 | 인사 → `### 소제목` 본문 → "오늘 한 가지만" → 맺음 | `Maily/...` · 발행 = `## 발행`(아래) |
+## 공통 보이스
 
-> 경로 베이스: `Personal Branding/40_Channel_Packs/<채널>/`. 각 채널 `_anchors/`에 `VOICE - <채널>.md` 하나. 운영 규칙은 VOICE 하단 `## 채널 운영 메모`. (WINNING_PATTERNS는 폐기 — 추상 combo가 글을 평균값으로 끌어당김. 보이스는 VOICE의 `canon:` 정전 글로 학습한다.)
+- 한국어는 구체적이고 자연스럽게 쓴다. 번역체·AI 상투어·과장 형용사·설교조 결말을 피한다.
+- 줄표 `—`·`–`, 장식용 이모지, 억지 3단 나열, “결론적으로”, “시사하는 바가 크다”, “단순한 X를 넘어”를 쓰지 않는다.
+- 장르에 맞는 1인칭을 쓴다. 주장형·에세이는 `나`, 후기·공지·편지는 `저/제가`가 기본이다.
+- 사용자가 말하지 않은 고객 장면·감정 변화·성과·습관·수치·인용을 만들지 않는다.
+- 개인 경험과 외부 source를 섞을 때 `사용자가 직접 말한 사실`과 `source가 말한 사실`의 경계를 지킨다.
+- 강한 문장은 근거 뒤에 둔다. 근거 없는 거대 담론이나 다짐으로 마치지 않는다.
+- 기존 글의 문구를 자기 인용하거나 모든 소재를 같은 FDE·ROI·문화 결론으로 끌고 가지 않는다.
 
-## Workflow (공통)
+## 채널 매트릭스
 
-### 0. 작성 모드 결정
-- **`origin`**: Inbox 메모, Source, 대화, 주제 브리프 같은 raw material에서 첫 채널 노트를 만든다. `derived_from`은 비운다.
-- **`adapt`**: 기존 Channel Pack 하나를 정확한 source로 읽고 목적 채널 VOICE로 다시 쓴다. source의 문장을 기계적으로 줄이거나 늘리지 않고 목적 채널의 후크·호흡·종결·발행 형식으로 재구성한다.
-- `derived_from`은 lineage이지 master hierarchy가 아니다. 같은 주제의 각 최종 본문은 독립적으로 발행 가능한 channel-native 글이어야 한다.
+| 채널 | 기본 분량 | 보이스 | 구조 | 출력 계약 |
+|---|---:|---|---|---|
+| **Blog** | 2,000~2,500자 | 주장·에세이=평서체, 행사·후기=정중 존댓말 | 리드 2~3문단 → `##` 소제목 3~6개 → 구체적 판단으로 마무리 | 1행 제목 + Markdown 본문 |
+| **LinkedIn** | 1,200~1,400자 | 에세이=평서체, 행사·공지=존댓말 | 첫 3줄 후크 → 현장 사실 → 주장 → 근거 → 현재 판단 | 본문 1개 + 첫 댓글 링크 별도 |
+| **Threads** | 단일 ≤500자 | 친근한 반말 | 5~7개 짧은 호흡, 한 주장, 답글 유도 | 본문 1개 + 첫 댓글 링크 별도 |
+| **Maily** | 편지 1통 분량 | 정중한 편지체 | 인사 2~3줄 → `###` 소제목 → 적용 한 가지 → 질문·맺음 | 1행 제목 / 2행 부제목 / 빈 줄 / 본문 |
 
-### 1. 자동 retrieve (입력 없음)
-- 채널 `_anchors/`: **VOICE**(하드룰 + `canon:` 정전 글 목록 + 하단 `## 채널 운영 메모`)
-- **정전(canon) 글 우선 + 기존 발행 글 1~3개**: VOICE의 `canon:`을 먼저 읽고, 없으면 `<채널> - *.md`에서 최근/대표 글 → 종결 어미 비율·시그니처·후크를 학습. *이게 voice-learning의 핵심 — 추상 규칙만 보면 평균값으로 homogenize된다. 실제 글이 보이스의 기준.*
+## 채널별 하드룰
 
-### 2. 대화형 (AskUserQuestion, 한 결정씩)
-채널 → 글 정보 → GENRE(회고/튜토리얼/인사이트/공지…) → STRUCTURE(BLUF/미괄식/PAS/Listicle…) → PROJECT 연결❓ → **CORE 모드❓ (매번 필수로 묻는다): 채굴(기본 — 기존 CORE 안 엮고 새 앵글) / 수렴(어떤 CORE를 엮을지 골라 강화). "어떤 코어를 쓸지, 아니면 안 쓸지"를 항상 확인한다.**
-(threads = 단일 vs 스레드)
+### Blog
 
-### 3. 생성
-- 매트릭스의 채널 규칙(분량·톤·핵심) 적용
-- **voice 일관성 강제**: 정전 글의 종결 어미 비율 모방, 시그니처 표현 재사용, 회피 단어(과장 형용사·AI 클리셰) 제거
-- 정전(canon) 글의 후크·구조·종결을 따른다 (추상 combo·템플릿 아님 — 실제 글이 기준). **단 canon에서 가져오는 건 보이스지 내용·결론(CORE)이 아니다 — 내용은 위 CORE 모드 결정을 따른다(채굴이면 기존 코어 재사용·자기 인용 금지).**
-- **blog: 본문 확정 후 이미지 배치**(아래 [블로그 이미지 배치]) — 동구님이 찍은 캡처가 없을 때만
+- 검색어를 억지로 반복하지 않고 제목과 첫 단락에 핵심 키워드를 자연스럽게 둔다.
+- 소제목은 주장 비트 단위다. 긴 항목은 불릿이 아니라 문단으로 푼다.
+- 단락은 2~4문장, 문장 길이는 짧고 긴 것을 섞는다.
+- 다른 채널 글을 그대로 늘이지 않는다. 근거·맥락·반론 경계를 보강해 롱폼으로 다시 설계한다.
+- 이미지는 이 스킬 범위 밖이다. 텍스트 확정 뒤 별도 이미지 스킬로 넘긴다.
 
-### 4. 저장
-- Path: `40_Channel_Packs/<채널>/<채널> - <title>.md`
-- frontmatter 계약:
-  ```yaml
-  type: channel_pack
-  channel: <ch>
-  project:
-  status: draft
-  derived_from: "[[optional exact source Channel Pack]]"
-  related: ["[[other same-topic Channel Pack]]"]
-  ```
-  `origin`이면 `derived_from`을 비우고, `adapt`이면 읽은 source Channel Pack 하나를 정확히 기록한다. `related`는 같은 주제의 대등한 Channel Pack 연결이다.
-- **발행 채널이면 발행 형식 섹션까지** (아래)
+### LinkedIn
 
-## 발행 형식 (구 make-note 흡수 — 발행기가 읽는 정본)
+- 모바일에서 접히기 전 약 210자 안에 훅과 긴장을 만든다.
+- 1~3문장마다 줄을 나눠 읽는 속도를 조절한다.
+- 외부 URL은 본문에서 빼고 `첫 댓글`로 별도 제공한다.
+- 해시태그는 꼭 필요할 때만 마지막에 최대 5개를 쓴다.
+- 댓글 유도는 글의 판단과 직접 연결된 질문이어야 한다.
 
-발행기는 노트의 **딱 한 섹션**만 기계적으로 읽는다. 그 밖 섹션(전략·시안·메모)은 전부 무시된다.
+### Threads
 
-**threads — `## 발행`**
-- 본문 그대로 (인용블록 `>`로 감싸지 말 것 — `>`까지 그대로 발행됨)
-- ≤500자(이미지 임베드 줄 제외), 해시태그 **본문 끝 1개만**, 외부 링크 본문 금지(첫 댓글)
-- 이미지 `![[파일]]` 임베드, **순서 = 게시 순서**(0장=텍스트 · 1장=단일 · 2장+=캐러셀)
-- 끝은 답글 유도(질문/미완 끝맺음)
-- **타래(5~7개)는 자동 발행 미지원** — `## 발행`엔 단일 ≤500자 하나만 둔다. 타래 초안·첫 댓글 링크 등 운영 메모는 **섹션 밖**에 (발행기는 `## 발행` 한 섹션만 읽음 → 수동 발행)
+- 단일 게시물은 줄바꿈 포함 500자 이하다. 최종본은 도구로 실제 글자 수를 센다.
+- 5~7개 비어 있지 않은 문단 또는 호흡으로 쓴다.
+- 외부 URL은 본문에 넣지 않고 `첫 댓글`로 분리한다.
+- 해시태그는 0~1개다.
+- 선택지 A/B를 함께 내지 않고 확정본 하나만 준다.
+- 5~7개 타래는 사용자가 명시했을 때만 작성하며 수동 게시용이라고 표시한다.
 
-**maily — `## 발행`**
-- 1행 = 메일 제목 / 2행 = **부제목(필수 — 비우면 받은편지함 미리보기가 본문 첫 줄로 깨짐)** / 빈 줄 / 본문
-- 본문은 마크다운 부분집합만: `### 소제목` · `**볼드**` · `> 인용` · `1.`/`-` 목록 · `---` 가로줄 (버튼·이미지·테이블은 에디터 전용 → dry_run 후 수동)
+### Maily
 
-**linkedin — `## Draft`** 확정본 한 개.
-> 이미지가 필요하면 카드는 `make-insta-card-news` 파이프라인을 재사용한다.
+- 첫 줄은 메일 제목, 둘째 줄은 받은편지함 미리보기에 쓰일 부제목이다. 부제목을 비우지 않는다.
+- `안녕하세요, 동구입니다`로 열고 안부는 2~3줄 안에 끝낸다.
+- 한 사람에게 보내는 편지처럼 쓰되 과도한 친근함이나 매호 같은 인사 복붙을 피한다.
+- 제목에 결론을 전부 쓰지 않는다. 구체적 질문·반전·미스터리 중 하나로 연다.
+- 본문은 `### 소제목`, 볼드, 인용, 짧은 목록, 가로줄을 쓸 수 있다. 링크는 본문에 넣어도 된다.
+- `오늘 한 가지만`은 실제 적용 행동이 있을 때만 사용한다. 억지 교훈이면 생략한다.
+- 해시태그를 붙이지 않는다.
 
-## 블로그 이미지 배치 (대표이미지 + 문단별 삽화)
+## Workflow
 
-> **적용 대상: `blog`(티스토리) 채널만.** LinkedIn·Threads·Maily·X는 이 절차 대상이 아니다 — 본문 삽화·대표이미지를 끼우지 않는다(각 채널 이미지 규칙은 위 [발행 형식] 참고: threads=`![[]]` 임베드 순서, instagram=카드 파이프라인, maily/linkedin=이미지 안 넣음).
+### 1. 범위와 source 잠금
 
-블로그 본문이 확정되면 **대표이미지 1장 + 문단(섹션)마다 1장**을 `donggu-sns:get-stock-image`로 받아 끼운다. 카드/캐러셀이 아니라 본문에 흐르는 **무료 스톡 사진·삽화**다. 동구님이 직접 찍은 캡처·결과물이 있으면 **그게 1순위**, 이 절차는 그게 없을 때.
+- 목표 채널과 `origin`·`adapt`를 정한다.
+- `origin`: 제공된 raw material에서 첫 글을 만든다.
+- `adapt`: 제공된 기존 글의 논지와 사실을 보존하면서 다른 채널로 재구성한다.
+- 사용자가 `초안만`, `글만`, `일단 글부터`라고 하면 authoring-only다. 파일 조회·저장·이미지 생성·게시를 하지 않는다.
+- 명시된 source와 목표 채널이 있으면 장르·구조·CORE를 다시 묻지 않는다. 결과를 materially 바꾸는 정보가 없을 때만 질문한다.
 
-**원칙: 1장이 1주제.** 글 전체 무드는 대표이미지가, 각 섹션의 논점은 그 섹션 사진이 받친다. 같은 사진 재사용 금지, 장식용 추상 이미지 남발 금지 — 섹션이 말하는 그것을 보여준다.
+### 2. 근거 장부
 
-**소스 선택 (stock | ai):** 같은 자리에 두 방법 중 하나를 쓴다 — 실제 사진/무드면 **스톡**(`donggu-sns:get-stock-image`), 주제 맞춤·일러스트·특정 장면을 만들고 싶으면 **AI 생성**(`donggu-sns:get-ai-image`, 로컬 ComfyUI 무료가 기본). **저장 경로·파일명·임베드 규칙은 둘 다 동일** → 어느 쪽이든 발행 파이프라인은 그대로. 글자(한글) 박힌 이미지는 둘 다 부적합 → 카드(`make-insta-card-news`). 동구님이 직접 찍은 결과물이 있으면 그게 1순위.
+초안 전에 내용을 네 칸으로 나눈다.
 
-**절차**
-1. **섹션 분해** — 리드(대표이미지) + `##`/`###` 소제목별로 1블록. 소제목이 없으면 의미 문단 단위.
-2. **블록마다 프롬프트 뽑기** — 대표이미지는 글 전체 주제, 섹션은 그 섹션의 핵심 논점에서. 소스에 따라 밀도가 다르다:
-   - **stock**: 영어 키워드 1개 + `--kind` (예: "채용시장에 나와 보니" → `job interview office` /photo, "문제는 그 뒤에 있다" → `missing puzzle piece` /concept)
-   - **ai**: 키워드 1개론 약하다 → **서술형 영어 프롬프트**(장면 + 조명/무드 + 스타일). 섹션 논점을 한 장면으로 번역한다. (예: "문제는 그 뒤에 있다" → `a single missing puzzle piece on a wooden desk, soft directional light, editorial minimalism`). 글자(한글) 넣지 말 것.
-3. **소스 실행** → vault에 저장 (stock=`get-stock-image` 키워드 / ai=`get-ai-image` 프롬프트). 경로는 토픽 슬러그 폴더 하나에 모은다: `<채널폴더>/_img/<토픽슬러그>/hero.jpg`, `01-<섹션>.jpg` … (파일명은 vault 전역 유일하게). AI면 프롬프트는 영어로, 대표이미지=가로 1200x630.
-4. **저장 후 반드시 Read로 주제 적합성 확인** → 어긋나면 재시도: **stock**은 `--index` 올려 다음 후보, **ai**는 프롬프트를 더 구체화(장면·소재 명시)하거나 `--seed`를 바꿔 재생성.
-5. **본문에 임베드** — 대표이미지는 제목 바로 아래(리드 앞), 섹션 이미지는 그 `##` 소제목 바로 아래에 `![[hero.jpg]]` 형식. **임베드 위치 = 발행본에서 보일 위치.**
-6. commons/openverse(CC) 결과면 반환 JSON의 `license`·`credit` 확인 → 출처표기 필요 시 글 말미 `## 🔗 연결`/출처에 적는다.
+- `USER FACT`: 사용자가 직접 말한 경험과 현재 상황
+- `SOURCE FACT`: source가 명시한 사실·수치·인용
+- `INTERPRETATION`: 글쓴이의 판단이라고 드러내야 하는 문장
+- `UNSUPPORTED`: 그럴듯하지만 근거 없는 장면·인과·성과. 사용하지 않는다.
 
-> 업로드는 신경 안 써도 된다 — `publish-sns`(발행 주체)가 `![[…]]`를 Supabase Storage(`sns-media`)에 올리고 공개 URL로 치환한다. 작성자는 **vault에 파일 저장 + 위치에 임베드**까지만.
+### 3. 채널별 논지 잠금
 
-> **대표이미지(썸네일/OG) = 리드 이미지(첫 임베드).** 티스토리 발행 시 발행기가 이 hero를 글의 대표이미지로도 업로드한다(목록·SNS 공유 카드에 뜨는 썸네일). hero는 섹션 사진보다 더 신경 써서 **글 전체를 대표할 한 장**으로 고를 것. 등록·수정 동일.
+- 각 채널에서 독자가 한 문장으로 기억할 논지를 하나 정한다.
+- 같은 소재라도 Blog는 맥락, LinkedIn은 압축된 주장, Threads는 한 생각, Maily는 독자에게 보내는 적용 편지로 다시 설계한다.
+- source의 문장을 기계적으로 축약·확장하지 않는다.
+
+### 4. 작성
+
+- [공통 보이스]와 목표 채널 하드룰을 적용한다.
+- 실제 사례와 인용은 원문의 범위를 넘지 않는다.
+- 외부 source가 주인공인 글에서도 사용자의 경험을 꾸며 연결하지 않는다.
+- 서로 다른 채널 본문이 각각 독립적으로 발행 가능해야 한다.
+
+### 5. 검수
+
+최종본을 내기 전에 확인한다.
+
+1. 핵심 문장마다 `USER FACT`·`SOURCE FACT`·명시적 `INTERPRETATION` 중 하나가 있는가.
+2. 인명·수치·날짜·직접 인용·URL이 source와 일치하는가.
+3. 사용자가 말하지 않은 고객 장면·감정·성과를 만들지 않았는가.
+4. `—`·`–`와 AI 상투어가 0개인가.
+5. 목표 채널의 분량·링크·해시태그·제목/부제목 계약을 통과하는가.
+6. 여러 채널을 요청했다면 내용 복사본이 아니라 channel-native 글인가.
+
+글자 제한이 있는 채널은 추정하지 말고 도구로 센다.
+
+### 6. 전달
+
+- authoring-only: 채널별 확정 초안과 필요한 첫 댓글 링크만 보여준다.
+- 파일 저장 요청: 작성 결과를 target-native 파일/Vault 도구에 넘긴다. 이 스킬은 경로·SCHEMA·frontmatter를 소유하지 않는다.
+- 게시 요청: `publish-sns`의 preview·approval 절차로 넘긴다. 이 스킬은 게시하지 않는다.
 
 ## Common Mistakes
+
 | 실수 | 수정 |
 |---|---|
-| 정전 글 안 보고 작성 | VOICE 하드룰만 추론 = 평균값 homogenize. VOICE `canon:` 정전 글 필수 retrieve |
-| 채널 톤 혼용 (LinkedIn 존댓말 → Threads에) | 매트릭스 톤 준수 (threads=반말, x-ko=명사형, linkedin=장르별) |
-| GENRE/STRUCTURE 디폴트 강제 (회고·미괄식) | 사용자 선택 |
-| 본문에 외부 링크 | 첫 댓글로 |
-| threads `## 발행`에 인용블록/옵션 A·B | 확정본 하나, 인용블록 금지 |
-| maily 부제목 누락 | 2행 필수 |
-| x 한국어+영어 동시 발행 | 시간 분리 |
-| 블로그 이미지 저장만/Read 안 함 | 항상 Read로 주제 적합성 확인, 어긋나면 `--index`↑ |
-| 섹션마다 같은 사진/장식용 추상 이미지 | 1장=1주제, 섹션 논점을 보여주는 사진 |
+| VOICE·canon·Vault 파일을 자동 조회 | 금지. 이 스킬 내부 매트릭스가 보이스 정본이다. |
+| 기존 글을 길이만 바꿔 재사용 | 채널별 독자·호흡·구조로 다시 쓴다. |
+| 과거 CORE나 익숙한 결론으로 수렴 | 현재 source에서 새 논지를 잠근다. |
+| 개인 경험을 생생하게 만들려고 장면 추가 | 사용자가 직접 말한 사실만 1인칭으로 쓴다. |
+| LinkedIn·Threads 본문에 외부 URL | 첫 댓글로 분리한다. |
+| Threads 500자·Maily 부제목을 추정 | 실제 글자 수와 2행 계약을 기계적으로 검수한다. |
+| 모든 글을 다짐이나 “~해야 한다”로 마감 | 현재 판단·운영 기준·구체적 질문으로 닫는다. |
+| 이미지·저장·게시까지 한 스킬에서 처리 | 텍스트 확정 후 각 전용 스킬로 넘긴다. |
 
-## 경계 (모든 donggu-sns 스킬 공통 헌법)
-- **글자만 쓴다.** 카드 이미지·영상은 만들지 않는다 → `make-insta-card-news` / `make-shorts`
-- **게시는 안 한다** → `publish-sns`
+## 경계
+
+- **글자만 쓴다.** 파일 저장·이미지·카드·영상·게시를 수행하지 않는다.
+- **Vault를 보이스 소스로 쓰지 않는다.** 사용자가 Vault 파일을 source로 직접 지정하면 일반 source처럼 그 파일 하나만 읽을 수 있지만, VOICE·canon·CORE를 자동 확장 조회하지 않는다.
+- **게시하지 않는다.** 실제 외부 변경은 `publish-sns`가 별도 승인 절차로 수행한다.
 
 ## 관련 Skill
-- 블로그 본문 사진(대표·삽화): `donggu-sns:get-stock-image`
-- 카드 이미지: `donggu-sns:make-insta-card-news`
-- 숏폼 영상: `donggu-sns:make-shorts`
-- 발행: `donggu-sns:publish-sns`
-- vault health: `donggu-obsidian:checking-vault-health`
+
+- 출처 기반 논지 검수: `source-grounded-content-writing`
+- 자연스러운 한국어 윤문: `korean-humanizer`
+- 이미지: `get-stock-image` · `get-ai-image`
+- 카드: `make-insta-card-news`
+- 영상: `make-shorts`
+- 게시: `publish-sns`
 
 ## 태그
-#sns #blog #linkedin #threads #maily #content-writing #voice-learning
+
+#sns #blog #linkedin #threads #maily #content-writing #portable-skill
