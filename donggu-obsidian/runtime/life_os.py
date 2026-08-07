@@ -814,6 +814,11 @@ class LifeOSRuntime:
                 if snapshot is None:
                     raise LifeOSError("Daily note is unavailable")
                 document, state = self._document_and_state(snapshot.text, selected)
+                marker = f"{_MESSAGE_PREFIX}{key} %%"
+                if snapshot.text.count(marker) != document.content.count(marker):
+                    raise LifeOSError(
+                        "trusted message marker is outside the bounded Daily block"
+                    )
                 if self._message_already_committed(document.content, key):
                     result = self._result(path, state, content=document.content, duplicate=True)
                     if self._commit_global_claim(
@@ -2049,9 +2054,12 @@ class LifeOSRuntime:
                 }
             return None
         text = self._read_daily(selected)
-        if text is None or text.count(f"{_MESSAGE_PREFIX}{key} %%") != 1:
+        if text is None:
             return None
-        document, state = self._parse_block(text, selected)
+        document, state = self._document_and_state(text, selected)
+        marker = f"{_MESSAGE_PREFIX}{key} %%"
+        if document.content.count(marker) != 1 or text.count(marker) != 1:
+            return None
         return self._result(
             self.daily_path(selected), state, content=document.content, duplicate=True,
         )

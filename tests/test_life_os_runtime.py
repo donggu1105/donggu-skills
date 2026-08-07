@@ -73,6 +73,19 @@ class LifeOSRuntimeTests(unittest.TestCase):
         with runtime._mutation_lock() as namespace_fd:
             return runtime._read_global_claim(namespace_fd, key)
 
+    def _move_daily_marker_outside_block(self, path, day, key, label):
+        marker = f"%% life-os-message: {key} %%"
+        text = path.read_text(encoding="utf-8")
+        document, _state = self.runtime._parse_block(text, day)
+        self.assertEqual(1, document.content.count(marker))
+        moved = text.replace(marker, "", 1) + f"\n{marker}\n"
+        moved_document, _state = self.runtime._parse_block(moved, day)
+        self.assertEqual(0, moved_document.content.count(marker))
+        self.assertEqual(1, moved.count(marker))
+        replacement = path.parent / f".outside-marker-{label}"
+        replacement.write_text(moved, encoding="utf-8")
+        os.replace(replacement, path)
+
     def test_start_daily_renders_known_snapshot_and_preserves_template_blocks(self):
         result = self.runtime.start_daily(date(2026, 8, 7))
         text = Path(result["path"]).read_text(encoding="utf-8")
@@ -723,6 +736,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
 
         self.assertTrue(injected)
         self.assertIsNotNone(external_identity)
+        assert external_identity is not None
         text = Path(result["path"]).read_text(encoding="utf-8")
         self.assertIn("외부 원자적 교체", text)
         self.assertEqual(1, text.count("%% life-os-message: destination-race:daily %%"))
@@ -923,11 +937,13 @@ class LifeOSRuntimeTests(unittest.TestCase):
             "resume", message_text="이어서 하자", message_key="s1:4", target_date=day,
         )
         self.assertEqual("active", resumed["status"])
+        result = None
         for index in range(2, 6):
             result = self.runtime.record(
                 "answer", message_text=f"답변 {index}", message_key=f"s1:{index + 3}",
                 target_date=day,
             )
+        assert result is not None
         self.assertEqual("completed", result["status"])
 
     def test_resume_is_explicitly_idempotent_while_already_active(self):
@@ -1312,6 +1328,7 @@ class LifeOSRuntimeTests(unittest.TestCase):
 
         self.assertTrue(injected)
         self.assertIsNotNone(external_identity)
+        assert external_identity is not None
         text = Path(result["path"]).read_text(encoding="utf-8")
         self.assertIn("외부 캡처 교체", text)
         self.assertEqual(1, text.count("%% life-os-message: destination-race:capture:second %%"))
@@ -2835,6 +2852,36 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual("committed", self._claim_for(self.runtime, key)["status"])
         self.assertFalse(result.get("duplicate", False))
 
+    def test_daily_rejects_outside_block_marker_before_claim_commit(self):
+        day = date(2026, 8, 7)
+        key = "claim-boundary:daily:pre"
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        real_commit = self.runtime._commit_global_claim
+        injected = False
+
+        def move_then_commit(namespace_fd, claim_key, target, outcome):
+            nonlocal injected
+            if not injected and claim_key == key:
+                injected = True
+                self._move_daily_marker_outside_block(path, day, key, "pre")
+            return real_commit(namespace_fd, claim_key, target, outcome)
+
+        with mock.patch.object(
+            self.runtime, "_commit_global_claim", side_effect=move_then_commit,
+        ):
+            with self.assertRaisesRegex(life_os.LifeOSError, "bounded Daily block"):
+                self.runtime.record(
+                    "free_record", message_text="bounded pre", message_key=key,
+                    target_date=day,
+                )
+
+        text = path.read_text(encoding="utf-8")
+        document, _state = self.runtime._parse_block(text, day)
+        self.assertEqual(0, document.content.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual(1, text.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual("pending", self._claim_for(self.runtime, key)["status"])
+
     def test_capture_replays_replacement_immediately_before_claim_commit(self):
         day = date(2026, 8, 7)
         seed = self.runtime.record(
@@ -2902,6 +2949,36 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual("committed", self._claim_for(self.runtime, key)["status"])
         self.assertFalse(result.get("duplicate", False))
 
+    def test_daily_rejects_outside_block_marker_during_committed_claim_write(self):
+        day = date(2026, 8, 7)
+        key = "claim-boundary:daily:write"
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        real_write = self.runtime._write_global_claim
+        injected = False
+
+        def move_during_write(namespace_fd, claim_key, payload):
+            nonlocal injected
+            if not injected and claim_key == key and payload.get("status") == "committed":
+                injected = True
+                self._move_daily_marker_outside_block(path, day, key, "write")
+            return real_write(namespace_fd, claim_key, payload)
+
+        with mock.patch.object(
+            self.runtime, "_write_global_claim", side_effect=move_during_write,
+        ):
+            with self.assertRaisesRegex(life_os.LifeOSError, "bounded Daily block"):
+                self.runtime.record(
+                    "free_record", message_text="bounded write", message_key=key,
+                    target_date=day,
+                )
+
+        text = path.read_text(encoding="utf-8")
+        document, _state = self.runtime._parse_block(text, day)
+        self.assertEqual(0, document.content.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual(1, text.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual("pending", self._claim_for(self.runtime, key)["status"])
+
     def test_capture_replays_replacement_during_committed_claim_write(self):
         day = date(2026, 8, 7)
         seed = self.runtime.record(
@@ -2963,6 +3040,29 @@ class LifeOSRuntimeTests(unittest.TestCase):
         self.assertEqual(1, text.count(f"%% life-os-message: {key} %%"))
         self.assertEqual("committed", self._claim_for(restarted, key)["status"])
         self.assertFalse(result.get("duplicate", False))
+
+    def test_daily_restart_rejects_committed_claim_with_outside_block_marker(self):
+        day = date(2026, 8, 7)
+        key = "claim-boundary:daily:restart"
+        self.runtime.record(
+            "free_record", message_text="bounded restart", message_key=key,
+            target_date=day,
+        )
+        path = self.runtime.daily_path(day)
+        self._move_daily_marker_outside_block(path, day, key, "restart")
+        restarted = self._restart_runtime()
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "bounded Daily block"):
+            restarted.record(
+                "free_record", message_text="bounded restart", message_key=key,
+                target_date=day,
+            )
+
+        text = path.read_text(encoding="utf-8")
+        document, _state = restarted._parse_block(text, day)
+        self.assertEqual(0, document.content.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual(1, text.count(f"%% life-os-message: {key} %%"))
+        self.assertEqual("pending", self._claim_for(restarted, key)["status"])
 
     def test_capture_restart_reconciles_committed_claim_with_missing_record(self):
         day = date(2026, 8, 7)

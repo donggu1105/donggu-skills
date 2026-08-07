@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import types
+from typing import Any
 import unittest
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -51,7 +52,7 @@ class LifeOSPluginTests(unittest.TestCase):
         self.tools = importlib.import_module(self.module_name + ".tools")
         if hasattr(self.tools, "_TRUSTED_TURNS"):
             self.tools._TRUSTED_TURNS.clear()
-        self.hermes_config = {
+        self.hermes_config: Any = {
             "discord": {
                 "channel_skill_bindings": [{"id": "456", "skill": "life-os"}],
             },
@@ -79,7 +80,10 @@ class LifeOSPluginTests(unittest.TestCase):
         media_urls=(), media_types=(), message_id="123", chat_id="456", user_id="789",
     ):
         class FakeDiscordMessage:
-            pass
+            content: str
+            id: int
+            channel: Any
+            author: Any
 
         raw = FakeDiscordMessage()
         raw.content = text

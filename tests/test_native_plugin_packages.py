@@ -369,7 +369,7 @@ class NativePluginPackageTests(unittest.TestCase):
             runtime = runtime_module.CoreActionRuntime(
                 receipt_root=base / "receipts", helper_path=helper,
             )
-            tools._RUNTIME = runtime
+            setattr(tools, "_RUNTIME", runtime)
             ctx = FakeContext()
             package.register(ctx)
             apply_handler = next(item["handler"] for item in ctx.tools if item["name"] == "donggu_core_apply")
