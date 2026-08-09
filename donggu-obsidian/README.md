@@ -143,11 +143,11 @@ Existing-note replacement is allowed only when the state archive and Vault are o
 ## Safety contract
 
 - Read the actual Vault authority files before note contents.
-- Keep Inbox raw until the user selects an item.
-- Use one `선택 → 추출 → 통합` loop for selected captures and approved posts.
+- Keep Inbox raw until the user selects an item; selection feeds publication work only.
+- Use the `선택 → 추출 → 통합` loop only for a completed and approved publication.
 - Search existing CORE before proposing a new one.
 - Show one actual diff and state zero writes before approval.
-- Accept `적용해줘` only in a later, candidate-scoped message or scoped button.
+- Accept exact `적용해줘` only in a later persisted user message bound to the current candidate.
 - Read the applied files back and preserve a rollback handle.
 - Keep Ontology Lens as the FDE project source of truth; store pointers and judgments rather than copies.
 - Stay silent on healthy checks; notify only on actionable issues or execution failure.
