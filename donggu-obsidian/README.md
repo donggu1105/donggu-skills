@@ -88,7 +88,7 @@ python3 donggu-obsidian/skills/life-os/scripts/life-os.py \
 
 ### Life OS channel and schedule
 
-Bind the qualified skill only. Merge these entries into the existing Discord section; never replace the whole section. Preserve the existing global `require_mention` value (`기존 global `require_mention` 값은 보존`). If `allowed_channels` already exists, add only the Life OS channel; if it is absent, keep it absent.
+Bind the qualified skill only. Merge these entries into the existing Discord section; never replace the whole section. Preserve the existing global `require_mention` value — 기존 global `require_mention` 값은 보존. If `allowed_channels` already exists, add only the Life OS channel; if it is absent, keep it absent.
 
 ```yaml
 discord:
