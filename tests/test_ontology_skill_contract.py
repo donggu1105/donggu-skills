@@ -133,6 +133,17 @@ class OntologySkillContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, corpus)
 
+    def test_public_operator_docs_use_exact_text_gates(self):
+        root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        plugin_readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
+        combined = root_readme + "\n" + plugin_readme
+
+        self.assertIn('exact trigger: "수정안 보여줘"', root_readme)
+        self.assertIn("exact `적용해줘` only in a later persisted user message", plugin_readme)
+        self.assertNotIn("selected captures and approved posts", combined)
+        self.assertNotIn("scoped button", combined)
+        self.assertNotIn("수정안만 보여줘", combined)
+
     def test_plugin_registers_ontology_as_a_native_skill(self):
         init_text = (PLUGIN / "__init__.py").read_text(encoding="utf-8")
         self.assertRegex(

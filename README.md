@@ -90,7 +90,7 @@ claude plugin install donggu-obsidian@donggu-skills
 또는 자연어 트리거:
 - "이 글에서 다시 쓸 CORE가 있는지 보여줘"
 - "FDE 프로젝트 노트 중복을 범위 안에서 점검해줘"
-- "수정안만 보여줘. 아직 적용하지 마"
+- 실행 가능한 preview의 exact trigger: "수정안 보여줘"
 
 ---
 
