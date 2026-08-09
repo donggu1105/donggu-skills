@@ -1,48 +1,48 @@
 # Candidate-scoped mutation
 
-## Preview first
+## Exact preview gate
 
-Every Vault mutation starts with a read-only candidate. Re-read the target and authority files, then show:
+Every mutation starts with a read-only candidate. Re-read the target and authority files, then show:
 
 - one target and one coherent purpose,
-- all files that would change,
+- every file that would change,
 - the exact before/after or 실제 diff,
 - relevant source and destination relationships,
-- and the explicit statement `현재 Vault 변경 0건`.
+- whether the action is native-applicable or **proposal-only**,
+- and `현재 Vault 변경 0건`.
 
-“수정안 보여줘”, “어떻게 바꿀까”, and similar requests authorize preview only.
+Only exact `수정안 보여줘` creates an executable native preview and receipt. Similar wording may request discussion, but it does not authorize native planning.
 
-## Separate approval
+## Exact separate approval
 
-Apply only when the user sends `적용해줘` in a **별도 메시지** after the current candidate preview, or presses the candidate's scoped apply button. Approval is valid for that candidate only.
+Apply only when all of these are true:
 
-Do not accept:
+1. a valid native receipt for the current candidate already exists,
+2. the user sends `적용해줘` in a **별도 메시지**,
+3. it is a later persisted user message exactly equal to `적용해줘`,
+4. the source, authority, and target hashes still match the preview.
 
-- approval from the same message that requested the preview,
-- blanket approval for unrelated candidates,
-- an old approval after the target changed,
-- a quoted or embedded approval phrase,
-- or an internal candidate identifier as user intent.
+Do not accept approval from the preview request, quoted text, an internal ID, old approval, or blanket approval. If anything drifted, mark the receipt stale and require a new exact preview.
 
-If source contents, hashes, authority rules, or target relationships drift, mark the candidate stale and produce a new preview. Never reinterpret approval to fit a changed plan.
+## Supported apply path
 
-## Apply path
+Only a CORE action already supported by the native plan/apply/read-back runtime may apply. Use this order:
 
-For a supported CORE action, use the native plan/apply/read-back transaction tools so file writes, stale checks, journal recovery, and rollback remain deterministic. Keep receipts, hashes, and action enums out of the user-facing response.
+1. verify recovery status is clean,
+2. use the bound native receipt; never invent an envelope or receipt,
+3. call native apply with the exact persisted approval,
+4. call native read-back,
+5. acknowledge only after read-back matches,
+6. report the changed paths and rollback handle.
 
-For a bounded edit not supported by the native action set, use the filesystem patch tool only after the same approval gate. Preserve the exact approved scope; do not add adjacent cleanup.
+Do not expose native receipts, hashes, journal states, or action enums to the user.
 
-## Verification
+## Unsupported scope
 
-After apply:
+FDE Projects, Snippet creation, new-MOC creation, authority files, schema files, and any edit without a dedicated native action are **proposal-only**. Show a diff, but do not apply it and do not call a generic file mutation tool. Explain that a native authority path must be added before execution.
 
-1. read the actual target back,
-2. compare it with the approved result,
-3. verify expected links or metadata,
-4. report the changed paths,
-5. provide the rollback handle or backup location,
-6. report partial or failed state honestly.
+## Failure and recovery
 
-Use the literal term `read-back` in operational records. Tool acceptance is not completion. If recovery is required, prefer rollback over forward replay and do not apply a second mutation until the interrupted one is resolved.
+Tool acceptance is not completion. If recovery is required, prefer rollback over forward replay. Do not open or apply another candidate until the interrupted native transaction is resolved.
 
 Unrelated candidates are never batched. Complete, skip, or revoke the current candidate before opening the next.

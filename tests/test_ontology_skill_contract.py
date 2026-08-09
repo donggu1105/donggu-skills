@@ -81,7 +81,9 @@ class OntologySkillContractTests(unittest.TestCase):
         ):
             self.assertIn(phrase, corpus)
 
-        # One curation loop must cover both selected captures and approved posts.
+        # Inbox selection feeds publication; CORE integration starts only after publication.
+        self.assertIn("Inbox selection is publication input only", corpus)
+        self.assertIn("completed and approved publication only", corpus)
         self.assertRegex(corpus, r"선택.+추출.+통합")
         self.assertIn("기존 CORE", corpus)
         self.assertIn("새 CORE", corpus)
@@ -94,12 +96,17 @@ class OntologySkillContractTests(unittest.TestCase):
         for phrase in (
             "실제 diff",
             "변경 0건",
+            "exact `수정안 보여줘`",
             "별도 메시지",
+            "later persisted user message",
             "적용해줘",
+            "proposal-only",
             "read-back",
             "rollback",
         ):
             self.assertIn(phrase, mutation)
+        self.assertNotIn("button", mutation.lower())
+        self.assertNotIn("filesystem patch", mutation.lower())
 
         maintenance = (ONTOLOGY / "references" / "maintenance.md").read_text(
             encoding="utf-8"

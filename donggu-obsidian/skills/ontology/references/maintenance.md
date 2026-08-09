@@ -24,7 +24,7 @@ Run only when explicitly requested or when a separately approved schedule exists
 
 Duplicate search happens before every new CORE proposal. A broader semantic duplicate review is monthly or on demand, not daily. Start with a named folder, MOC, or theme; expand only when evidence requires it.
 
-For each possible duplicate, explain whether the relationship is identical, overlapping, complementary, or conflicting. Do not auto-merge. Show one merge or link candidate with an actual diff and use the mutation gate.
+For each possible duplicate, explain whether the relationship is identical, overlapping, complementary, or conflicting. Do not auto-merge. Duplicate and merge suggestions are read-only findings unless an existing native CORE action can represent the exact approved change; otherwise they are proposal-only.
 
 ## Failure reporting
 

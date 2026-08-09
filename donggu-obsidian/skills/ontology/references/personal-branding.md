@@ -8,50 +8,62 @@ Preserve this sequence:
 Inbox raw → user selection → completed and approved publication → reverse-decompose → CORE / Snippet / MOC
 ```
 
-Inbox is evidence, not a task queue that the agent may clean automatically. A capture can be examined and proposed, but selection remains a user decision. Reverse decomposition begins only after the post is complete and approved; a draft is not knowledge canon.
+**Inbox selection is publication input only.** Reverse decomposition never starts from the raw capture, selected or not.
 
-## One curation loop
+## Before publication
 
-Use the same **선택 → 추출 → 통합** loop whether the source is a selected Inbox capture or an approved post.
+A selected Inbox note may be developed into a Channel Pack. At this stage:
+
+- identify the audience, question, and evidence,
+- preserve the raw source,
+- draft or revise through the publishing rules,
+- do not search for a CORE destination as a reason to promote the capture,
+- do not connect, strengthen, or create CORE.
+
+Age, note count, folder position, and scores never imply selection.
+
+## After publication
+
+Run **선택 → 추출 → 통합** from a **completed and approved publication only**. A draft, selected capture, or unpublished Channel Pack is not knowledge canon.
 
 ### 1. Select
 
-Name the source note and why it may be reusable. Do not infer selection from age, note count, folder position, or a numerical score.
+Name the approved source publication and why one claim may be reusable.
 
 ### 2. Extract
 
-Extract one clear claim, pattern, or reusable framing. Keep source traceability. Do not copy an entire post into CORE.
+Extract one clear claim, pattern, or reusable framing. Keep source traceability. Do not copy the entire publication into CORE.
 
 ### 3. Integrate
 
 Search 기존 CORE titles and the most relevant bodies first. Then choose one outcome:
 
-- **Connect:** the claim already exists; link the source to the existing CORE.
-- **Strengthen:** the source adds evidence or a sharper boundary to an existing CORE.
+- **Connect:** the claim already exists; propose linking the publication to that CORE.
+- **Strengthen:** the publication adds evidence or a sharper boundary to an existing CORE.
 - **Create:** no adequate existing CORE exists; propose one 새 CORE as an atomic note.
-- **Skip:** the idea is contextual, weak, duplicated, or not reusable yet.
+- **Skip:** the idea is contextual, weak, duplicated, or not reusable.
 
-A new CORE proposal must explain why an existing CORE is insufficient. A duplicate search is therefore part of every integration, not a separate ritual.
+A new CORE proposal must explain why existing CORE is insufficient. Duplicate search is part of every integration, not a separate ritual.
 
 ## Snippet and MOC
 
 - A Snippet is a reusable expression or example, not a second copy of the source.
-- A MOC is a navigation decision. Propose a new MOC only when existing structure cannot carry the relationship.
-- Link to an existing MOC before creating one.
-- Keep the originating note and asset relationships traceable according to the current area schema.
+- A MOC is a navigation decision, not a dumping folder.
+- Prefer an existing MOC relationship before proposing a new MOC.
+- Snippet creation and new-MOC mutation are **proposal-only** until dedicated native authority paths exist.
 
 ## Candidate output
 
 Present one candidate at a time:
 
 ```text
-Source
+Approved source publication
 Reusable idea
 Existing CORE relationship
 Proposed outcome
 Files and actual diff
 No-change statement
-Scoped approval
+Native-applicable or proposal-only
 ```
 
 Do not show internal IDs or machine classifications. If several ideas exist, list short titles first and open only the one the user selects.

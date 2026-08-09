@@ -240,18 +240,19 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             publishing,
         )
 
-    def test_ontology_is_one_curation_loop_for_selected_sources_and_posts(self):
+    def test_ontology_separates_inbox_selection_from_post_publish_curation(self):
         ontology_root = REPO_ROOT / "donggu-obsidian" / "skills" / "ontology"
         corpus = self.skills["ontology"] + "\n" + "\n".join(
             path.read_text(encoding="utf-8")
             for path in sorted((ontology_root / "references").glob("*.md"))
         )
+        self.assertIn("Inbox selection is publication input only", corpus)
+        self.assertIn("completed and approved publication only", corpus)
         self.assertIn("선택 → 추출 → 통합", corpus)
-        self.assertIn("approved post", corpus)
         self.assertIn("기존 CORE", corpus)
         self.assertIn("새 CORE", corpus)
         self.assertIn("CORE / Snippet / MOC", corpus)
-        self.assertIn("age, note count", corpus)
+        self.assertIn("age, note count", corpus.lower())
 
     def test_ontology_preview_is_separate_scoped_and_quiet(self):
         ontology_root = REPO_ROOT / "donggu-obsidian" / "skills" / "ontology"
@@ -262,8 +263,13 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("현재 Vault 변경 0건", mutation)
+        self.assertIn("exact `수정안 보여줘`", mutation)
         self.assertIn("별도 메시지", mutation)
+        self.assertIn("later persisted user message", mutation)
         self.assertIn("적용해줘", mutation)
+        self.assertIn("proposal-only", mutation)
+        self.assertNotIn("button", mutation.lower())
+        self.assertNotIn("filesystem patch", mutation.lower())
         self.assertIn("read-back", mutation)
         self.assertIn("매일 전체 Vault를 스캔하지 않는다", maintenance)
         self.assertIn("정상 결과는 알리지 않는다", maintenance)

@@ -4,7 +4,7 @@ FDE Projects records customer work and reusable delivery learning without turnin
 
 ## Source of truth
 
-The Ontology Lens wiki is authoritative for project facts, current requirements, and shared implementation detail. In the Vault, store only:
+The Ontology Lens wiki is authoritative for project facts, current requirements, and shared implementation detail. In the Vault, propose only:
 
 - a 출처 포인터 (source pointer),
 - the user's judgment,
@@ -16,7 +16,7 @@ Do not copy source pages, meeting transcripts, customer datasets, or long implem
 
 ## Retrieval
 
-Read the nearest project `AGENTS.md` or guide first. When a request needs current project facts, follow the source pointer and inspect the external authority when available; session history is secondary context, not proof of current state.
+Read the nearest project `AGENTS.md` or guide first. When a request needs current facts, follow the source pointer and inspect the external authority when available. Session history is secondary context, not proof of current state.
 
 ## Candidate quality
 
@@ -27,6 +27,8 @@ A proposed FDE note must answer:
 3. How is it different from the source itself?
 4. Does it expose customer names, contacts, credentials, private code names, or unnecessary raw text?
 
-If the value is only a restatement, propose a link rather than a new note. Keep Personal Branding and FDE mutations as separate candidates even when they share a theme.
+If the value is only a restatement, propose a link rather than a new note. Keep Personal Branding and FDE proposals separate even when they share a theme.
 
-All writes use the same preview and approval rules in `mutation.md`.
+## Mutation support
+
+FDE mutation is **proposal-only**. The current native runtime does not authorize FDE paths. Show a candidate and actual diff, but never apply it through a generic file mutation tool. A dedicated native authority path and behavioral tests are required before FDE writes can be enabled.
