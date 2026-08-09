@@ -11,11 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_PATHS = {
     "writing": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "SKILL.md",
     "publishing": REPO_ROOT / "donggu-sns" / "skills" / "publish-sns" / "SKILL.md",
-    "extract_core": REPO_ROOT / "donggu-obsidian" / "skills" / "extract-core" / "SKILL.md",
-    "decompose": REPO_ROOT / "donggu-obsidian" / "skills" / "decompose-canon" / "SKILL.md",
-    "health": REPO_ROOT / "donggu-obsidian" / "skills" / "checking-vault-health" / "SKILL.md",
-    "duplicates": REPO_ROOT / "donggu-obsidian" / "skills" / "finding-duplicate-notes" / "SKILL.md",
-    "approval": REPO_ROOT / "donggu-obsidian" / "skills" / "core-review-approval" / "SKILL.md",
+    "ontology": REPO_ROOT / "donggu-obsidian" / "skills" / "ontology" / "SKILL.md",
 }
 
 WRITING_REFERENCE_PATHS = {
@@ -244,311 +240,33 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             publishing,
         )
 
-    def test_extract_core_is_routine_first(self):
-        extract_core = self.skills["extract_core"]
-
-        self.assertIn("routine", extract_core.lower())
-        self.assertIn("newly published Channel Pack", extract_core)
-        self.assertIn("curated `10_Sources` note", extract_core)
-        self.assertIn("explicit Inbox recommendation-only request", extract_core)
-        for outcome in ("LINK", "NEW", "MERGE", "HOLD"):
-            with self.subTest(outcome=outcome):
-                self.assertIn(outcome, extract_core)
-
-    def test_decompose_is_reserved_for_explicit_canon_selection(self):
-        decompose = self.skills["decompose"]
-
-        self.assertIn("canon", decompose.lower())
-        self.assertIn("explicit canon selection", decompose.lower())
-        self.assertIn("routine", decompose.lower())
-        self.assertIn("extract-core", decompose)
-        self.assertNotIn("weekly journal", decompose.lower())
-        self.assertNotIn("주간 저널", decompose)
-
-    def test_daily_health_reports_even_without_candidates(self):
-        health = self.skills["health"]
-
-        self.assertIn("후보가 없어도", health)
-        report_format = health.split("## Report Format (standard)", 1)[1].split("```", 2)[1]
-        for metric in (
-            "recent Inbox count",
-            "recent published count",
-            "stalled Source count",
-            "return-gap count",
-            "link/schema candidate count",
-        ):
-            with self.subTest(metric=metric):
-                self.assertRegex(report_format, rf"(?m)^- {re.escape(metric)}: [0N]$")
-
-    def test_daily_health_preserves_inbox_boundary(self):
-        health = self.skills["health"]
-
-        self.assertIn("00_Inbox", health)
-        self.assertIn("자동 이동", health)
-        self.assertIn("age/count alone", health)
-        self.assertIn("recommendation-only", health)
-
-    def test_duplicate_full_audit_is_monthly_or_on_demand(self):
-        duplicates = self.skills["duplicates"]
-
-        self.assertIn("monthly", duplicates.lower())
-        self.assertIn("on-demand", duplicates.lower())
-        self.assertIn("daily", duplicates.lower())
-        self.assertIn("threshold signal", duplicates.lower())
-
-    def test_only_core_review_approval_applies_candidates(self):
-        self.assertIn("apply-action.py", self.skills["approval"])
-        for name in ("extract_core", "decompose", "health", "duplicates"):
-            with self.subTest(skill=name):
-                self.assertNotIn("apply-action.py", self.skills[name])
-
-        for name in ("decompose", "health", "duplicates"):
-            text = self.skills[name]
-            self.assertIn("## Candidate handoff — mandatory STOP", text)
-            handoff = text.split("## Candidate handoff — mandatory STOP", 1)[1]
-            next_section = handoff.split("\n## ", 1)[0]
-            for token in (
-                "metadata-only",
-                "candidate_code",
-                "source_note_path",
-                "source_sha256",
-                "candidate_type",
-                "proposed_changes",
-                "CR-YYYYMMDD-NNNNNN",
-                "core-review-approval",
-                "STOP",
-            ):
-                with self.subTest(skill=name, token=token):
-                    self.assertIn(token, next_section)
-
-    def test_audited_candidate_skills_forbid_automatic_vault_mutation(self):
-        required_guards = {
-            "extract_core": ("자동 이동", "승인 전에 적용하지 않는다"),
-            "decompose": ("Vault mutation은 수행하지 않는다", "후보 생성 뒤 종료"),
-            "health": ("Vault mutation을 수행하지 않는다", "후보 생성 뒤 종료"),
-            "duplicates": ("Vault mutation은 수행하지 않는다", "후보 생성 뒤 종료"),
-        }
-        forbidden = (
-            "Create adopted atoms",
-            "Wire bidirectionally",
-            "recommend → STOP → create",
-            "blanket approval covers",
-            "act only on the user's per-item answer",
-            "can be automated once adopted",
-            "move to `99_Archive/`",
-            "vault-wide find-replace",
-            "actions can be automated",
+    def test_ontology_is_one_curation_loop_for_selected_sources_and_posts(self):
+        ontology_root = REPO_ROOT / "donggu-obsidian" / "skills" / "ontology"
+        corpus = self.skills["ontology"] + "\n" + "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((ontology_root / "references").glob("*.md"))
         )
-        approval_term = r"(?:approval|adoption|consent|adopted|user agrees|per-item answer)"
-        mutation_term = r"(?:create|write|rewrite|modify|move|relocate|merge|archive|delete|replace|update|apply|wire|change)"
-        contradictory_instruction = re.compile(
-            rf"(?im)^\s*(?:after|once|upon|with|proceed)[^\n]*(?={approval_term})[^\n]*(?:{mutation_term})[^\n]*$"
-        )
-        for probe in (
-            "After per-item consent, relocate the note and rewrite its status.",
-            "After explicit adoption, archive the duplicate and rewrite all inbound citations.",
-        ):
-            self.assertRegex(probe, contradictory_instruction)
-        for name, guards in required_guards.items():
-            text = self.skills[name]
-            for guard in guards:
-                with self.subTest(skill=name, guard=guard):
-                    self.assertIn(guard, text)
-            if name != "extract_core":
-                self.assertNotRegex(
-                    text,
-                    r"(?im)^##\s+(?:Action Rules(?:\s|\()|Remediation gates(?:\s|:))",
-                )
-                self.assertNotRegex(
-                    text,
-                    r"(?im)^\d+\.\s+\*\*(?:Create|Wire|Apply|Mutate|Remediate)\b",
-                )
-                for phrase in forbidden:
-                    with self.subTest(skill=name, forbidden=phrase):
-                        self.assertNotIn(phrase.lower(), text.lower())
-                self.assertNotRegex(text, contradictory_instruction)
+        self.assertIn("선택 → 추출 → 통합", corpus)
+        self.assertIn("approved post", corpus)
+        self.assertIn("기존 CORE", corpus)
+        self.assertIn("새 CORE", corpus)
+        self.assertIn("CORE / Snippet / MOC", corpus)
+        self.assertIn("age, note count", corpus)
 
-    def test_core_approval_conversation_gate_is_context_first_and_exact(self):
-        approval = self.skills["approval"]
-        gate = approval.split("## Conversation entry gate", 1)[1].split(
-            "## Legacy entry gate", 1
-        )[0]
-
-        self.assertLess(
-            approval.index("## Conversation entry gate"),
-            approval.index("## Legacy entry gate"),
+    def test_ontology_preview_is_separate_scoped_and_quiet(self):
+        ontology_root = REPO_ROOT / "donggu-obsidian" / "skills" / "ontology"
+        mutation = (ontology_root / "references" / "mutation.md").read_text(
+            encoding="utf-8"
         )
-        for command in ("수정안 보여줘", "적용해줘", "넘겨줘", "거절할게"):
-            with self.subTest(command=command):
-                self.assertIn(f"`{command}`", gate)
-        for binding in (
-            "validate-conversation.py",
-            'SKILL_DIR="<absolute directory containing this loaded SKILL.md>"',
-            "1526033497100390641",
-            "736583402244931584",
-            "get_core_review_conversation_by_thread",
-            "exactly 1 row",
-            "one thread = one candidate",
-            "never from message text, nearby prose, memory, or a model guess",
-        ):
-            with self.subTest(binding=binding):
-                self.assertIn(binding, gate)
-        self.assertLess(
-            gate.index("validate-conversation.py"),
-            gate.index("get_core_review_conversation_by_thread"),
+        maintenance = (ontology_root / "references" / "maintenance.md").read_text(
+            encoding="utf-8"
         )
-
-    def test_core_approval_preview_is_native_bound_and_zero_write(self):
-        approval = self.skills["approval"]
-        preview = approval.split("### Preview — `수정안 보여줘`", 1)[1].split(
-            "### Apply — `적용해줘`", 1
-        )[0]
-        ordered = (
-            "`donggu_core_recovery_status(vault_root)`",
-            "`state=no_transaction`",
-            "`donggu_core_plan(vault_root, envelope)`",
-            "handler itself binds the exact plan `session_id` and persisted preview message row",
-            "`render-preview.py`",
-            "`prepare_core_review_preview(...)`",
-            "Discord send",
-            "`complete_core_review_preview_delivery(...)`",
-        )
-        positions = [preview.index(token) for token in ordered]
-        self.assertEqual(sorted(positions), positions)
-        for contract in (
-            "(`fix_link`, `replace`)",
-            "(`link_existing`, `replace`)",
-            "(`new_core`, `create_core_with_backlink`)",
-            "exact 8-key envelope",
-            "receipt_id",
-            "preview_hash",
-            "native absolute `expires_at`",
-            "actual Discord message ID",
-            "`mark_core_review_preview_delivery_ambiguous(...)`",
-            "never resend automatically",
-            "Vault changes: 0",
-        ):
-            with self.subTest(contract=contract):
-                self.assertIn(contract, preview)
-        self.assertNotIn("preview_message_id", preview.split("Discord send", 1)[0])
-
-    def test_core_approval_preview_prepare_unknown_outcome_reads_back_before_deciding(self):
-        approval = self.skills["approval"]
-        preview = approval.split("### Preview — `수정안 보여줘`", 1)[1].split(
-            "### Apply — `적용해줘`", 1
-        )[0]
-        for contract in (
-            "definite zero-row",
-            "exact DB readback",
-            "same receipt ID",
-            "continue from the exact `prepared` row",
-            "mismatch or unknown readback",
-        ):
-            with self.subTest(contract=contract):
-                self.assertIn(contract, preview)
-        self.assertLess(preview.index("definite zero-row"), preview.index("donggu_core_revoke"))
-        self.assertLess(preview.index("exact DB readback"), preview.index("continue from the exact `prepared` row"))
-
-    def test_core_approval_apply_uses_db_claim_complete_nonce_and_ack_order(self):
-        approval = self.skills["approval"]
-        apply = approval.split("### Apply — `적용해줘`", 1)[1].split(
-            "### Hold and reject", 1
-        )[0]
-        ordered = (
-            "`previewed`",
-            "`sent`",
-            "`claim_core_review_conversation_apply(...)`",
-            "`previewed → applying`",
-            "`proposed → processing`",
-            "`donggu_core_apply(receipt_id)`",
-            "`donggu_core_readback(receipt_id)`",
-            "n8n generates one canonical UUID `completion_nonce`",
-            "`complete_core_review_conversation(...)`",
-            "`donggu_core_ack(receipt_id, completion_nonce)`",
-            "`confirm_core_review_native_ack(...)`",
-            "final `donggu_core_receipt_status(receipt_id)`",
-            "`donggu_core_recovery_status(vault_root)`",
-        )
-        positions = [apply.index(token) for token in ordered]
-        self.assertEqual(sorted(positions), positions)
-        for contract in (
-            "source_sha256",
-            "preview_hash",
-            "envelope_hash",
-            "exactly 1 row",
-            "same nonce",
-            "exit 70",
-            "exit 5",
-            "exit 6",
-            "never call apply again",
-            "release",
-            "revoke",
-            "ambiguous",
-        ):
-            with self.subTest(contract=contract):
-                self.assertIn(contract, apply)
-
-    def test_core_approval_recovery_is_executable_and_preserves_ambiguous_states(self):
-        approval = self.skills["approval"]
-        recovery = approval.split("### Recovery — existing transaction", 1)[1].split(
-            "### Apply — `적용해줘`", 1
-        )[0]
-        ordered = (
-            "DB conversation receipt lookup",
-            "`donggu_core_receipt_status(receipt_id)`",
-            "`donggu_core_recover(receipt_id)`",
-            "`release_core_review_conversation(...)`",
-            "`donggu_core_readback(receipt_id)`",
-            "`complete_core_review_conversation(...)`",
-            "`donggu_core_ack(receipt_id, completion_nonce)`",
-            "`confirm_core_review_native_ack(...)`",
-        )
-        positions = [recovery.index(token) for token in ordered]
-        self.assertEqual(sorted(positions), positions)
-        apply = approval.split("### Apply — `적용해줘`", 1)[1].split(
-            "### Hold and reject", 1
-        )[0]
-        self.assertIn("exit 4", apply)
-        self.assertIn("preserve both DB and local `ambiguous`", apply)
-        self.assertIn("never release or revoke", apply)
-        self.assertIn("retry same-nonce `donggu_core_ack` until local receipt is `completed`", apply)
-        self.assertIn("only then retry DB confirm", apply)
-
-    def test_core_approval_trust_terminal_and_legacy_boundaries_are_explicit(self):
-        approval = self.skills["approval"]
-        terminal = approval.split("### Hold and reject", 1)[1].split(
-            "## Legacy entry gate", 1
-        )[0]
-        for contract in (
-            "hold_core_review_conversation(...) only",
-            "reject_core_review_conversation(...) only",
-            "terminal",
-            "Vault changes: 0",
-        ):
-            with self.subTest(contract=contract):
-                self.assertIn(contract, terminal)
-        self.assertIn(
-            "A candidate bound to a conversation thread may never use this legacy path",
-            approval,
-        )
-        for trust_contract in (
-            "deterministic n8n workflow owns DB claim/complete ordering",
-            "native plugin does not independently authenticate DB state",
-            "Direct manual apply/ack tool calls outside the mapped workflow are unsupported",
-        ):
-            with self.subTest(trust_contract=trust_contract):
-                self.assertIn(trust_contract, approval)
-        for removed in (
-            "hmac",
-            "signed capability",
-            "secret manager",
-            "receipt capability",
-        ):
-            with self.subTest(removed=removed):
-                self.assertNotIn(removed, approval.lower())
-        self.assertIn("blanket or multi-candidate approval is forbidden", approval)
-        self.assertIn("Never expose candidate code, receipt_id", approval)
-        self.assertIn("Never mutate Vault files directly", approval)
+        self.assertIn("현재 Vault 변경 0건", mutation)
+        self.assertIn("별도 메시지", mutation)
+        self.assertIn("적용해줘", mutation)
+        self.assertIn("read-back", mutation)
+        self.assertIn("매일 전체 Vault를 스캔하지 않는다", maintenance)
+        self.assertIn("정상 결과는 알리지 않는다", maintenance)
 
     def test_changed_plugin_versions_match_marketplace(self):
         marketplace = json.loads(

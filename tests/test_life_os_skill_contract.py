@@ -253,8 +253,8 @@ class LifeOSSkillContractTests(unittest.TestCase):
     def test_public_docs_cover_installation_configuration_and_counts(self):
         root = ROOT_README.read_text(encoding="utf-8")
         plugin = PLUGIN_README.read_text(encoding="utf-8")
-        self.assertIn("skills-17-green", root)
-        self.assertIn("skills-6-green", plugin)
+        self.assertIn("skills-13-green", root)
+        self.assertIn("skills-2-green", plugin)
         for text in (root, plugin):
             self.assertIn("life-os", text)
             self.assertIn("/donggu-obsidian:life-os", text)
@@ -291,7 +291,7 @@ class LifeOSSkillContractTests(unittest.TestCase):
             plan,
         )
         root = ROOT_README.read_text(encoding="utf-8")
-        self.assertIn("| **donggu-obsidian** | ✅ `v1.9.3`", root)
+        self.assertIn("| **donggu-obsidian** | ✅ `v2.0.0`", root)
 
     def test_public_docs_explain_safe_manual_residual_recovery(self):
         plugin = PLUGIN_README.read_text(encoding="utf-8")

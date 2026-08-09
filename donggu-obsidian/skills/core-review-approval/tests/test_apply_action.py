@@ -768,14 +768,23 @@ class ApplyActionTests(unittest.TestCase):
         self.assertEqual(before, self.snapshot())
         self.assertEqual(foreign, self.source.read_bytes())
 
-    def test_skill_requires_recovery_preflight_before_claim_and_never_guesses_exit5(self):
-        text = (HERE.parent / "SKILL.md").read_text(encoding="utf-8")
-        approval = text[text.index("## Approval procedure"):]
-        self.assertLess(approval.index("--recovery-status"), approval.index("claim_core_review_candidate"))
-        self.assertIn("state=prepared|rolled_back", approval)
-        self.assertIn("state=committed", approval)
-        self.assertIn("--ack-candidate", approval)
-        self.assertIn("stdout이나 현재 메시지 후보로 추측하지 않는다", approval)
+    def test_recovery_is_runtime_owned_and_not_exposed_as_a_user_skill(self):
+        self.assertFalse((HERE.parent / "SKILL.md").exists())
+
+        runtime = (HERE.parents[2] / "runtime" / "core_actions.py").read_text(
+            encoding="utf-8"
+        )
+        helper = SCRIPT.read_text(encoding="utf-8")
+        mutation = (
+            HERE.parents[1] / "ontology" / "references" / "mutation.md"
+        ).read_text(encoding="utf-8")
+
+        for contract in ("recovery_status", "recover", "readback", "ack"):
+            self.assertIn(contract, runtime)
+        self.assertIn("--recovery-status", helper)
+        self.assertIn("--ack-candidate", helper)
+        self.assertIn("native plan/apply/read-back transaction tools", mutation)
+        self.assertNotIn("receipt_id", mutation)
 
     def test_apply_fails_closed_without_renameatx_np(self):
         module = self.load_module()

@@ -4,12 +4,12 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin%20Marketplace-8B5CF6)](https://claude.com/claude-code)
-[![Plugins](https://img.shields.io/badge/plugins-2-blue)](#-plugins)
-[![Skills](https://img.shields.io/badge/skills-17-green)](#-plugins)
+[![Plugins](https://img.shields.io/badge/plugins-5-blue)](#-plugins)
+[![Skills](https://img.shields.io/badge/skills-13-green)](#-plugins)
 
 Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되어 `donggu-<domain>:<skill>` 형식으로 호출.
 
-> **Why this exists**: PKM(Obsidian/LYT/Zettelkasten) vault를 콘텐츠 파이프라인(저널 → CORE → Channel Pack → CASE)으로 운영하면서 정기 의례(주간 추출, 월간 health check, 분기 중복 audit)에 사용하는 도구. broadly applicable하게 작성했지만 atomic note + LYT-Lite 구조 기준.
+> **Why this exists**: 실제 운영 경계를 이해하는 domain-native skill과 runtime을 한 저장소에서 관리한다. Obsidian은 범용 PKM 의례가 아니라 ontology Vault의 Personal Branding, FDE Projects, Life OS 책임을 구분한다.
 
 ---
 
@@ -27,30 +27,16 @@ Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되
 
 ## 🧩 Plugins
 
-### 📚 `donggu-obsidian` — Obsidian PKM vault operations
+### 📚 `donggu-obsidian` — Ontology-aware Vault operations
 
-LYT / PARA / Zettelkasten 스타일 PKM vault 운영 자동화. 매주 추출 의례, 매월 health check, 분기 중복 audit 시 사용.
+사용자-facing 진입점은 두 개입니다. `ontology`가 읽기·큐레이션·제한 점검·후보별 diff를 통합하고, `life-os`는 Daily와 Capture의 native 기록만 담당합니다.
 
-| Skill | 호출 | 용도 | Time budget |
-|---|---|---|---|
-| `checking-vault-health` | `donggu-obsidian:checking-vault-health` | 콘텐츠 파이프라인 4 layer (입구·정제·출구·큐레이션) 점검 | 10-15분 |
-| `core-review-approval` | `donggu-obsidian:core-review-approval` | 검토된 CORE 후보의 대화형 preview/apply | 5-15분 |
-| `decompose-canon` | `donggu-obsidian:decompose-canon` | 명시적으로 선택한 canon을 atomic 후보로 분해 | 15-30분 |
-| `extract-core` | `donggu-obsidian:extract-core` | 빌드 저널 → atomic CORE 승격 의례 | 20-30분 |
-| `finding-duplicate-notes` | `donggu-obsidian:finding-duplicate-notes` | 5 패턴 중복 audit (semantic / naming / absorbed / snippet / source) | 15-20분 |
-| `life-os` | `/donggu-obsidian:life-os` | Daily 대화 체크인, Capture, 첨부 기록 | 5-15분 |
+| Skill | 호출 | 용도 |
+|---|---|---|
+| `ontology` | `donggu-obsidian:ontology` | Personal Branding / FDE Projects / Life OS 라우팅, `선택 → 추출 → 통합`, 후보별 preview와 승인 적용 |
+| `life-os` | `/donggu-obsidian:life-os` | Daily 대화 체크인, Capture, 첨부 기록 |
 
-**Skill chain 권장 흐름**:
-
-```
-checking-vault-health  ──┬──→  finding-duplicate-notes  (absorbed callout 발견 시)
-                         └──→  extract-core             (extracted_to: [] 5+건)
-
-extract-core  ──→  finding-duplicate-notes  (채택 시 기존 CORE 중복 검사)
-              └──→  donggu-docs:make-ppt-slide  (CORE 입력 → 강의 덱 빌드)
-```
-
-각 skill의 `## 관련 Skill` 섹션이 자동 chain 권장.
+CORE 적용의 hash·journal·rollback은 plugin native runtime이 소유하며 별도 prompt skill로 노출하지 않습니다. 전체 Vault daily scan과 정상 상태 알림도 기본 운영에서 제외합니다.
 
 ---
 
@@ -97,14 +83,14 @@ claude plugin install donggu-obsidian@donggu-skills
 ### 3️⃣ 첫 호출
 
 ```
-/donggu-obsidian:checking-vault-health
+/donggu-obsidian:ontology
 /donggu-obsidian:life-os
 ```
 
 또는 자연어 트리거:
-- "내 옵시디언 vault 점검해줘"
-- "이번 주 저널에서 CORE 후보 추출해줘"
-- "중복 노트 찾아줘"
+- "이 글에서 다시 쓸 CORE가 있는지 보여줘"
+- "FDE 프로젝트 노트 중복을 범위 안에서 점검해줘"
+- "수정안만 보여줘. 아직 적용하지 마"
 
 ---
 
@@ -135,15 +121,14 @@ donggu-skills/                       ← marketplace repo
 │   ├── .claude-plugin/
 │   │   └── plugin.json              ← plugin 메타
 │   ├── skills/
-│   │   ├── checking-vault-health/
-│   │   │   └── SKILL.md
-│   │   ├── extract-core/
-│   │   │   └── SKILL.md
-│   │   ├── finding-duplicate-notes/
-│   │   │   └── SKILL.md
+│   │   ├── ontology/
+│   │   │   ├── SKILL.md
+│   │   │   └── references/
+│   │   ├── core-review-approval/    ← internal helper scripts, no SKILL.md
 │   │   └── life-os/
 │   │       ├── SKILL.md
 │   │       └── scripts/life-os.py
+│   ├── runtime/                     ← CORE transaction + Life OS runtime
 │   └── README.md
 ├── donggu-docs/                     ← plugin (namespace: donggu-docs:)
 │   ├── .claude-plugin/
@@ -173,10 +158,10 @@ donggu-skills/                       ← marketplace repo
 | 원칙 | 적용 |
 |---|---|
 | **TDD 기반** | RED (baseline subagent) → GREEN (skill 작성) → REFACTOR (loophole 잠그기) |
-| **Broadly applicable** | 특정 vault convention X. `Vault-Specific Context` 섹션이 다른 PKM 시스템 매핑 안내 |
-| **사용자 결정 게이트** | skill은 후보 추천만. 자동 채택 X. 모든 변경은 사용자 명시 후 |
-| **자기 검수 가능** | `## Common Mistakes`, `## Red Flags` 섹션이 본인 검수 가이드 |
-| **Cross-reference** | `## 관련 Skill` 섹션으로 chain 흐름 명시 |
+| **Authority first** | root `AGENTS.md`와 영역 규칙을 읽고 실제 운영 경계에 맞춤 |
+| **사용자 결정 게이트** | 후보 하나의 실제 diff → 별도 `적용해줘` → read-back |
+| **Progressive disclosure** | umbrella `SKILL.md`는 짧게, 세부 절차는 필요할 때 reference 로드 |
+| **Runtime separation** | 결정적 hash·journal·rollback은 prompt가 아니라 코드와 테스트가 소유 |
 
 ---
 
@@ -184,7 +169,7 @@ donggu-skills/                       ← marketplace repo
 
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
-| **donggu-obsidian** | ✅ `v1.9.3` | 6 | Obsidian PKM vault operations and Life OS check-ins |
+| **donggu-obsidian** | ✅ `v2.0.0` | 2 | Ontology-aware Vault operations and Life OS check-ins |
 | **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |

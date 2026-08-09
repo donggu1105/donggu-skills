@@ -84,13 +84,18 @@ class LifeOSPluginTests(unittest.TestCase):
         self._default_modules.start()
         self.addCleanup(self._default_modules.stop)
 
-    def test_register_exposes_exact_life_os_plugin_skill(self):
+    def test_register_exposes_exact_user_facing_plugin_skills(self):
         context = FakeContext()
 
         self.package.register(context)
 
-        self.assertEqual(["life-os"], [item["name"] for item in context.skills])
-        registration = context.skills[0]
+        self.assertEqual(
+            ["ontology", "life-os"],
+            [item["name"] for item in context.skills],
+        )
+        registration = next(
+            item for item in context.skills if item["name"] == "life-os"
+        )
         skill_path = ROOT / "donggu-obsidian" / "skills" / "life-os" / "SKILL.md"
         self.assertEqual(skill_path, Path(registration["path"]))
         self.assertTrue(skill_path.is_file())
