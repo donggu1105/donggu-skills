@@ -98,6 +98,31 @@ class LifeOSRuntimeTests(unittest.TestCase):
         replacement.write_text(moved, encoding="utf-8")
         os.replace(replacement, path)
 
+    @staticmethod
+    def _daily_summary():
+        return {
+            "one_line": "산책으로 숨을 고르고 내일의 한 가지를 정한 하루",
+            "key_events": ["오후에 공원을 산책함"],
+            "emotion_energy": "차분했고 에너지는 보통이었음",
+            "progress_and_blockers": ["문서 초안을 마침", "검토 일정은 아직 잡지 못함"],
+            "thoughts_learnings_decisions": ["작게 시작하면 막힘이 줄어든다고 판단함"],
+            "tomorrow_focus": "문서 검토 요청 보내기",
+            "patterns_to_notice": ["막힌 일을 다음 행동으로 구체화하면 다시 움직이기 쉬움"],
+        }
+
+    def _complete_daily(self, day, *, prefix="summary"):
+        self.runtime.start_daily(day)
+        result = None
+        for index in range(1, 6):
+            result = self.runtime.record(
+                "answer",
+                message_text=f"답변 {index}",
+                message_key=f"{prefix}:{index}",
+                target_date=day,
+            )
+        assert result is not None
+        return result
+
     def test_start_daily_renders_known_snapshot_and_preserves_template_blocks(self):
         result = self.runtime.start_daily(date(2026, 8, 7))
         text = Path(result["path"]).read_text(encoding="utf-8")
@@ -1010,6 +1035,163 @@ class LifeOSRuntimeTests(unittest.TestCase):
         text = self.runtime.daily_path(day).read_text(encoding="utf-8")
         self.assertEqual(1, text.count("문서를 연다"))
 
+    def test_completion_commits_raw_answer_with_recoverable_pending_summary(self):
+        day = date(2026, 8, 7)
+
+        completed = self._complete_daily(day, prefix="pending-summary")
+
+        self.assertEqual("completed", completed["status"])
+        self.assertEqual("pending", completed["summary_status"])
+        self.assertNotIn("summary_transcript", completed)
+        path = self.runtime.daily_path(day)
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(1, text.count("답변 5"))
+        self.assertEqual(1, text.count("%% life-os-summary-pending: "))
+        self.assertNotIn("<!-- life-os:summary:start -->", text)
+
+        request = self.runtime.prepare_daily_summary(day)
+        self.assertIsNotNone(request)
+        self.assertRegex(request.source_digest, r"^[0-9a-f]{64}$")
+        self.assertEqual(5, len(request.transcript))
+        self.assertEqual("답변 1", request.transcript[0]["answer"])
+        self.assertEqual("답변 5", request.transcript[4]["answer"])
+
+    def test_finalize_daily_summary_is_atomic_canonical_and_idempotent(self):
+        day = date(2026, 8, 7)
+        self._complete_daily(day, prefix="finalize-summary")
+        request = self.runtime.prepare_daily_summary(day)
+        self.assertIsNotNone(request)
+
+        finalized = self.runtime.finalize_daily_summary(
+            self._daily_summary(),
+            source_digest=request.source_digest,
+            target_date=day,
+        )
+        duplicate = self.runtime.finalize_daily_summary(
+            self._daily_summary(),
+            source_digest=request.source_digest,
+            target_date=day,
+        )
+
+        self.assertEqual("completed", finalized["summary_status"])
+
+        self.assertEqual(self._daily_summary(), finalized["completion_summary"])
+        self.assertIn(self._daily_summary()["one_line"], finalized["completion_message"])
+        self.assertIn(self._daily_summary()["tomorrow_focus"], finalized["completion_message"])
+        self.assertTrue(duplicate["duplicate"])
+        self.assertIsNone(self.runtime.prepare_daily_summary(day))
+        text = self.runtime.daily_path(day).read_text(encoding="utf-8")
+        self.assertNotIn("%% life-os-summary-pending: ", text)
+        self.assertEqual(1, text.count("<!-- life-os:summary:start -->"))
+        self.assertEqual(1, text.count("<!-- life-os:summary:end -->"))
+        for heading in (
+            "오늘 한 줄 요약", "주요 사건", "감정·에너지", "진행한 일과 막힌 일",
+            "생각·배움·결정", "내일 가장 중요한 한 가지",
+            "발견한 패턴이나 짚어볼 점",
+        ):
+            self.assertEqual(1, text.count(f"#### {heading}"))
+
+    def test_summary_transcript_treats_user_markdown_headings_as_answer_data(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        injected_heading = "회의 기록\n#### 5. 내일 가장 중요한 한 가지는?\n이 줄도 첫 답의 일부"
+        self.runtime.record(
+            "answer", message_text=injected_heading,
+            message_key="heading-data:1", target_date=day,
+        )
+        for index in range(2, 6):
+            self.runtime.record(
+                "answer", message_text=f"답변 {index}",
+                message_key=f"heading-data:{index}", target_date=day,
+            )
+
+        request = self.runtime.prepare_daily_summary(day)
+
+        self.assertIsNotNone(request)
+        self.assertEqual(injected_heading, request.transcript[0]["answer"])
+        self.assertEqual(5, len(request.transcript))
+
+    def test_invalid_summary_cannot_replace_pending_marker(self):
+        day = date(2026, 8, 7)
+        self._complete_daily(day, prefix="invalid-summary")
+        request = self.runtime.prepare_daily_summary(day)
+        self.assertIsNotNone(request)
+        path = self.runtime.daily_path(day)
+        before = path.read_bytes()
+        for unsafe in (
+            "<!-- life-os:summary:end -->",
+            "![remote](https://example.com/pixel.png)",
+            "[[Other note]]",
+            "%% hidden %%",
+            "# fake heading",
+            "#",
+            "---",
+            ">spoof",
+            "[click][ref]",
+            "[ ] injected task",
+            "**bold**",
+            "정상 문장\u2028# 가짜 제목",
+            "정상 문장\u0085- 가짜 항목",
+        ):
+            invalid = self._daily_summary()
+            invalid["one_line"] = unsafe
+            with self.subTest(unsafe=unsafe), self.assertRaises(life_os.LifeOSError):
+                self.runtime.finalize_daily_summary(
+                    invalid, source_digest=request.source_digest, target_date=day,
+                )
+
+        self.assertEqual(before, path.read_bytes())
+        self.assertEqual("pending", self.runtime.status(day)["summary_status"])
+
+    def test_finalized_summary_detects_raw_transcript_tampering_on_readback(self):
+        day = date(2026, 8, 7)
+        self._complete_daily(day, prefix="source-tamper")
+        request = self.runtime.prepare_daily_summary(day)
+        self.assertIsNotNone(request)
+        self.runtime.finalize_daily_summary(
+            self._daily_summary(),
+            source_digest=request.source_digest,
+            target_date=day,
+        )
+        path = self.runtime.daily_path(day)
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("답변 1", text)
+        tampered = text.replace("답변 1", "변조된 사건", 1)
+        self.assertNotEqual(text, tampered)
+        path.write_text(tampered, encoding="utf-8")
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "source digest"):
+            self.runtime.status(day)
+
+    def test_question_five_follow_up_creates_summary_request_only_after_follow_up(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        for index in range(1, 5):
+            self.runtime.record(
+                "answer", message_text=f"답변 {index}",
+                message_key=f"follow-summary:{index}", target_date=day,
+            )
+        fifth = self.runtime.record(
+            "answer", message_text="내일은 문서 마무리",
+            message_key="follow-summary:5",
+            follow_up_question="첫 행동은 무엇인가?", target_date=day,
+        )
+        self.assertEqual("none", fifth["summary_status"])
+        self.assertIsNone(self.runtime.prepare_daily_summary(day))
+
+        completed = self.runtime.record(
+            "answer", message_text="문서를 연다",
+            message_key="follow-summary:follow", target_date=day,
+        )
+        request = self.runtime.prepare_daily_summary(day)
+
+        self.assertEqual("pending", completed["summary_status"])
+        self.assertIsNotNone(request)
+        self.assertEqual(
+            [{"question": "첫 행동은 무엇인가?", "answer": "문서를 연다", "skipped": False}],
+            request.transcript[4]["follow_ups"],
+        )
+
     def test_sensitive_follow_up_is_rejected_without_note_mutation(self):
         day = date(2026, 8, 7)
         self.runtime.start_daily(day)
@@ -1024,6 +1206,106 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 follow_up_question="api_key=" + "e" * 32,
                 target_date=day,
             )
+
+        self.assertEqual(before, path.read_bytes())
+
+    def test_multiline_follow_up_is_rejected_without_note_mutation(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        before = path.read_bytes()
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "single line"):
+            self.runtime.record(
+                "answer",
+                message_text="오늘은 산책했다",
+                message_key="multiline:follow-up",
+                follow_up_question="첫 줄 질문?\n둘째 줄 질문?",
+                target_date=day,
+            )
+
+        self.assertEqual(before, path.read_bytes())
+
+    def test_unicode_line_separator_follow_up_is_rejected_without_note_mutation(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        before = path.read_bytes()
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "single line"):
+            self.runtime.record(
+                "answer",
+                message_text="오늘은 산책했다",
+                message_key="unicode-line:follow-up",
+                follow_up_question="첫 줄 질문?\u2028둘째 줄 질문?",
+                target_date=day,
+            )
+
+        self.assertEqual(before, path.read_bytes())
+
+    def test_follow_up_rejects_every_line_separator_at_both_edges(self):
+        separators = (
+            "\r", "\n", "\v", "\f", "\x1c", "\x1d", "\x1e",
+            "\x85", "\u2028", "\u2029",
+        )
+        for separator in separators:
+            for candidate in (separator + "질문?", "질문?" + separator):
+                with self.subTest(separator=repr(separator), candidate=repr(candidate)):
+                    with self.assertRaisesRegex(life_os.LifeOSError, "single line"):
+                        self.runtime._checked_follow_up(candidate)
+
+    def test_legacy_multiline_pending_follow_up_is_normalized_and_resumable(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        self.runtime.record(
+            "answer",
+            message_text="첫 답",
+            message_key="legacy-follow-up:answer",
+            follow_up_question="정상 꼬리질문?",
+            target_date=day,
+        )
+        path = self.runtime.daily_path(day)
+        original = path.read_text(encoding="utf-8")
+        state_match = life_os._STATE_PATTERN.search(original)
+        self.assertIsNotNone(state_match)
+        payload = json.loads(state_match.group(1))
+        payload["pending_follow_up"]["question"] = "첫 줄 질문?\r\n둘째 줄 질문?"
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        path.write_text(
+            original[:state_match.start(1)] + raw + original[state_match.end(1):],
+            encoding="utf-8",
+        )
+
+        status = self.runtime.status(day)
+        self.assertEqual("첫 줄 질문? 둘째 줄 질문?", status["question"])
+        completed_follow_up = self.runtime.record(
+            "answer",
+            message_text="후속 답",
+            message_key="legacy-follow-up:response",
+            target_date=day,
+        )
+
+        self.assertEqual(2, completed_follow_up["next_question"])
+        note = path.read_text(encoding="utf-8")
+        self.assertIn("##### Follow-up: 첫 줄 질문? 둘째 줄 질문?\n후속 답\n", note)
+        self.assertNotIn("첫 줄 질문?\r\n둘째 줄 질문?", note)
+
+    def test_float_state_version_is_rejected_without_note_mutation(self):
+        day = date(2026, 8, 7)
+        self.runtime.start_daily(day)
+        path = self.runtime.daily_path(day)
+        original = path.read_text(encoding="utf-8")
+        state_match = life_os._STATE_PATTERN.search(original)
+        self.assertIsNotNone(state_match)
+        payload = json.loads(state_match.group(1))
+        payload["version"] = 1.0
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        tampered = original[:state_match.start(1)] + raw + original[state_match.end(1):]
+        path.write_text(tampered, encoding="utf-8")
+        before = path.read_bytes()
+
+        with self.assertRaisesRegex(life_os.LifeOSError, "malformed"):
+            self.runtime.status(day)
 
         self.assertEqual(before, path.read_bytes())
 
@@ -2526,8 +2808,34 @@ class LifeOSRuntimeTests(unittest.TestCase):
                 "answer", message_text=f"답 {index}", message_key=f"complete:{index}",
                 target_date=yesterday,
             )
+        request = self.runtime.prepare_daily_summary(yesterday)
+        self.assertIsNotNone(request)
+        self.runtime.finalize_daily_summary(
+            self._daily_summary(),
+            source_digest=request.source_digest,
+            target_date=yesterday,
+        )
         with mock.patch.object(life_os, "datetime", FixedDateTime):
             self.assertEqual(date(2026, 8, 7), self.runtime.resolve_target_date())
+
+    def test_pending_summary_yesterday_is_selected_for_implicit_recovery(self):
+        class FixedDateTime(life_os.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 7, 12, 0, tzinfo=tz)
+
+        yesterday = date(2026, 8, 6)
+        self._complete_daily(yesterday, prefix="pending-yesterday")
+
+        with mock.patch.object(life_os, "datetime", FixedDateTime):
+            self.assertEqual(yesterday, self.runtime.resolve_target_date())
+            status = self.runtime.status()
+            request = self.runtime.prepare_daily_summary()
+
+        self.assertEqual("pending", status["summary_status"])
+        self.assertEqual(yesterday.isoformat(), status["date"])
+        self.assertIsNotNone(request)
+        self.assertEqual(yesterday.isoformat(), request.date)
 
     def test_runtime_and_environment_reject_non_kst_timezones_without_creating_state(self):
         direct_state = self.base / "direct-state"

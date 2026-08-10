@@ -34,7 +34,7 @@ Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되
 | Skill | 호출 | 용도 |
 |---|---|---|
 | `ontology` | `donggu-obsidian:ontology` | Personal Branding / FDE Projects / Life OS 라우팅, `선택 → 추출 → 통합`, 후보별 preview와 승인 적용 |
-| `life-os` | `/donggu-obsidian:life-os` | Daily 대화 체크인, Capture, 첨부 기록 |
+| `life-os` | `/donggu-obsidian:life-os` | Daily 대화 체크인, Capture, 첨부 기록, 구조화된 AI 정리 |
 
 CORE 적용의 hash·journal·rollback은 plugin native runtime이 소유하며 별도 prompt skill로 노출하지 않습니다. 전체 Vault daily scan과 정상 상태 알림도 기본 운영에서 제외합니다.
 
@@ -169,7 +169,7 @@ donggu-skills/                       ← marketplace repo
 
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
-| **donggu-obsidian** | ✅ `v2.0.0` | 2 | Ontology-aware Vault operations and Life OS check-ins |
+| **donggu-obsidian** | ✅ `v2.1.0` | 2 | Ontology-aware Vault operations and recoverable Life OS AI summaries |
 | **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |

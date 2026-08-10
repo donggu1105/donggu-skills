@@ -225,7 +225,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-obsidian", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("2.0.0", claude["version"])
+        self.assertEqual("2.1.0", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_obsidian_latest_user_lookup_reads_past_first_fifty_messages(self):
@@ -313,6 +313,7 @@ class NativePluginPackageTests(unittest.TestCase):
                 "donggu_life_os_status",
                 "donggu_life_os_start_daily",
                 "donggu_life_os_record",
+                "donggu_life_os_finalize_daily",
             ],
             [item["name"] for item in ctx.tools],
         )
@@ -336,7 +337,7 @@ class NativePluginPackageTests(unittest.TestCase):
             (ROOT / "donggu-obsidian" / "plugin.yaml").read_text(encoding="utf-8"),
         )
         self.assertEqual([item["name"] for item in ctx.tools], manifest_tools)
-        self.assertEqual(11, len(manifest_tools))
+        self.assertEqual(12, len(manifest_tools))
 
     def test_registered_obsidian_apply_reads_latest_natural_text_and_reaches_real_helper_once(self):
         module_name = "donggu_obsidian_registered_apply_test"

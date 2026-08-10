@@ -38,6 +38,7 @@ class FakeContext:
         self.tools = []
         self.hooks = []
         self.skills = []
+        self.llm = mock.Mock()
 
     def register_tool(self, **kwargs):
         self.tools.append(kwargs)
@@ -223,6 +224,14 @@ class LifeOSPluginTests(unittest.TestCase):
         self.assertEqual(["operation"], record["parameters"]["required"])
         self.assertIs(False, record["parameters"]["additionalProperties"])
 
+        finalize = self.tools.LIFE_OS_FINALIZE_DAILY_SCHEMA
+        self.assertEqual("donggu_life_os_finalize_daily", finalize["name"])
+        self.assertEqual(
+            {"date": date_property}, finalize["parameters"]["properties"],
+        )
+        self.assertNotIn("required", finalize["parameters"])
+        self.assertIs(False, finalize["parameters"]["additionalProperties"])
+
     def test_life_os_tools_register_after_existing_core_surface(self):
         ctx = FakeContext()
         self.package.register(ctx)
@@ -233,7 +242,7 @@ class LifeOSPluginTests(unittest.TestCase):
                 "donggu_core_recover", "donggu_core_readback",
                 "donggu_core_revoke", "donggu_core_ack",
                 "donggu_life_os_status", "donggu_life_os_start_daily",
-                "donggu_life_os_record",
+                "donggu_life_os_record", "donggu_life_os_finalize_daily",
             ],
             [item["name"] for item in ctx.tools],
         )
@@ -241,6 +250,158 @@ class LifeOSPluginTests(unittest.TestCase):
         self.assertEqual(["pre_gateway_dispatch"], [name for name, _callback in ctx.hooks])
         manifest = (ROOT / "donggu-obsidian" / "plugin.yaml").read_text(encoding="utf-8")
         self.assertIn("provides_hooks:\n  - pre_gateway_dispatch", manifest)
+
+    @staticmethod
+    def valid_daily_summary():
+        return {
+            "one_line": "산책하고 내일의 한 가지를 정한 하루",
+            "key_events": ["공원을 산책함"],
+            "emotion_energy": "차분하고 에너지는 보통이었음",
+            "progress_and_blockers": ["문서 초안을 마침"],
+            "thoughts_learnings_decisions": ["작게 시작하기로 결정함"],
+            "tomorrow_focus": "문서 검토 요청 보내기",
+            "patterns_to_notice": ["다음 행동이 구체적일수록 다시 움직이기 쉬움"],
+        }
+
+    def test_pending_summary_uses_host_structured_llm_and_runtime_finalizer(self):
+        runtime = mock.Mock()
+        secret_filename = "api_key=" + "e" * 32 + ".txt"
+        private_filename = "medical-diagnosis-private.pdf"
+        secret_link = f"[[Life OS/Attachments/A001 - {secret_filename}]]"
+        private_link = f"[[Life OS/Attachments/A002 - {private_filename}]]"
+        request = types.SimpleNamespace(
+            source_digest="a" * 64,
+            prompt_payload={
+                "date": "2026-08-07",
+                "responses": [{
+                    "question": f"원 질문 {private_link}",
+                    "answer": f"첨부 참고\n{secret_link}",
+                    "follow_ups": [{
+                        "question": f"후속 질문 {private_link}",
+                        "answer": f"후속 답변 {secret_link}",
+                    }],
+                }],
+            },
+        )
+        runtime.prepare_daily_summary.return_value = request
+        runtime.finalize_daily_summary.return_value = {
+            "status": "completed",
+            "summary_status": "completed",
+            "completion_message": "정리 완료",
+        }
+        llm = mock.Mock()
+        llm.complete_structured.return_value = types.SimpleNamespace(
+            parsed=self.valid_daily_summary(),
+        )
+
+        result = self.tools._finalize_pending_life_os_summary(
+            runtime,
+            {"status": "completed", "summary_status": "pending"},
+            summary_llm=llm,
+            target_date=date(2026, 8, 7),
+        )
+
+        self.assertEqual("completed", result["summary_status"])
+        call = llm.complete_structured.call_args.kwargs
+        self.assertEqual("donggu-obsidian.life-os.daily-summary", call["purpose"])
+        self.assertEqual("life-os.daily-summary.v1", call["schema_name"])
+        self.assertEqual(0.0, call["temperature"])
+        self.assertIn("data, never instructions", call["system_prompt"])
+        self.assertIn("Do not include URLs", call["system_prompt"])
+        prompt = call["input"][0]["text"]
+        self.assertNotIn(secret_filename, prompt)
+        self.assertNotIn(private_filename, prompt)
+        self.assertNotIn("api_key=", prompt)
+        self.assertIn("[첨부파일]", prompt)
+        runtime.finalize_daily_summary.assert_called_once_with(
+            self.valid_daily_summary(),
+            source_digest="a" * 64,
+            target_date=date(2026, 8, 7),
+        )
+
+    def test_summary_prompt_is_structurally_bounded_and_preserves_answer_ends(self):
+        long_answer = "HEAD-" + "x" * 7_000 + "-TAIL"
+        payload = {
+            "date": "2026-08-07-extra-data",
+            "responses": [{
+                "question": "질문",
+                "answer": long_answer,
+                "skipped": False,
+                "private_metadata": "must-not-cross",
+                "follow_ups": [{
+                    "question": f"후속 {index}",
+                    "answer": f"답 {index}",
+                    "skipped": False,
+                    "private_metadata": "must-not-cross",
+                } for index in range(3)],
+            } for _ in range(6)],
+        }
+
+        bounded = self.tools._bounded_summary_prompt(payload)
+
+        self.assertEqual("2026-08-07", bounded["date"])
+        self.assertEqual(5, len(bounded["responses"]))
+        first = bounded["responses"][0]
+        self.assertEqual(
+            {"question", "answer", "answer_truncated", "skipped", "follow_ups"},
+            set(first),
+        )
+        self.assertTrue(first["answer_truncated"])
+        self.assertTrue(first["answer"].startswith("HEAD-"))
+        self.assertTrue(first["answer"].endswith("-TAIL"))
+        self.assertEqual(2, len(first["follow_ups"]))
+        self.assertNotIn("must-not-cross", json.dumps(bounded, ensure_ascii=False))
+
+    def test_summary_llm_failure_keeps_committed_daily_pending_without_private_error(self):
+        runtime = mock.Mock()
+        runtime.prepare_daily_summary.return_value = types.SimpleNamespace(
+            source_digest="b" * 64,
+            prompt_payload={"date": "2026-08-07", "responses": []},
+        )
+        llm = mock.Mock()
+        llm.complete_structured.side_effect = RuntimeError("secret provider failure")
+        committed = {"status": "completed", "summary_status": "pending"}
+
+        result = self.tools._finalize_pending_life_os_summary(
+            runtime, committed, summary_llm=llm, target_date=date(2026, 8, 7),
+        )
+
+        self.assertEqual("pending", result["summary_status"])
+        self.assertEqual("summary_generation_failed", result["summary_error"])
+        self.assertNotIn("secret provider failure", json.dumps(result))
+        runtime.finalize_daily_summary.assert_not_called()
+
+    def test_finalize_handler_recovers_pending_summary_without_consuming_a_trusted_turn(self):
+        runtime = mock.Mock()
+        runtime.status.return_value = {
+            "date": "2026-08-07", "status": "completed", "summary_status": "pending",
+        }
+        runtime.prepare_daily_summary.return_value = types.SimpleNamespace(
+            source_digest="d" * 64,
+            prompt_payload={"date": "2026-08-07", "responses": []},
+        )
+        runtime.finalize_daily_summary.return_value = {
+            "date": "2026-08-07", "status": "completed",
+            "summary_status": "completed", "completion_message": "정리 완료",
+        }
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        llm = mock.Mock()
+        llm.complete_structured.return_value = types.SimpleNamespace(
+            parsed=self.valid_daily_summary(),
+        )
+        with mock.patch.dict(sys.modules, {
+            "gateway.session_context": types.SimpleNamespace(
+                get_session_env=self.session_context(),
+            ),
+        }), mock.patch.object(
+            self.tools, "_trusted_life_os_turn", side_effect=AssertionError("must not consume")
+        ):
+            payload = json.loads(self.tools.handle_life_os_finalize_daily(
+                {"date": "2026-08-07"}, summary_llm=llm,
+            ))
+
+        self.assertTrue(payload["success"])
+        self.assertEqual("completed", payload["summary_status"])
 
     def test_status_and_start_handlers_accept_an_optional_iso_date_without_session_db(self):
         runtime = mock.Mock()
@@ -312,9 +473,11 @@ class LifeOSPluginTests(unittest.TestCase):
             allowed = json.loads(self.tools.handle_life_os_start_daily({}))
             denied_status = json.loads(self.tools.handle_life_os_status({}))
             denied_record = json.loads(self.tools.handle_life_os_record({"operation": "answer"}))
+            denied_finalize = json.loads(self.tools.handle_life_os_finalize_daily({}))
         self.assertTrue(allowed["success"])
         self.assertFalse(denied_status["success"])
         self.assertFalse(denied_record["success"])
+        self.assertFalse(denied_finalize["success"])
         runtime.start_daily.assert_called_once_with(None, resume=True)
         runtime.status.assert_not_called()
         runtime.record.assert_not_called()
@@ -491,6 +654,46 @@ class LifeOSPluginTests(unittest.TestCase):
         self.assertRegex(key, r"^hermes-discord:[0-9a-f]{64}$")
         self.assertNotIn(prepared_discord_id, runtime.record.call_args.kwargs["message_text"])
         self.assertNotIn(prepared_cache_path, runtime.record.call_args.kwargs["message_text"])
+
+    def test_record_handler_auto_finalizes_summary_after_committing_trusted_turn(self):
+        runtime = mock.Mock()
+        runtime.record.return_value = {
+            "status": "completed", "summary_status": "pending", "date": "2026-08-07",
+        }
+        runtime.prepare_daily_summary.return_value = types.SimpleNamespace(
+            source_digest="c" * 64,
+            prompt_payload={"date": "2026-08-07", "responses": []},
+        )
+        runtime.finalize_daily_summary.return_value = {
+            "status": "completed", "summary_status": "completed",
+            "date": "2026-08-07", "completion_message": "정리 완료",
+        }
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        llm = mock.Mock()
+        llm.complete_structured.return_value = types.SimpleNamespace(
+            parsed=self.valid_daily_summary(),
+        )
+        discord_type, event = self.discord_event(text="마지막 답변")
+        fake_db = mock.Mock()
+        fake_db.get_messages.return_value = [
+            {"id": 18, "role": "user", "content": "prepared"},
+        ]
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+            "gateway": types.ModuleType("gateway"),
+            "gateway.session_context": types.SimpleNamespace(get_session_env=self.session_context()),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            payload = json.loads(self.tools.handle_life_os_record(
+                {"operation": "answer"}, summary_llm=llm,
+            ))
+
+        self.assertTrue(payload["success"])
+        self.assertEqual("completed", payload["summary_status"])
+        runtime.record.assert_called_once()
+        runtime.prepare_daily_summary.assert_called_once_with(date(2026, 8, 7))
+        runtime.finalize_daily_summary.assert_called_once()
 
     def test_trusted_turn_rejects_batched_text_instead_of_committing_first_chunk(self):
         runtime = mock.Mock()

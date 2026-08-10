@@ -9,7 +9,9 @@ Provide one public `life-os` skill in `donggu-obsidian` whose primary runtime is
 Hermes Agent. A dedicated Discord text channel starts a five-question Daily
 check-in at 22:00 Asia/Seoul, records every answer immediately in the current
 Obsidian Daily note, resumes from durable note state after interruptions, and
-archives Discord attachments as real Vault files.
+archives Discord attachments as real Vault files. After the trusted final
+answer is durable, a host-owned structured LLM call adds a recoverable,
+schema-validated Korean Daily summary without rewriting the raw answers.
 
 Claude Code and Codex consume the same skill prose as secondary, manually
 invoked clients. Hermes owns the unattended cron and real-time Discord path.
@@ -36,9 +38,11 @@ both recover the same workflow state from the Vault.
 ### In scope
 
 - One `life-os` skill under `donggu-obsidian/skills/life-os/`.
-- A deterministic native Hermes runtime and three Life OS tools.
+- A deterministic native Hermes runtime and four Life OS tools.
 - Daily start, answer, skip, pause, resume, completion, and free Daily record.
 - Daily Capture append for “일단 기록해줘”.
+- A seven-field AI Daily summary with a durable pending receipt and explicit
+  finalize retry.
 - Discord attachment ingestion into a flat `Life OS/Attachments/` directory.
 - Idempotent Discord channel bootstrap and a daily Hermes cron job.
 - Hermes channel binding, prompt, allowlist, gateway restart, and smoke checks.
@@ -75,10 +79,14 @@ donggu-obsidian/
 - intent routing;
 - the five core questions and at most two follow-up questions per check-in;
 - selection of the native tool operation;
-- user-facing next-question and completion messages;
+- user-facing next-question selection;
 - direct Markdown fallback rules for Claude Code and Codex.
 
 `runtime/life_os.py` owns deterministic behavior:
+
+- raw-answer-first completion and the pending-summary receipt;
+- canonical summary validation, rendering, digest verification, and atomic
+  finalization;
 
 - configured Vault resolution and path validation;
 - KST date and period resolution;
@@ -168,7 +176,7 @@ hook and native handlers require the exact configured
 `donggu-obsidian:life-os` Discord
 channel binding and an exact match with Hermes session context. Cron may call only
 `donggu_life_os_start_daily` when its Discord auto-delivery target is that
-channel; status and record are forbidden from cron. The record handler uses
+channel; status, record, and finalize are forbidden from cron. The record handler uses
 `SessionDB` only to identify the persisted user row ID; persisted prepared
 content, model-supplied answer text, and model-supplied Discord IDs are not
 trusted. The session, row, platform, and source identities form the durable
@@ -180,7 +188,21 @@ regular, non-symlink files beneath the active Hermes image, audio, or document
 cache roots.
 
 The tool returns the committed path, new state, and either the next question
-or a completion message. Tool failure never advances the question.
+or summary status. On the final trusted turn, it commits the raw answer first,
+then uses `ctx.llm.complete_structured()` to produce exactly seven grounded
+summary fields. Model output is untrusted: JSON Schema and runtime checks reject
+reserved markers, multiline structure, links, remote embeds, HTML, hidden
+comments, sensitive values, and non-canonical fields. A successful second
+exchange returns the canonical `completion_message`. Model failure leaves the
+raw answer committed with `summary_status: pending`.
+
+### `donggu_life_os_finalize_daily`
+
+Retries one pending summary from the exact configured live channel without
+consuming the current trusted user turn. It reconstructs summary material from
+the native-owned Daily block, verifies the source digest, calls the host-owned
+structured LLM once, and atomically replaces the pending receipt. Replays with
+the same digest and summary are idempotent. Cron cannot call this tool.
 
 ## User interaction
 

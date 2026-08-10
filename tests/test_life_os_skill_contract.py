@@ -55,10 +55,18 @@ class LifeOSSkillContractTests(unittest.TestCase):
             "donggu_life_os_status",
             "donggu_life_os_start_daily",
             "donggu_life_os_record",
+            "donggu_life_os_finalize_daily",
         ):
             self.assertIn(tool, text)
         self.assertIn("Hermes cache path", text)
         self.assertIn("최대 2개", text)
+        for contract in (
+            "commit the trusted answer before AI summary generation",
+            "pending summary",
+            "Return the tool's `completion_message` verbatim",
+            "never invent omitted facts",
+        ):
+            self.assertIn(contract, text)
 
     def test_skill_is_imperative_and_encodes_exact_hermes_recipe(self):
         text = SKILL.read_text(encoding="utf-8")
@@ -77,8 +85,10 @@ class LifeOSSkillContractTests(unittest.TestCase):
             "1. Call `donggu_life_os_status` before interpreting a normal channel message.\n"
             "2. Start only on an explicit start command or the scheduled start prompt.\n"
             "3. During an active check-in, call `donggu_life_os_record` once for the trusted latest turn.\n"
-            "4. Return only the tool's next question or completion summary.\n"
-            "5. Never use generic filesystem tools as a fallback when a native tool fails."
+            "4. If status reports a pending summary, call `donggu_life_os_finalize_daily` once before continuing.\n"
+            "5. Return only the tool's next question or completion summary.\n"
+            "6. Return the tool's `completion_message` verbatim after summary completion.\n"
+            "7. Never use generic filesystem tools as a fallback when a native tool fails."
         )
         self.assertIn(routing, text)
         self.assertIn(hermes, text)
@@ -132,7 +142,7 @@ class LifeOSSkillContractTests(unittest.TestCase):
         for phrase in (
             "exact configured `life-os` Discord channel binding",
             "Cron may call only `donggu_life_os_start_daily`",
-            "status and record are forbidden from cron",
+            "status, record, and finalize are forbidden from cron",
             "reserved until the runtime call succeeds",
             "explicit start resumes a paused Daily",
         ):
@@ -185,6 +195,42 @@ class LifeOSSkillContractTests(unittest.TestCase):
         self.assertEqual("감정과 에너지는 어떤가?", json.loads(record.stdout)["question"])
         note = self.vault / "Life OS/0. PeriodicNotes/2026/Daily/08/2026-08-07.md"
         self.assertIn("산책을 했다", note.read_text(encoding="utf-8"))
+
+    def test_cli_can_read_pending_summary_context_and_finalize_it(self):
+        day = "2026-08-07"
+        self.assertEqual(0, self.run_cli("start", "--date", day).returncode)
+        final = None
+        for index in range(1, 6):
+            final = self.run_cli(
+                "record", "answer", "--date", day,
+                "--message-key", f"manual:summary:{index}",
+                input_text=f"답변 {index}",
+            )
+            self.assertEqual(0, final.returncode, final.stderr)
+        assert final is not None
+        self.assertEqual("pending", json.loads(final.stdout)["summary_status"])
+
+        context = self.run_cli("summary-context", "--date", day)
+        self.assertEqual(0, context.returncode, context.stderr)
+        request = json.loads(context.stdout)
+        self.assertRegex(request["source_digest"], r"^[0-9a-f]{64}$")
+        self.assertEqual(5, len(request["transcript"]))
+        summary = {
+            "one_line": "다섯 질문을 끝낸 하루",
+            "key_events": ["첫 질문부터 마지막 질문까지 답함"],
+            "emotion_energy": "기록된 답변을 기준으로 정리함",
+            "progress_and_blockers": ["체크인을 완료함"],
+            "thoughts_learnings_decisions": ["답변 4를 기록함"],
+            "tomorrow_focus": "답변 5",
+            "patterns_to_notice": ["질문을 순서대로 답하면 회고가 완성됨"],
+        }
+        finalized = self.run_cli(
+            "finalize", "--date", day,
+            "--source-digest", request["source_digest"],
+            input_text=json.dumps(summary, ensure_ascii=False),
+        )
+        self.assertEqual(0, finalized.returncode, finalized.stderr)
+        self.assertEqual("completed", json.loads(finalized.stdout)["summary_status"])
 
     def test_cli_rejects_sensitive_follow_up_without_note_mutation(self):
         day = "2026-08-07"
@@ -291,7 +337,7 @@ class LifeOSSkillContractTests(unittest.TestCase):
             plan,
         )
         root = ROOT_README.read_text(encoding="utf-8")
-        self.assertIn("| **donggu-obsidian** | ✅ `v2.0.0`", root)
+        self.assertIn("| **donggu-obsidian** | ✅ `v2.1.0`", root)
 
     def test_public_docs_explain_safe_manual_residual_recovery(self):
         plugin = PLUGIN_README.read_text(encoding="utf-8")

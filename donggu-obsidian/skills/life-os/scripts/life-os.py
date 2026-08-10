@@ -71,6 +71,13 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--message-key")
     record.add_argument("--attachment", action="append", default=[])
     record.add_argument("--follow-up-question")
+
+    summary_context = commands.add_parser("summary-context")
+    summary_context.add_argument("--date")
+
+    finalize = commands.add_parser("finalize")
+    finalize.add_argument("--date")
+    finalize.add_argument("--source-digest", required=True)
     return parser
 
 
@@ -89,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
             result = runtime.status(_optional_date(args.date))
         elif args.command == "start":
             result = runtime.start_daily(_optional_date(args.date), resume=True)
-        else:
+        elif args.command == "record":
             text = sys.stdin.read()
             result = runtime.record(
                 args.operation,
@@ -97,6 +104,22 @@ def main(argv: list[str] | None = None) -> int:
                 message_key=args.message_key or f"manual:{uuid.uuid4().hex}",
                 attachment_paths=tuple(Path(value) for value in args.attachment),
                 follow_up_question=args.follow_up_question,
+                target_date=_optional_date(args.date),
+            )
+        elif args.command == "summary-context":
+            request = runtime.prepare_daily_summary(_optional_date(args.date))
+            if request is None:
+                raise LifeOSError("no pending Daily summary")
+            result = {
+                "date": request.date,
+                "source_digest": request.source_digest,
+                "transcript": list(request.transcript),
+            }
+        else:
+            summary = json.loads(sys.stdin.read())
+            result = runtime.finalize_daily_summary(
+                summary,
+                source_digest=args.source_digest,
                 target_date=_optional_date(args.date),
             )
     except (LifeOSError, ValueError, ZoneInfoNotFoundError) as exc:

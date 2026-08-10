@@ -9,7 +9,7 @@ Ontology-aware Obsidian operations for the `donggu-skills` marketplace and Herme
 | Skill | Qualified name | Responsibility |
 |---|---|---|
 | `ontology` | `donggu-obsidian:ontology` | Route Personal Branding, FDE Projects, and Life OS requests; retrieve notes; run one curation loop; prepare candidate-scoped diffs; perform bounded maintenance |
-| `life-os` | `donggu-obsidian:life-os` | Record Daily check-ins, Capture entries, and attachments through the native Life OS runtime |
+| `life-os` | `donggu-obsidian:life-os` | Record Daily check-ins, Capture entries, attachments, and recoverable structured AI summaries through the native Life OS runtime |
 
 The ontology skill replaces separate extraction, decomposition, duplicate, and health rituals. Duplicate search is part of integration; maintenance is explicit and bounded. It never runs a daily full-Vault scan and does not send healthy-state reports.
 
@@ -30,7 +30,7 @@ native CORE tools
   `- deterministic plan / apply / recovery / read-back / rollback
 
 donggu-obsidian:life-os
-  `- trusted-turn Daily and Capture runtime
+  `- trusted-turn Daily and Capture runtime with recoverable AI summaries
 ```
 
 The files under `skills/core-review-approval/scripts/` are internal compatibility helpers used by the native CORE runtime and existing n8n worker. The directory deliberately has no `SKILL.md`; database, receipt, hash, and journal protocols are not a user-facing prompt skill.
@@ -89,6 +89,12 @@ python3 donggu-obsidian/skills/life-os/scripts/life-os.py \
 ### Life OS channel and schedule
 
 Bind the qualified skill only. Merge these entries into the existing Discord section; never replace the whole section. Preserve the existing global `require_mention` value — 기존 global `require_mention` 값은 보존. If `allowed_channels` already exists, add only the Life OS channel; if it is absent, keep it absent.
+
+다섯 번째 질문 또는 마지막 follow-up이 저장되면 원문 답변을 먼저 커밋한다. 이어서
+Hermes host-owned `ctx.llm.complete_structured()`가 일곱 필드의 Korean Daily 정리를 만들고,
+native runtime이 canonical summary block을 별도 원자 교환으로 넣는다. 모델 호출이 실패해도
+원문은 유지되고 `summary_status: pending` 영수증으로 남는다. 같은 전용 채널에서
+`donggu_life_os_finalize_daily`를 한 번 호출하면 재시도할 수 있다.
 
 ```yaml
 discord:

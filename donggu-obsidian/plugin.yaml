@@ -1,7 +1,7 @@
 manifest_version: 1
 name: donggu-obsidian
-version: "2.0.0"
-description: "Ontology-aware Obsidian operations with one curated entry point, candidate-scoped mutation, a crash-atomic CORE runtime, and a separate Life OS Daily workflow."
+version: "2.1.0"
+description: "Ontology-aware Obsidian operations with one curated entry point, candidate-scoped mutation, a crash-atomic CORE runtime, and recoverable structured Life OS Daily summaries."
 author: "강동현 (donggu)"
 kind: standalone
 provides_tools:
@@ -16,5 +16,6 @@ provides_tools:
   - donggu_life_os_status
   - donggu_life_os_start_daily
   - donggu_life_os_record
+  - donggu_life_os_finalize_daily
 provides_hooks:
   - pre_gateway_dispatch

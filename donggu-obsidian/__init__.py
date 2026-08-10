@@ -1,11 +1,13 @@
 """Hermes registration entrypoint for the dual-harness donggu Obsidian package."""
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 from .tools import (
     ACK_SCHEMA,
     APPLY_SCHEMA,
+    LIFE_OS_FINALIZE_DAILY_SCHEMA,
     LIFE_OS_RECORD_SCHEMA,
     LIFE_OS_START_DAILY_SCHEMA,
     LIFE_OS_STATUS_SCHEMA,
@@ -18,6 +20,7 @@ from .tools import (
     capture_trusted_discord_turn,
     handle_ack,
     handle_apply,
+    handle_life_os_finalize_daily,
     handle_life_os_record,
     handle_life_os_start_daily,
     handle_life_os_status,
@@ -31,6 +34,7 @@ from .tools import (
 
 
 def register(ctx) -> None:
+    summary_llm = getattr(ctx, "llm", None)
     registrations = [
         (
             "donggu_core_recovery_status", RECOVERY_STATUS_SCHEMA, handle_recovery_status,
@@ -73,8 +77,14 @@ def register(ctx) -> None:
             "Start a Life OS Daily flow and return its next prompt.", "🌅",
         ),
         (
-            "donggu_life_os_record", LIFE_OS_RECORD_SCHEMA, handle_life_os_record,
+            "donggu_life_os_record", LIFE_OS_RECORD_SCHEMA,
+            partial(handle_life_os_record, summary_llm=summary_llm),
             "Commit one trusted Life OS Discord turn and return the next prompt.", "✍️",
+        ),
+        (
+            "donggu_life_os_finalize_daily", LIFE_OS_FINALIZE_DAILY_SCHEMA,
+            partial(handle_life_os_finalize_daily, summary_llm=summary_llm),
+            "Retry one pending Life OS Daily AI summary.", "📝",
         ),
     ]
     for name, schema, handler, description, emoji in registrations:

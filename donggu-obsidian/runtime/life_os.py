@@ -33,16 +33,50 @@ _END = "<!-- life-os:record:end -->"
 _STATE_PREFIX = "%% life-os-state: "
 _MESSAGE_PREFIX = "%% life-os-message: "
 _STATE_PATTERN = re.compile(r"(?m)^%% life-os-state: ([^\r\n]+) %%(?:\r?\n|$)")
+_MESSAGE_PATTERN = re.compile(r"(?m)^%% life-os-message: ([^\r\n%]+) %%(?:\r?\n|$)")
+_SUMMARY_PENDING_PREFIX = "%% life-os-summary-pending: "
+_SUMMARY_PENDING_PATTERN = re.compile(
+    r"(?m)^%% life-os-summary-pending: ([0-9a-f]{64}) %%(?:\r?\n|$)"
+)
+_SUMMARY_START = "<!-- life-os:summary:start -->"
+_SUMMARY_END = "<!-- life-os:summary:end -->"
+_SUMMARY_JSON_PREFIX = "%% life-os-summary-json: "
+_SUMMARY_JSON_PATTERN = re.compile(
+    r"(?m)^%% life-os-summary-json: ([^\r\n]+) %%(?:\r?\n|$)"
+)
 _SNAPSHOT_LINE = re.compile(r"(?m)^<% LifeOS\.Project\.snapshot\(\) %>(?:\r?\n|$)")
 _TEMPLATE_EXPRESSION = re.compile(r"<%.*?%>", re.DOTALL)
 _DAILY_HEADING = "## Daily Record"
 _PLACEHOLDER = "%%Your Record%%"
 _ALLOWED_STATUSES = {"not_started", "active", "paused", "completed"}
+_SUMMARY_KEYS = (
+    "one_line",
+    "key_events",
+    "emotion_energy",
+    "progress_and_blockers",
+    "thoughts_learnings_decisions",
+    "tomorrow_focus",
+    "patterns_to_notice",
+)
+_SUMMARY_LIST_LIMITS = {
+    "key_events": 5,
+    "progress_and_blockers": 6,
+    "thoughts_learnings_decisions": 5,
+    "patterns_to_notice": 3,
+}
+_SUMMARY_TEXT_LIMITS = {
+    "one_line": 300,
+    "emotion_energy": 500,
+    "tomorrow_focus": 300,
+}
+_SUMMARY_ITEM_MAX_LENGTH = 300
+_CHECK_IN_INTRO = "\n### Daily Check-in\n\n"
 _DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _ATTACHMENT_NAME = re.compile(r"^A(\d{3,}) - (.+)$")
 _ATTACHMENT_LINK = re.compile(r"\[\[Life OS/Attachments/(A\d{3,} - [^\]\r\n]+)\]\]")
 _ATTACHMENT_TEMP = re.compile(r"^\.life-os-attachment-[0-9a-f]{16}$")
+_LINE_SEPARATOR_PATTERN = re.compile(r"[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]")
 _DEFAULT_MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
 _NOTE_STAGE_PREFIX = ".life-os-note-stage-"
 _NOTE_ARCHIVE_PREFIX = ".life-os-note-archive-"
@@ -188,6 +222,31 @@ class StoredAttachment:
     path: Path
     sha256: str
     wikilink: str
+
+
+@dataclass(frozen=True)
+class DailySummary:
+    one_line: str
+    key_events: tuple[str, ...]
+    emotion_energy: str
+    progress_and_blockers: tuple[str, ...]
+    thoughts_learnings_decisions: tuple[str, ...]
+    tomorrow_focus: str
+    patterns_to_notice: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DailySummaryRequest:
+    date: str
+    source_digest: str
+    transcript: tuple[dict[str, Any], ...]
+
+    @property
+    def prompt_payload(self) -> dict[str, Any]:
+        return {
+            "date": self.date,
+            "responses": [dict(response) for response in self.transcript],
+        }
 
 
 @dataclass(frozen=True)
@@ -747,9 +806,19 @@ class LifeOSRuntime:
             return today
         yesterday = today - timedelta(days=1)
         old_state = self._optional_state(yesterday)
-        if old_state and old_state.status in {"active", "paused"}:
-            return yesterday
+        if old_state:
+            if old_state.status in {"active", "paused"}:
+                return yesterday
+            if old_state.status == "completed" and self._summary_is_pending_unlocked(yesterday):
+                return yesterday
         return today
+
+    def _summary_is_pending_unlocked(self, selected: date) -> bool:
+        text = self._read_daily(selected)
+        if text is None:
+            return False
+        document, state = self._parse_block(text, selected)
+        return self._summary_metadata(document.content, state)["status"] == "pending"
 
     def status(self, target_date: date | None = None) -> dict[str, Any]:
         with self._mutation_lock():
@@ -855,6 +924,7 @@ class LifeOSRuntime:
                     ):
                         return result
                     continue
+                previous_state = state
                 document, state = self._apply_operation(
                     document,
                     state,
@@ -863,6 +933,8 @@ class LifeOSRuntime:
                     key,
                     follow_up_question=follow_up_question,
                 )
+                if previous_state.status != "completed" and state.status == "completed":
+                    document = self._mark_summary_pending(document, state)
                 try:
                     self._publish_daily(selected, self._render(document, state), snapshot)
                 except _ConcurrentMutation:
@@ -886,13 +958,17 @@ class LifeOSRuntime:
             if follow_up_question is not None:
                 raise LifeOSError("follow-up requires a core answer")
             entry = self._timestamped_entry("Free Record", text, key)
-            return replace(document, content=document.content + entry), replace(state, last_message_key=key)
+            return replace(
+                document, content=self._append_owned_entry(document.content, entry),
+            ), replace(state, last_message_key=key)
 
         if operation == "pause":
             if follow_up_question is not None or state.status != "active":
                 raise LifeOSError("Daily workflow cannot be paused")
             entry = self._control_entry("Paused", text, key)
-            return replace(document, content=document.content + entry), replace(
+            return replace(
+                document, content=self._append_owned_entry(document.content, entry),
+            ), replace(
                 state, status="paused", last_message_key=key,
             )
 
@@ -900,7 +976,9 @@ class LifeOSRuntime:
             if follow_up_question is not None or state.status not in {"active", "paused"}:
                 raise LifeOSError("Daily workflow cannot be resumed")
             entry = self._control_entry("Resumed", text, key)
-            return replace(document, content=document.content + entry), replace(
+            return replace(
+                document, content=self._append_owned_entry(document.content, entry),
+            ), replace(
                 state, status="active", last_message_key=key,
             )
 
@@ -918,7 +996,9 @@ class LifeOSRuntime:
                 f"%% life-os-message: {key} %%\n\n"
             )
             status = "completed" if state.next_question is None else "active"
-            return replace(document, content=document.content + entry), replace(
+            return replace(
+                document, content=self._append_owned_entry(document.content, entry),
+            ), replace(
                 state, status=status, pending_follow_up=None, last_message_key=key,
             )
 
@@ -962,7 +1042,360 @@ class LifeOSRuntime:
             pending_follow_up=pending_follow_up,
             last_message_key=key,
         )
-        return replace(document, content=document.content + entry), next_state
+        return replace(
+            document, content=self._append_owned_entry(document.content, entry),
+        ), next_state
+
+    @staticmethod
+    def _pending_summary_line(source_digest: str) -> str:
+        return f"{_SUMMARY_PENDING_PREFIX}{source_digest} %%\n\n"
+
+    @classmethod
+    def _summary_dict(cls, summary: DailySummary) -> dict[str, Any]:
+        return {
+            "one_line": summary.one_line,
+            "key_events": list(summary.key_events),
+            "emotion_energy": summary.emotion_energy,
+            "progress_and_blockers": list(summary.progress_and_blockers),
+            "thoughts_learnings_decisions": list(summary.thoughts_learnings_decisions),
+            "tomorrow_focus": summary.tomorrow_focus,
+            "patterns_to_notice": list(summary.patterns_to_notice),
+        }
+
+    @classmethod
+    def _checked_summary_line(cls, value: Any, *, maximum: int) -> str:
+        if not isinstance(value, str) or _LINE_SEPARATOR_PATTERN.search(value):
+            raise LifeOSError("Daily summary text is invalid")
+        text = checked_life_os_message_text(value)
+        reserved = (
+            _START, _END, _STATE_PREFIX, _MESSAGE_PREFIX,
+            _SUMMARY_PENDING_PREFIX, _SUMMARY_START, _SUMMARY_END, _SUMMARY_JSON_PREFIX,
+        )
+        unsafe_markdown = re.search(
+            r"(?:[a-z][a-z0-9+.-]{1,20}://|!\[|\]\(|\]\[|\[\[|\]\]|%%|`|\*|__|~~|<|>)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        starts_structure = re.match(
+            r"^\s*(?:[#>|\[]|[-+](?:\s|$)|-{3,}$|\d+[.)](?:\s|$))", text,
+        )
+        if (
+            len(text) > maximum
+            or any(marker in text for marker in reserved)
+            or unsafe_markdown is not None
+            or starts_structure is not None
+        ):
+            raise LifeOSError("Daily summary text is invalid")
+        return text
+
+    @classmethod
+    def _checked_daily_summary(cls, value: Any) -> DailySummary:
+        if isinstance(value, DailySummary):
+            value = cls._summary_dict(value)
+        if not isinstance(value, dict) or tuple(value.keys()) != _SUMMARY_KEYS:
+            if not isinstance(value, dict) or set(value) != set(_SUMMARY_KEYS):
+                raise LifeOSError("Daily summary fields are invalid")
+            value = {key: value[key] for key in _SUMMARY_KEYS}
+        checked: dict[str, Any] = {}
+        for key, maximum in _SUMMARY_TEXT_LIMITS.items():
+            checked[key] = cls._checked_summary_line(value[key], maximum=maximum)
+        for key, maximum_items in _SUMMARY_LIST_LIMITS.items():
+            items = value[key]
+            if (
+                not isinstance(items, (list, tuple))
+                or not 1 <= len(items) <= maximum_items
+            ):
+                raise LifeOSError("Daily summary list is invalid")
+            checked[key] = tuple(
+                cls._checked_summary_line(item, maximum=_SUMMARY_ITEM_MAX_LENGTH)
+                for item in items
+            )
+        return DailySummary(
+            one_line=checked["one_line"],
+            key_events=checked["key_events"],
+            emotion_energy=checked["emotion_energy"],
+            progress_and_blockers=checked["progress_and_blockers"],
+            thoughts_learnings_decisions=checked["thoughts_learnings_decisions"],
+            tomorrow_focus=checked["tomorrow_focus"],
+            patterns_to_notice=checked["patterns_to_notice"],
+        )
+
+    @classmethod
+    def _render_daily_summary(cls, source_digest: str, summary: DailySummary) -> str:
+        summary_dict = cls._summary_dict(summary)
+        metadata = json.dumps(
+            {"source_digest": source_digest, "summary": summary_dict, "version": 1},
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+        def bullets(values: Sequence[str]) -> str:
+            return "\n".join(f"- {value}" for value in values)
+
+        return (
+            f"{_SUMMARY_START}\n"
+            f"{_SUMMARY_JSON_PREFIX}{metadata} %%\n\n"
+            "### AI Daily 정리\n\n"
+            f"#### 오늘 한 줄 요약\n{summary.one_line}\n\n"
+            f"#### 주요 사건\n{bullets(summary.key_events)}\n\n"
+            f"#### 감정·에너지\n{summary.emotion_energy}\n\n"
+            f"#### 진행한 일과 막힌 일\n{bullets(summary.progress_and_blockers)}\n\n"
+            f"#### 생각·배움·결정\n{bullets(summary.thoughts_learnings_decisions)}\n\n"
+            f"#### 내일 가장 중요한 한 가지\n{summary.tomorrow_focus}\n\n"
+            f"#### 발견한 패턴이나 짚어볼 점\n{bullets(summary.patterns_to_notice)}\n"
+            f"{_SUMMARY_END}\n\n"
+        )
+
+    @classmethod
+    def _summary_metadata(
+        cls, content: str, state: WorkflowState,
+    ) -> dict[str, Any]:
+        pending = list(_SUMMARY_PENDING_PATTERN.finditer(content))
+        pending_mentions = content.count(_SUMMARY_PENDING_PREFIX)
+        start_count = content.count(_SUMMARY_START)
+        end_count = content.count(_SUMMARY_END)
+        json_mentions = content.count(_SUMMARY_JSON_PREFIX)
+        if pending:
+            if (
+                len(pending) != 1
+                or pending_mentions != 1
+                or start_count
+                or end_count
+                or json_mentions
+                or state.status != "completed"
+            ):
+                raise LifeOSError("Daily note contains malformed summary state")
+            match = pending[0]
+            source_digest = match.group(1)
+            if content[match.start():] != cls._pending_summary_line(source_digest):
+                raise LifeOSError("Daily note contains malformed pending summary")
+            return {
+                "status": "pending", "source_digest": source_digest,
+                "summary": None, "start": match.start(),
+            }
+        if pending_mentions:
+            raise LifeOSError("Daily note contains malformed pending summary")
+        if start_count or end_count or json_mentions:
+            if (
+                start_count != 1
+                or end_count != 1
+                or json_mentions != 1
+                or state.status != "completed"
+            ):
+                raise LifeOSError("Daily note contains malformed summary block")
+            start = content.index(_SUMMARY_START)
+            end = content.index(_SUMMARY_END)
+            if start > end:
+                raise LifeOSError("Daily note contains malformed summary block")
+            tail = content[start:]
+            matches = list(_SUMMARY_JSON_PATTERN.finditer(tail))
+            if len(matches) != 1:
+                raise LifeOSError("Daily note contains malformed summary metadata")
+            raw = matches[0].group(1)
+            try:
+                payload = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                raise LifeOSError("Daily note contains malformed summary metadata") from None
+            if (
+                not isinstance(payload, dict)
+                or set(payload) != {"source_digest", "summary", "version"}
+                or payload.get("version") != 1
+                or isinstance(payload.get("version"), bool)
+                or not isinstance(payload.get("source_digest"), str)
+                or re.fullmatch(r"[0-9a-f]{64}", payload["source_digest"]) is None
+            ):
+                raise LifeOSError("Daily note contains malformed summary metadata")
+            summary = cls._checked_daily_summary(payload.get("summary"))
+            canonical = json.dumps(
+                {
+                    "source_digest": payload["source_digest"],
+                    "summary": cls._summary_dict(summary),
+                    "version": 1,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            if raw != canonical or tail != cls._render_daily_summary(payload["source_digest"], summary):
+                raise LifeOSError("Daily note contains non-canonical summary block")
+            return {
+                "status": "completed", "source_digest": payload["source_digest"],
+                "summary": summary, "start": start,
+            }
+        return {
+            "status": "legacy" if state.status == "completed" else "none",
+            "source_digest": None, "summary": None, "start": len(content),
+        }
+
+    @classmethod
+    def _append_owned_entry(cls, content: str, entry: str) -> str:
+        indexes = [
+            index for index in (
+                content.find(_SUMMARY_PENDING_PREFIX), content.find(_SUMMARY_START),
+            )
+            if index >= 0
+        ]
+        split_at = min(indexes) if indexes else len(content)
+        return content[:split_at] + entry + content[split_at:]
+
+    @classmethod
+    def _summary_transcript(
+        cls,
+        content: str,
+        state: WorkflowState,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], ...]:
+        if metadata is None:
+            metadata = cls._summary_metadata(content, state)
+        owned = content[:metadata["start"]]
+        if not owned.startswith(_CHECK_IN_INTRO):
+            raise LifeOSError("Daily check-in transcript is malformed")
+        body = owned[len(_CHECK_IN_INTRO):]
+        responses: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+        cursor = 0
+        core_header = re.compile(r"^#### ([1-5])\. (.+)$")
+        follow_header = re.compile(r"^##### Follow-up: (.+)$")
+        ignored_header = re.compile(r"^(?:##### (?:Paused|Resumed)|## [0-9]{2}:[0-9]{2} — Free Record)$")
+        for marker in _MESSAGE_PATTERN.finditer(body):
+            cls._checked_message_key(marker.group(1))
+            segment = body[cursor:marker.start()].lstrip("\r\n")
+            cursor = marker.end()
+            lines = segment.splitlines()
+            if not lines:
+                raise LifeOSError("Daily check-in transcript is malformed")
+            header = lines[0]
+            answer = "\n".join(lines[1:]).strip()
+            core = core_header.fullmatch(header)
+            follow = follow_header.fullmatch(header)
+            if core is not None:
+                number = int(core.group(1))
+                if core.group(2) != QUESTIONS[number - 1] or number != len(responses) + 1:
+                    raise LifeOSError("Daily check-in transcript is malformed")
+                skipped = number in state.skipped
+                if not answer or (skipped and answer != "건너뛰기"):
+                    raise LifeOSError("Daily check-in transcript is malformed")
+                current = {
+                    "question_number": number,
+                    "question": QUESTIONS[number - 1],
+                    "answer": answer,
+                    "skipped": skipped,
+                    "follow_ups": [],
+                }
+                responses.append(current)
+            elif follow is not None:
+                if current is None or not answer:
+                    raise LifeOSError("Daily check-in transcript is malformed")
+                question = cls._checked_follow_up(follow.group(1))
+                current["follow_ups"].append({
+                    "question": question,
+                    "answer": answer,
+                    "skipped": answer == "건너뛰기",
+                })
+            elif ignored_header.fullmatch(header) is None or not answer:
+                raise LifeOSError("Daily check-in transcript is malformed")
+        if body[cursor:].strip():
+            raise LifeOSError("Daily check-in transcript is malformed")
+        expected = tuple(sorted((*state.answered, *state.skipped)))
+        actual = tuple(response["question_number"] for response in responses)
+        follow_up_total = sum(len(response["follow_ups"]) for response in responses)
+        if actual != expected or follow_up_total != state.follow_up_count:
+            raise LifeOSError("Daily check-in transcript does not match workflow state")
+        return tuple(responses)
+
+    @staticmethod
+    def _summary_source_digest(selected: date, transcript: Sequence[dict[str, Any]]) -> str:
+        canonical = json.dumps(
+            {"date": selected.isoformat(), "responses": transcript, "version": 1},
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _mark_summary_pending(
+        self, document: _Document, state: WorkflowState,
+    ) -> _Document:
+        metadata = self._summary_metadata(document.content, state)
+        if metadata["status"] != "legacy":
+            raise LifeOSError("Daily summary state is already present")
+        selected = date.fromisoformat(state.date)
+        transcript = self._summary_transcript(document.content, state)
+        source_digest = self._summary_source_digest(selected, transcript)
+        return replace(
+            document,
+            content=document.content + self._pending_summary_line(source_digest),
+        )
+
+    def prepare_daily_summary(
+        self, target_date: date | None = None,
+    ) -> DailySummaryRequest | None:
+        with self._mutation_lock():
+            selected = target_date or self._resolve_target_date_unlocked()
+            text = self._read_daily(selected)
+            if text is None:
+                return None
+            document, state = self._parse_block(text, selected)
+            metadata = self._summary_metadata(document.content, state)
+            if metadata["status"] != "pending":
+                return None
+            transcript = self._summary_transcript(document.content, state)
+            actual_digest = self._summary_source_digest(selected, transcript)
+            if actual_digest != metadata["source_digest"]:
+                raise LifeOSError("Daily summary source digest does not match the transcript")
+            return DailySummaryRequest(
+                date=selected.isoformat(),
+                source_digest=actual_digest,
+                transcript=transcript,
+            )
+
+    def finalize_daily_summary(
+        self,
+        summary: Any,
+        *,
+        source_digest: str,
+        target_date: date | None = None,
+    ) -> dict[str, Any]:
+        checked = self._checked_daily_summary(summary)
+        if not isinstance(source_digest, str) or re.fullmatch(r"[0-9a-f]{64}", source_digest) is None:
+            raise LifeOSError("Daily summary source digest is invalid")
+        with self._mutation_lock():
+            selected = target_date or self._resolve_target_date_unlocked()
+            path = self.daily_path(selected)
+            for _attempt in range(3):
+                snapshot = self._read_daily_snapshot(selected)
+                if snapshot is None:
+                    raise LifeOSError("Daily note is unavailable")
+                document, state = self._parse_block(snapshot.text, selected)
+                metadata = self._summary_metadata(document.content, state)
+                if metadata["status"] == "completed":
+                    existing = metadata["summary"]
+                    if (
+                        metadata["source_digest"] != source_digest
+                        or existing != checked
+                    ):
+                        raise LifeOSError("Daily summary is already finalized")
+                    return self._result(
+                        path, state, content=document.content, duplicate=True,
+                    )
+                if metadata["status"] != "pending" or metadata["source_digest"] != source_digest:
+                    raise LifeOSError("Daily summary is not pending for this source")
+                transcript = self._summary_transcript(document.content, state)
+                if self._summary_source_digest(selected, transcript) != source_digest:
+                    raise LifeOSError("Daily summary source changed before finalization")
+                rendered_summary = self._render_daily_summary(source_digest, checked)
+                updated = replace(
+                    document,
+                    content=document.content[:metadata["start"]] + rendered_summary,
+                )
+                try:
+                    self._publish_daily(selected, self._render(updated, state), snapshot)
+                except _ConcurrentMutation:
+                    continue
+                return self._result(path, state, content=updated.content)
+            raise LifeOSError("Daily note changed concurrently; retry the operation")
 
     def _optional_state(self, selected: date) -> WorkflowState | None:
         text = self._read_daily(selected)
@@ -2229,7 +2662,7 @@ class LifeOSRuntime:
         placeholder = re.match(rf"{re.escape(_PLACEHOLDER)}(?:\r?\n|$)", suffix)
         if placeholder:
             suffix = suffix[placeholder.end():]
-        return _Document(prefix=prefix, content="\n### Daily Check-in\n\n", suffix=suffix)
+        return _Document(prefix=prefix, content=_CHECK_IN_INTRO, suffix=suffix)
 
     def _parse_block(self, text: str, selected: date) -> tuple[_Document, WorkflowState]:
         if text.count(_START) != 1 or text.count(_END) != 1:
@@ -2247,19 +2680,31 @@ class LifeOSRuntime:
         raw = match.group(1)
         try:
             payload = json.loads(raw)
+            canonical_payload = json.dumps(
+                payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True,
+            )
+            if raw != canonical_payload:
+                raise ValueError("non-canonical state")
             state = self._validated_state(payload, selected)
         except (json.JSONDecodeError, TypeError, ValueError):
             raise LifeOSError("Daily note contains malformed Life OS state") from None
-        if raw != _canonical_state(state):
-            raise LifeOSError("Daily note contains non-canonical Life OS state")
         content = block[:match.start()] + block[match.end():]
+        metadata = self._summary_metadata(content, state)
+        if metadata["status"] in {"pending", "completed"}:
+            transcript = self._summary_transcript(content, state, metadata=metadata)
+            if self._summary_source_digest(selected, transcript) != metadata["source_digest"]:
+                raise LifeOSError("Daily summary source digest does not match the transcript")
         return _Document(prefix=prefix, content=content, suffix=suffix), state
 
     def _validated_state(self, payload: Any, selected: date) -> WorkflowState:
         fields = tuple(WorkflowState.__dataclass_fields__)
         if not isinstance(payload, dict) or set(payload) != set(fields):
             raise ValueError("invalid state fields")
-        if payload["version"] != 1 or isinstance(payload["version"], bool):
+        if (
+            isinstance(payload["version"], bool)
+            or not isinstance(payload["version"], int)
+            or payload["version"] != 1
+        ):
             raise ValueError("invalid state version")
         if payload["date"] != selected.isoformat() or payload["status"] not in _ALLOWED_STATUSES:
             raise ValueError("invalid state binding")
@@ -2290,9 +2735,15 @@ class LifeOSRuntime:
             ):
                 raise ValueError("invalid pending follow-up")
             try:
-                self._checked_follow_up(pending["question"])
+                normalized_question = self._normalized_persisted_follow_up(
+                    pending["question"]
+                )
             except LifeOSError:
                 raise ValueError("invalid pending follow-up") from None
+            pending = {
+                "for_question": pending["for_question"],
+                "question": normalized_question,
+            }
         last_key = payload["last_message_key"]
         if last_key is not None and (not isinstance(last_key, str) or not last_key):
             raise ValueError("invalid last message key")
@@ -2334,18 +2785,33 @@ class LifeOSRuntime:
     @staticmethod
     def _checked_message(value: str) -> str:
         text = checked_life_os_message_text(value)
-        if any(marker in text for marker in (_START, _END, _STATE_PREFIX, _MESSAGE_PREFIX)):
+        if any(marker in text for marker in (
+            _START, _END, _STATE_PREFIX, _MESSAGE_PREFIX,
+            _SUMMARY_PENDING_PREFIX, _SUMMARY_START, _SUMMARY_END, _SUMMARY_JSON_PREFIX,
+        )):
             raise LifeOSError("message text contains a reserved marker")
         return text
 
     @staticmethod
     def _checked_follow_up(value: str) -> str:
+        if _LINE_SEPARATOR_PATTERN.search(str(value or "")):
+            raise LifeOSError("follow-up question must be a single line")
         question = checked_life_os_message_text(value)
         if not 1 <= len(question) <= 300 or any(
-            marker in question for marker in (_START, _END, _STATE_PREFIX, _MESSAGE_PREFIX)
+            marker in question for marker in (
+                _START, _END, _STATE_PREFIX, _MESSAGE_PREFIX,
+                _SUMMARY_PENDING_PREFIX, _SUMMARY_START, _SUMMARY_END, _SUMMARY_JSON_PREFIX,
+            )
         ):
             raise LifeOSError("follow-up question is invalid")
         return question
+
+    @classmethod
+    def _normalized_persisted_follow_up(cls, value: str) -> str:
+        question = checked_life_os_message_text(value)
+        question = _LINE_SEPARATOR_PATTERN.sub(" ", question)
+        question = re.sub(r"[ \t]+", " ", question).strip()
+        return cls._checked_follow_up(question)
 
     @staticmethod
     def _checked_message_key(value: str) -> str:
@@ -2381,20 +2847,34 @@ class LifeOSRuntime:
     def _result(
         self, path: Path, state: WorkflowState, *, content: str | None = None, **extra: Any,
     ) -> dict[str, Any]:
+        metadata = self._summary_metadata(content or _CHECK_IN_INTRO, state)
+        summary = metadata["summary"]
         result: dict[str, Any] = {
             "path": str(path),
             **asdict(state),
             "answered": list(state.answered),
             "skipped": list(state.skipped),
             "attachments": self._attachment_references(content),
+            "summary_status": metadata["status"],
             "question": (
                 state.pending_follow_up["question"]
                 if state.pending_follow_up is not None
                 else self.QUESTIONS[state.next_question - 1] if state.next_question is not None else None
             ),
         }
+        if summary is not None:
+            summary_dict = self._summary_dict(summary)
+            result["completion_summary"] = summary_dict
+            result["completion_message"] = (
+                "오늘 체크인을 완료하고 Daily 노트에 정리했습니다.\n\n"
+                f"{summary.one_line}\n\n"
+                f"내일 가장 중요한 한 가지: {summary.tomorrow_focus}"
+            )
         result.update(extra)
         return result
 
 
-__all__ = ["LifeOSError", "LifeOSRuntime", "StoredAttachment", "WorkflowState"]
+__all__ = [
+    "DailySummary", "DailySummaryRequest", "LifeOSError", "LifeOSRuntime",
+    "StoredAttachment", "WorkflowState",
+]

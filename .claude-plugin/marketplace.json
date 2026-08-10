@@ -12,8 +12,8 @@
     {
       "name": "donggu-obsidian",
       "source": "./donggu-obsidian",
-      "description": "Ontology-aware Obsidian operations with one curation entry point, candidate-scoped mutation, and a separate Life OS workflow.",
-      "version": "2.0.0",
+      "description": "Ontology-aware Obsidian operations with one curation entry point, candidate-scoped mutation, and recoverable Life OS AI summaries.",
+      "version": "2.1.0",
       "strict": false
     },
     {
