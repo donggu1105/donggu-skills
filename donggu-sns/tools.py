@@ -33,12 +33,73 @@ def _latest_trusted_user_message(session_id: str) -> tuple[int, str]:
     except Exception as exc:
         raise PublishingError("trusted Hermes user message is unavailable") from exc
     for message in reversed(messages):
-        if message.get("role") == "user" and isinstance(message.get("content"), str):
-            text = message["content"].strip()
-            message_id = message.get("id")
-            if text and isinstance(message_id, int) and message_id > 0:
-                return message_id, text
+        if message.get("role") != "user":
+            continue
+        message_id = message.get("id")
+        content = message.get("content")
+        if (
+            not isinstance(message_id, int)
+            or isinstance(message_id, bool)
+            or message_id <= 0
+            or not isinstance(content, str)
+            or not content.strip()
+        ):
+            raise PublishingError("latest trusted Hermes user message is invalid")
+        return message_id, content.strip()
     raise PublishingError("trusted Hermes user message is unavailable")
+
+
+def _authoritative_latest_message_executor(
+    session_id: str, expected_message_id: int, expected_text: str,
+):
+    def execute(action):
+        try:
+            from hermes_state import SessionDB
+            db = SessionDB()
+            try:
+                def claim_while_transcript_writes_are_locked(conn):
+                    row = conn.execute(
+                        "SELECT id, content FROM messages "
+                        "WHERE session_id = ? AND role = 'user' AND active = 1 "
+                        "ORDER BY id DESC LIMIT 1",
+                        (session_id,),
+                    ).fetchone()
+                    if row is None:
+                        raise PublishingError(
+                            "trusted Hermes user message is unavailable"
+                        )
+                    message_id = row["id"]
+                    content = db._decode_content(row["content"])
+                    if (
+                        not isinstance(message_id, int)
+                        or isinstance(message_id, bool)
+                        or message_id <= 0
+                        or not isinstance(content, str)
+                        or not content.strip()
+                    ):
+                        raise PublishingError(
+                            "latest trusted Hermes user message is invalid"
+                        )
+                    if (
+                        message_id != expected_message_id
+                        or content.strip() != expected_text
+                    ):
+                        raise PublishingError(
+                            "trusted Hermes user message changed before authorization claim"
+                        )
+                    return action()
+
+                return db._execute_write(claim_while_transcript_writes_are_locked)
+            finally:
+                db.close()
+        except PublishingError:
+            raise
+        except Exception as exc:
+            raise PublishingError(
+                "trusted Hermes user message is unavailable"
+            ) from exc
+
+    return execute
 
 
 PREVIEW_SCHEMA = {
@@ -149,6 +210,9 @@ def handle_approve(args: dict, **kwargs) -> str:
         return _ok(_runtime().approve(
             str(args.get("receipt_id") or ""), approval_text=message_text,
             session_id=session_id, turn_id=turn_id, user_message_id=message_id,
+            authoritative_claim_executor=_authoritative_latest_message_executor(
+                session_id, message_id, message_text,
+            ),
         ))
     except PublishingError as exc:
         return _error(exc)
@@ -161,6 +225,9 @@ def handle_confirm(args: dict, **kwargs) -> str:
         return _ok(_runtime().confirm_irreversible(
             str(args.get("receipt_id") or ""), confirmation_text=message_text,
             session_id=session_id, turn_id=turn_id, user_message_id=message_id,
+            authoritative_claim_executor=_authoritative_latest_message_executor(
+                session_id, message_id, message_text,
+            ),
         ))
     except PublishingError as exc:
         return _error(exc)

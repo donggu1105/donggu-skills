@@ -111,7 +111,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-sns", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("2.7.4", claude["version"])
+        self.assertEqual("2.7.5", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_sns_registers_exact_native_tool_surface(self):
@@ -162,14 +162,24 @@ class NativePluginPackageTests(unittest.TestCase):
             def __init__(self):
                 self.approval_text = None
 
-            def approve(self, receipt_id, *, approval_text, session_id, turn_id, user_message_id):
+            def approve(
+                self, receipt_id, *, approval_text, session_id, turn_id,
+                user_message_id, authoritative_claim_executor,
+            ):
+                authoritative_claim_executor(lambda: None)
                 self.approval_text = approval_text
                 self.user_message_id = user_message_id
                 return {"status": "approved", "receipt_id": receipt_id}
 
         fake = FakeRuntime()
         setattr(tools, "_RUNTIME", fake)
-        with mock.patch.object(tools, "_latest_trusted_user_message", return_value=(2, "[강동현] 승인")):
+        with mock.patch.object(
+            tools, "_latest_trusted_user_message", return_value=(2, "[강동현] 승인"),
+        ), mock.patch.object(
+            tools,
+            "_authoritative_latest_message_executor",
+            return_value=lambda action: action(),
+        ):
             result = json.loads(tools.handle_approve(
                 {"receipt_id": "receipt"}, session_id="session", turn_id="turn-2",
             ))
@@ -195,6 +205,210 @@ class NativePluginPackageTests(unittest.TestCase):
                 thread.join()
         self.assertEqual(1, len(created))
         self.assertEqual(1, len({id(value) for value in results}))
+
+    def test_sns_latest_user_lookup_fails_closed_on_blank_latest_row(self):
+        module_name = "donggu_sns_blank_latest_message_test"
+        load_package(ROOT / "donggu-sns", module_name)
+        tools = importlib.import_module(f"{module_name}.tools")
+
+        class FakeSessionDB:
+            def get_messages(self, _session_id):
+                return [
+                    {"id": 1, "role": "user", "content": "블로그 업데이트 적용해줘"},
+                    {"id": 2, "role": "assistant", "content": "working"},
+                    {"id": 3, "role": "user", "content": ""},
+                ]
+
+            def close(self):
+                return None
+
+        fake_module = types.ModuleType("hermes_state")
+        setattr(fake_module, "SessionDB", FakeSessionDB)
+        with mock.patch.dict(sys.modules, {"hermes_state": fake_module}):
+            with self.assertRaises(tools.PublishingError):
+                tools._latest_trusted_user_message("session")
+
+    def test_sns_latest_user_lookup_fails_closed_on_structured_latest_row(self):
+        module_name = "donggu_sns_structured_latest_message_test"
+        load_package(ROOT / "donggu-sns", module_name)
+        tools = importlib.import_module(f"{module_name}.tools")
+
+        class FakeSessionDB:
+            def get_messages(self, _session_id):
+                return [
+                    {"id": 1, "role": "user", "content": "블로그 업데이트 적용해줘"},
+                    {"id": 2, "role": "user", "content": [{"type": "text", "text": "취소"}]},
+                ]
+
+            def close(self):
+                return None
+
+        fake_module = types.ModuleType("hermes_state")
+        setattr(fake_module, "SessionDB", FakeSessionDB)
+        with mock.patch.dict(sys.modules, {"hermes_state": fake_module}):
+            with self.assertRaises(tools.PublishingError):
+                tools._latest_trusted_user_message("session")
+
+    def test_sns_latest_user_lookup_fails_closed_on_invalid_latest_row_id(self):
+        module_name = "donggu_sns_invalid_latest_message_id_test"
+        load_package(ROOT / "donggu-sns", module_name)
+        tools = importlib.import_module(f"{module_name}.tools")
+
+        class FakeSessionDB:
+            def get_messages(self, _session_id):
+                return [
+                    {"id": 1, "role": "user", "content": "블로그 업데이트 적용해줘"},
+                    {"id": None, "role": "user", "content": "취소"},
+                ]
+
+            def close(self):
+                return None
+
+        fake_module = types.ModuleType("hermes_state")
+        setattr(fake_module, "SessionDB", FakeSessionDB)
+        with mock.patch.dict(sys.modules, {"hermes_state": fake_module}):
+            with self.assertRaises(tools.PublishingError):
+                tools._latest_trusted_user_message("session")
+
+    def test_sns_approve_and_confirm_revalidate_latest_message_inside_claim(self):
+        module_name = "donggu_sns_claim_revalidation_test"
+        load_package(ROOT / "donggu-sns", module_name)
+        tools = importlib.import_module(f"{module_name}.tools")
+
+        class FakeRuntime:
+            def approve(self, _receipt_id, *, authoritative_claim_executor=None, **_kwargs):
+                self.assert_executor(authoritative_claim_executor)
+
+            def confirm_irreversible(
+                self, _receipt_id, *, authoritative_claim_executor=None, **_kwargs,
+            ):
+                self.assert_executor(authoritative_claim_executor)
+
+            @staticmethod
+            def assert_executor(executor):
+                if executor is None:
+                    raise AssertionError("authoritative executor was not provided")
+                executor(lambda: None)
+
+        setattr(tools, "_RUNTIME", FakeRuntime())
+        cases = (
+            (tools.handle_approve, "블로그 업데이트 적용해줘"),
+            (tools.handle_confirm, "메일 최종 발송 확인"),
+        )
+        for handler, authorization_text in cases:
+            with self.subTest(handler=handler.__name__):
+                def reject_stale_claim(_action):
+                    raise tools.PublishingError(
+                        "trusted Hermes user message changed before authorization claim"
+                    )
+
+                with mock.patch.object(
+                    tools,
+                    "_latest_trusted_user_message",
+                    return_value=(2, authorization_text),
+                ) as latest:
+                    with mock.patch.object(
+                        tools,
+                        "_authoritative_latest_message_executor",
+                        return_value=reject_stale_claim,
+                    ):
+                        result = json.loads(handler(
+                            {"receipt_id": "receipt"},
+                            session_id="session", turn_id="turn-2",
+                        ))
+                self.assertFalse(result["success"])
+                self.assertEqual(1, latest.call_count)
+
+    def test_sns_authoritative_executor_runs_claim_under_sessiondb_write_lock(self):
+        module_name = "donggu_sns_claim_db_lock_test"
+        load_package(ROOT / "donggu-sns", module_name)
+        tools = importlib.import_module(f"{module_name}.tools")
+
+        class FakeCursor:
+            def fetchone(self):
+                return {"id": 2, "content": "블로그 업데이트 적용해줘"}
+
+        class FakeConnection:
+            def execute(self, sql, params):
+                self.sql = sql
+                self.params = params
+                return FakeCursor()
+
+        class FakeSessionDB:
+            instance = None
+
+            def __init__(self):
+                self.write_locked = False
+                self.closed = False
+                FakeSessionDB.instance = self
+
+            def _decode_content(self, content):
+                return content
+
+            def _execute_write(self, callback):
+                self.write_locked = True
+                try:
+                    return callback(FakeConnection())
+                finally:
+                    self.write_locked = False
+
+            def close(self):
+                self.closed = True
+
+        fake_module = types.ModuleType("hermes_state")
+        setattr(fake_module, "SessionDB", FakeSessionDB)
+        claimed = []
+
+        def claim():
+            instance = FakeSessionDB.instance
+            assert instance is not None
+            self.assertTrue(instance.write_locked)
+            claimed.append("claimed")
+            return {"state": "approved"}
+
+        with mock.patch.dict(sys.modules, {"hermes_state": fake_module}):
+            result = tools._authoritative_latest_message_executor(
+                "session", 2, "블로그 업데이트 적용해줘",
+            )(claim)
+        self.assertEqual({"state": "approved"}, result)
+        self.assertEqual(["claimed"], claimed)
+        instance = FakeSessionDB.instance
+        assert instance is not None
+        self.assertTrue(instance.closed)
+
+    def test_sns_authoritative_executor_rejects_newer_user_row_before_claim(self):
+        module_name = "donggu_sns_claim_db_stale_test"
+        load_package(ROOT / "donggu-sns", module_name)
+        tools = importlib.import_module(f"{module_name}.tools")
+
+        class FakeCursor:
+            def fetchone(self):
+                return {"id": 3, "content": "취소"}
+
+        class FakeConnection:
+            def execute(self, _sql, _params):
+                return FakeCursor()
+
+        class FakeSessionDB:
+            def _decode_content(self, content):
+                return content
+
+            def _execute_write(self, callback):
+                return callback(FakeConnection())
+
+            def close(self):
+                return None
+
+        fake_module = types.ModuleType("hermes_state")
+        setattr(fake_module, "SessionDB", FakeSessionDB)
+        claimed = []
+        with mock.patch.dict(sys.modules, {"hermes_state": fake_module}):
+            executor = tools._authoritative_latest_message_executor(
+                "session", 2, "블로그 업데이트 적용해줘",
+            )
+            with self.assertRaises(tools.PublishingError):
+                executor(lambda: claimed.append("claimed"))
+        self.assertEqual([], claimed)
 
     def test_obsidian_runtime_singleton_is_thread_safe(self):
         module_name = "donggu_obsidian_thread_contract_test"
