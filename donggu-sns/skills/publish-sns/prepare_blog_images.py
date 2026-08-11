@@ -9,7 +9,7 @@ prepare_blog_images.py — tistory/maily 발행 전, 본문의 Obsidian 이미�
 Supabase storage(public 버킷)에 업로드(upsert) → 본문 치환 → 치환본을 stdout으로.
 
 왜 필요? 사용자가 지정한 노트나 저장 파이프라인이 로컬 위키링크 이미지를 포함할 수 있지만,
-sns-pub-tistory는 본문을 그대로 보내므로 해당 임베드는 발행본에서 깨진다.
+로컬 위키링크 이미지는 native publisher payload에 그대로 넣으면 발행본에서 깨진다.
 이 단계가 그 다리를 놓는다.
 
 사용:

@@ -17,7 +17,12 @@ from .tools import (
 
 
 def register(ctx) -> None:
-    required = ["SNS_WEBHOOK_TOKEN", "SUPABASE_URL", "SUPABASE_SERVICE_KEY"]
+    required = [
+        "SNS_WEBHOOK_TOKEN",
+        "PUBLISHER_API_TOKEN",
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_KEY",
+    ]
     registrations = [
         ("donggu_publishing_preview", PREVIEW_SCHEMA, handle_preview, "Validate and preview a closed SNS mutation.", "🔎"),
         ("donggu_publishing_approve", APPROVE_SCHEMA, handle_approve, "Bind later-turn approval to the preview receipt.", "✅"),

@@ -1,11 +1,12 @@
 manifest_version: 1
 name: donggu-sns
-version: "2.8.0"
-description: "Native publishing adapter with HMAC receipts, trusted later-turn approval, Maily confirmation, fixed webhook routing, and durable published_posts reconciliation. Claude publishing mutation is fail-closed; its bridge is preview-only."
+version: "2.9.0"
+description: "Native publishing adapter with receipt-bound approval. Tistory and Maily call the loopback FastAPI publisher directly; other channels use n8n webhooks."
 author: "강동현 (donggu)"
 kind: standalone
 requires_env:
   - SNS_WEBHOOK_TOKEN
+  - PUBLISHER_API_TOKEN
   - SUPABASE_URL
   - SUPABASE_SERVICE_KEY
 provides_tools:

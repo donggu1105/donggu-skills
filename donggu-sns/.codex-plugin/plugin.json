@@ -1,6 +1,6 @@
 {
   "name": "donggu-sns",
-  "version": "2.8.0",
+  "version": "2.9.0",
   "description": "SNS and YouTube editorial operations with FDE or solo-builder persona routing, optional AI-image generation, YouTube planning, and gated publishing.",
   "author": {
     "name": "강동현 (donggu)",

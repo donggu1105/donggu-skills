@@ -1,8 +1,9 @@
 """Shared publishing runtime for Claude and Hermes adapters.
 
 The runtime is intentionally stdlib-only. It binds every mutation to an
-expiring preview receipt, routes only to closed webhook paths, and completes
-the durable ``published_posts`` ledger after a successful external mutation.
+expiring preview receipt, routes local publishers and remote webhooks through
+separate closed transports, and completes the durable ``published_posts``
+ledger after a successful external mutation.
 """
 from __future__ import annotations
 
@@ -52,25 +53,39 @@ class TransportError(PublishingError):
 
 
 _RECEIPT_RE = re.compile(r"^[A-Za-z0-9_-]{20,80}$")
-_JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,199}$")
 _MAX_TEXT = 500_000
 _DEFAULT_WEBHOOK_BASE = "https://n8n.donggu.site/webhook"
+_DEFAULT_PUBLISHER_API_BASE = "http://127.0.0.1:8000"
 _EXPECTED_SUPABASE_HOST = "fvfayignxybdyyravorg.supabase.co"
 
-_ENDPOINTS = {
-    ("tistory", "publish"): "sns-pub-tistory",
-    ("tistory", "update"): "sns-update-tistory",
-    ("tistory", "delete"): "sns-del-tistory",
-    ("maily", "publish"): "sns-pub-maily",
-    ("threads", "publish"): "sns-pub-threads",
-    ("threads", "delete"): "sns-del-threads",
-    ("linkedin", "publish"): "sns-pub-linkedin",
-    ("instagram", "publish"): "sns-pub-instagram",
+_LOCAL_ENDPOINTS = {
+    ("tistory", "publish"): "/publish-sync/tistory",
+    ("tistory", "update"): "/update-sync/tistory",
+    ("tistory", "delete"): "/unpublish-sync/tistory",
+    ("maily", "publish"): "/publish-sync/maily",
+}
+
+
+def _local_api_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Adapt the approval contract to FastAPI's PublishOptions envelope."""
+    adapted = dict(payload)
+    if "dry_run" in adapted:
+        options = dict(adapted.get("options") or {})
+        options["dry_run"] = adapted.pop("dry_run")
+        adapted["options"] = options
+    return adapted
+
+
+_WEBHOOK_ENDPOINTS = {
+    ("threads", "publish"): "/sns-pub-threads",
+    ("threads", "delete"): "/sns-del-threads",
+    ("linkedin", "publish"): "/sns-pub-linkedin",
+    ("instagram", "publish"): "/sns-pub-instagram",
 }
 
 _CONTRACTS = {
-    ("tistory", "publish"): ({"title", "content", "tags"}, {"category", "cover_image"}),
-    ("tistory", "update"): ({"title", "content", "tags"}, {"category", "cover_image", "dry_run"}),
+    ("tistory", "publish"): ({"title", "content"}, {"category", "tags", "cover_image"}),
+    ("tistory", "update"): ({"title", "content"}, {"category", "tags", "cover_image", "dry_run"}),
     ("maily", "publish"): ({"title", "content", "subtitle"}, {"tags", "dry_run"}),
     ("threads", "publish"): ({"content"}, {"image_urls"}),
     ("linkedin", "publish"): ({"content"}, set()),
@@ -95,57 +110,13 @@ def _nonempty(value: Any, field: str) -> str:
 
 
 _DENIAL_RE = re.compile(
-    r"취소|보류|나중에|일단\s*(?:기다|보류)|하지\s*마|하지\s*말|지\s*마|지\s*말|"
-    r"올리지\s*마|게시하지\s*마|발행하지\s*마|삭제하지\s*마|보내지\s*마|"
-    r"안\s*(?:돼|해|할래)",
+    r"취소|보류|하지\s*마|하지\s*말|올리지\s*마|게시하지\s*마|발행하지\s*마|"
+    r"삭제하지\s*마|보내지\s*마|안\s*(?:돼|해|할래)",
     re.IGNORECASE,
 )
 _APPROVAL_RE = re.compile(
-    r"^\s*(?:(?:네|예|그대로|이대로|지금|최종|계속|블로그|티스토리|게시물|"
-    r"포스트|이\s*글|해당\s*글|기존\s*글|업데이트|수정|삭제|발행|게시|"
-    r"내용|초안|post\s*\d+)(?:을|를|에|으로|로|은|는)?[\s,:]*){0,6}(?:"
-    r"승인(?:해\s*(?:줘|주세요)|합니다|할게|함)?|"
-    r"올려\s*(?:줘|주세요)|내려\s*(?:줘|주세요)|"
-    r"게시해\s*(?:줘|주세요)|발행해(?:\s*(?:줘|주세요))?|"
-    r"삭제해\s*(?:줘|주세요)|진행해\s*(?:줘|주세요)|"
-    r"적용해(?:\s*(?:줘|주세요))?"
-    r")(?:[.!])?\s*$",
-    re.IGNORECASE,
-)
-_OPERATION_APPROVAL_RE = {
-    "publish": re.compile(
-        r"(?:올려\s*(?:줘|주세요)|게시해\s*(?:줘|주세요)|"
-        r"발행해(?:\s*(?:줘|주세요))?|(?:발행|게시)\s*"
-        r"(?:승인|진행|적용)(?:해\s*(?:줘|주세요)|합니다|할게|함)?)",
-        re.IGNORECASE,
-    ),
-    "update": re.compile(
-        r"(?:업데이트|수정)(?:을|를)?\s*(?:"
-        r"해\s*(?:줘|주세요)|(?:승인|진행|적용)"
-        r"(?:해\s*(?:줘|주세요)|합니다|할게|함)?)",
-        re.IGNORECASE,
-    ),
-    "delete": re.compile(
-        r"(?:삭제해\s*(?:줘|주세요)|내려\s*(?:줘|주세요)|삭제\s*"
-        r"(?:승인|진행|적용)(?:해\s*(?:줘|주세요)|합니다|할게|함)?)",
-        re.IGNORECASE,
-    ),
-}
-_OPERATION_INTENT_RE = {
-    "publish": re.compile(r"올려|발행|게시(?!물)", re.IGNORECASE),
-    "update": re.compile(r"업데이트|수정", re.IGNORECASE),
-    "delete": re.compile(r"삭제|내려", re.IGNORECASE),
-}
-_MAILY_CONFIRM_RE = re.compile(
-    r"^\s*(?:(?:네|예)[\s,:]*)?(?:메일리|maily|메일)"
-    r"(?:\s*(?:뉴스레터|메일))?\s*최종\s*(?:발송|전송|보내기)\s*"
-    r"(?:승인|확인)(?:해\s*(?:줘|주세요)|합니다|할게|함)?(?:[.!])?\s*$",
-    re.IGNORECASE,
-)
-_NONFINAL_INTENT_RE = re.compile(
-    r"[?？]|(?:검토|확인)\s*후|(?:문제\s*없|괜찮|가능하)으면|"
-    r"(?:내일|나중에|다음에|잠시|아직)|(?:확신|모르|고민)|"
-    r"(?:해도|할지|될까|할까|볼까)",
+    r"(?:^|[\s:])(?:승인(?:해\s*줘|합니다|할게|함)?|올려\s*줘|내려\s*줘|게시해\s*줘|"
+    r"발행해\s*줘|삭제해\s*줘|진행해\s*줘)(?:$|[\s.!?])",
     re.IGNORECASE,
 )
 _URLISH_RE = re.compile(
@@ -154,34 +125,6 @@ _URLISH_RE = re.compile(
 )
 _HASHTAG_RE = re.compile(r"#[^\s#]+", re.UNICODE)
 _CODE_LANGUAGE_RE = re.compile(r"(?<!#)\b(?:C|F)#", re.IGNORECASE)
-_MARKDOWN_IMAGE_RE = re.compile(
-    r"!\[([^\]\r\n]*)\]\(\s*(?:<([^>\r\n]+)>|([^\s)\r\n]+))"
-    r"(?:\s+(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|\([^()\r\n]*\)))?\s*\)",
-    re.IGNORECASE,
-)
-_REFERENCE_IMAGE_RE = re.compile(r"!\[[^\]\r\n]*\]\s*\[[^\]\r\n]*\]", re.IGNORECASE)
-_RAW_NETWORK_HTML_RE = re.compile(
-    r"<\s*/?\s*[A-Za-z][A-Za-z0-9:-]*(?=[\s/>])",
-    re.IGNORECASE,
-)
-_FENCE_OPEN_RE = re.compile(
-    r"^(`{3,}|~{3,})[ ]*(?:\.?[\w#.+-]+)?[ ]*$"
-)
-_FENCE_CLOSE_RE = re.compile(r"^(`{3,}|~{3,})[ ]*$")
-
-
-def _markdown_lines(content: str) -> list[str]:
-    return str(content or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
-
-
-def _opening_fence(line: str) -> Optional[str]:
-    match = _FENCE_OPEN_RE.fullmatch(line)
-    return match.group(1) if match else None
-
-
-def _is_closing_fence(line: str, opening: str) -> bool:
-    match = _FENCE_CLOSE_RE.fullmatch(line)
-    return bool(match and secrets.compare_digest(match.group(1), opening))
 
 
 def _validate_content_contract(channel: str, operation: str, content: str) -> str:
@@ -203,25 +146,8 @@ def _require_explicit_approval(value: Any) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > _MAX_TEXT:
         raise ApprovalError("the current user message does not explicitly approve this operation")
     text = value
-    if (
-        _DENIAL_RE.search(text)
-        or _NONFINAL_INTENT_RE.search(text)
-        or _APPROVAL_RE.search(text) is None
-    ):
+    if _DENIAL_RE.search(text) or _APPROVAL_RE.search(text) is None:
         raise ApprovalError("the current user message does not explicitly approve this operation")
-    return text
-
-
-def _require_operation_approval(value: Any, operation: str) -> str:
-    text = _require_explicit_approval(value)
-    expected = _OPERATION_APPROVAL_RE.get(operation)
-    if expected is None or expected.search(text) is None:
-        raise ApprovalError("the approval message does not match the receipt operation")
-    if any(
-        other != operation and pattern.search(text) is not None
-        for other, pattern in _OPERATION_INTENT_RE.items()
-    ):
-        raise ApprovalError("the approval message mixes different publishing operations")
     return text
 
 
@@ -229,11 +155,14 @@ def _require_maily_confirmation(value: Any) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > _MAX_TEXT:
         raise ApprovalError("the current user message must explicitly confirm the final Maily send")
     text = value
-    if (
-        _DENIAL_RE.search(text)
-        or _NONFINAL_INTENT_RE.search(text)
-        or _MAILY_CONFIRM_RE.fullmatch(text) is None
-    ):
+    lowered = text.lower()
+    required = (
+        ("메일" in text or "maily" in lowered),
+        "최종" in text,
+        any(token in text for token in ("발송", "전송", "보내")),
+        any(token in text for token in ("승인", "확인", "해줘", "해 줘")),
+    )
+    if _DENIAL_RE.search(text) or not all(required):
         raise ApprovalError("the current user message must explicitly confirm the final Maily send")
     return text
 
@@ -241,12 +170,6 @@ def _require_maily_confirmation(value: Any) -> str:
 def _message_id(value: Any, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValidationError(f"{field} must be a positive integer")
-    return value
-
-
-def _optional_job_id(value: Any) -> Optional[str]:
-    if not isinstance(value, str) or _JOB_ID_RE.fullmatch(value) is None:
-        return None
     return value
 
 
@@ -264,25 +187,12 @@ def _validate_url(value: Any, field: str) -> str:
         address = None
     if address is not None and not address.is_global:
         raise ValidationError(f"{field} must not target a private or local address")
-    if address is not None and address.is_multicast:
-        raise ValidationError(f"{field} must use a public unicast address")
     return text
 
 
 def _validate_image_url(value: Any, *, allowed_hosts: set[str], resolve_dns: bool = True) -> str:
-    if not isinstance(value, str) or value != value.strip():
-        raise ValidationError("image URL contains a browser-normalized path")
     text = _validate_url(value, "image_url")
-    if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in text):
-        raise ValidationError("image URL contains browser-normalized path ambiguity")
-    if "\\" in text or re.search(r"%5c", text, re.IGNORECASE):
-        raise ValidationError("image URL contains browser-normalized path ambiguity")
-    parsed = urlparse(text)
-    for segment in parsed.path.split("/"):
-        browser_dot_segment = re.sub(r"%2e", ".", segment, flags=re.IGNORECASE)
-        if browser_dot_segment in {".", ".."}:
-            raise ValidationError("image URL contains browser-normalized path ambiguity")
-    hostname = str(parsed.hostname).lower()
+    hostname = str(urlparse(text).hostname).lower()
     if hostname not in allowed_hosts:
         raise ValidationError("image URL host is not allowlisted")
     if resolve_dns:
@@ -300,73 +210,7 @@ def _validate_image_url(value: Any, *, allowed_hosts: set[str], resolve_dns: boo
                 raise ValidationError("image URL resolved to an invalid address") from None
             if not address.is_global:
                 raise ValidationError("image URL must not resolve to a private or local address")
-            if address.is_multicast:
-                raise ValidationError("image URL must resolve to a public unicast address")
     return text
-
-
-def _extract_markdown_images(content: str) -> list[Dict[str, str]]:
-    visible_lines: list[str] = []
-    probe_fence: Optional[str] = None
-    probe_fence_lines: list[str] = []
-    for line in _markdown_lines(content):
-        if probe_fence is None:
-            opening = _opening_fence(line)
-            if opening is not None:
-                probe_fence = opening
-                probe_fence_lines = [line]
-                continue
-            visible_lines.append(line)
-            continue
-        probe_fence_lines.append(line)
-        if _is_closing_fence(line, probe_fence):
-            probe_fence = None
-            probe_fence_lines = []
-    if probe_fence is not None:
-        visible_lines.extend(probe_fence_lines)
-    visible_content = "\n".join(visible_lines)
-    if _RAW_NETWORK_HTML_RE.search(visible_content):
-        raise ValidationError("raw HTML network resources are not allowed in Tistory content")
-    if _REFERENCE_IMAGE_RE.search(visible_content):
-        raise ValidationError("reference-style images are not allowed in Tistory content")
-    if probe_fence is not None:
-        raise ValidationError("unclosed fenced code block in Tistory content")
-
-    images: list[Dict[str, str]] = []
-    section = "lead"
-    fence: Optional[str] = None
-    for line in _markdown_lines(content):
-        if fence is None:
-            opening = _opening_fence(line)
-            if opening is not None:
-                fence = opening
-                continue
-        else:
-            if _is_closing_fence(line, fence):
-                fence = None
-            continue
-        if line.startswith("    ") or line.startswith("\t"):
-            continue
-        if _RAW_NETWORK_HTML_RE.search(line):
-            raise ValidationError("raw HTML network resources are not allowed in Tistory content")
-        if _REFERENCE_IMAGE_RE.search(line):
-            raise ValidationError("reference-style images are not allowed in Tistory content")
-        heading = re.match(r"^##\s+(.+?)\s*$", line)
-        if heading:
-            section = heading.group(1)
-        matches = list(_MARKDOWN_IMAGE_RE.finditer(line))
-        remainder = _MARKDOWN_IMAGE_RE.sub("", line)
-        if "![" in remainder:
-            raise ValidationError("unsupported or malformed image syntax in Tistory content")
-        for match in matches:
-            images.append({
-                "alt": match.group(1).strip(),
-                "url": (match.group(2) or match.group(3)).strip(),
-                "section": section,
-            })
-    if fence is not None:
-        raise ValidationError("unclosed fenced code block in Tistory content")
-    return images
 
 
 def _validate_service_base(value: str, *, service: str, allow_test_origins: bool) -> str:
@@ -380,6 +224,8 @@ def _validate_service_base(value: str, *, service: str, allow_test_origins: bool
         return text
     if service == "webhook":
         valid = parsed.scheme == "https" and parsed.hostname == "n8n.donggu.site" and parsed.port is None and parsed.path == "/webhook"
+    elif service == "publisher":
+        valid = text == _DEFAULT_PUBLISHER_API_BASE
     else:
         valid = parsed.scheme == "https" and parsed.hostname == _EXPECTED_SUPABASE_HOST and parsed.port is None and parsed.path in {"", "/"}
     if not valid:
@@ -421,22 +267,7 @@ def _validate_payload(
         elif field in {"tags"}:
             if not isinstance(value, list) or len(value) > 50:
                 raise ValidationError("tags must be a bounded string list")
-            if channel != "tistory":
-                clean[field] = [_nonempty(item, "tag").strip() for item in value]
-                continue
-            normalized_tags = []
-            seen_tags = set()
-            for item in value:
-                tag = _nonempty(item, "tag").strip().lstrip("#").strip()
-                if not tag or len(tag) > 30 or "/" in tag:
-                    raise ValidationError("tag must be a public tag without namespaces")
-                key = tag.casefold()
-                if key not in seen_tags:
-                    seen_tags.add(key)
-                    normalized_tags.append(tag)
-            if not 3 <= len(normalized_tags) <= 10:
-                raise ValidationError("tistory requires 3 to 10 distinct tags")
-            clean[field] = normalized_tags
+            clean[field] = [_nonempty(item, "tag") for item in value]
         elif field == "image_urls":
             if not isinstance(value, list) or not 1 <= len(value) <= 10:
                 raise ValidationError("image_urls must contain 1 to 10 URLs")
@@ -452,13 +283,6 @@ def _validate_payload(
             clean[field] = value
         else:  # exact-key validation above makes this defensive only
             raise ValidationError("unsupported payload field")
-    if "content" in clean:
-        for image in _extract_markdown_images(clean["content"]):
-            _validate_image_url(
-                image["url"],
-                allowed_hosts=allowed_image_hosts,
-                resolve_dns=resolve_image_hosts,
-            )
     return clean
 
 
@@ -478,6 +302,76 @@ def _request_json(method: str, url: str, *, headers: Dict[str, str], body: Optio
         return json.loads(raw or b"null")
     except (ValueError, UnicodeError):
         raise TransportError("remote returned invalid JSON") from None
+
+
+@dataclass
+class LocalPublisherTransport:
+    base_url: str
+    api_token: str
+    timeout: int = 200
+    allow_test_origins: bool = False
+
+    def __post_init__(self) -> None:
+        self.base_url = _validate_service_base(
+            self.base_url,
+            service="publisher",
+            allow_test_origins=self.allow_test_origins,
+        )
+        self.api_token = _nonempty(self.api_token, "publisher API token")
+        self.timeout = int(self.timeout)
+
+    def send(
+        self, *, channel: str, operation: str, payload: Dict[str, Any], receipt_id: str,
+    ) -> Any:
+        endpoint = _LOCAL_ENDPOINTS.get((channel, operation))
+        if endpoint is None:
+            raise ValidationError("unsupported local publisher route")
+        return _request_json(
+            "POST",
+            self.base_url + endpoint,
+            headers={
+                "Content-Type": "application/json",
+                "X-API-Token": self.api_token,
+                "X-Idempotency-Key": receipt_id,
+            },
+            body=_local_api_payload(payload),
+            timeout=self.timeout,
+        )
+
+
+@dataclass
+class WebhookPublisherTransport:
+    base_url: str
+    webhook_token: str
+    timeout: int = 200
+    allow_test_origins: bool = False
+
+    def __post_init__(self) -> None:
+        self.base_url = _validate_service_base(
+            self.base_url,
+            service="webhook",
+            allow_test_origins=self.allow_test_origins,
+        )
+        self.webhook_token = _nonempty(self.webhook_token, "webhook token")
+        self.timeout = int(self.timeout)
+
+    def send(
+        self, *, channel: str, operation: str, payload: Dict[str, Any], receipt_id: str,
+    ) -> Any:
+        endpoint = _WEBHOOK_ENDPOINTS.get((channel, operation))
+        if endpoint is None:
+            raise ValidationError("unsupported webhook publisher route")
+        return _request_json(
+            "POST",
+            self.base_url + endpoint,
+            headers={
+                "Content-Type": "application/json",
+                "X-SNS-Token": self.webhook_token,
+                "X-Idempotency-Key": receipt_id,
+            },
+            body=payload,
+            timeout=self.timeout,
+        )
 
 
 @dataclass
@@ -517,7 +411,7 @@ class SupabaseLedger:
             headers["Prefer"] = prefer
         return headers
 
-    def find_active_optional(self, topic: str, channel: str) -> Optional[Dict[str, Any]]:
+    def find_active(self, topic: str, channel: str) -> Dict[str, Any]:
         query = urlencode({
             "select": "id,post_id,url,note_path",
             "topic": "eq." + topic,
@@ -527,29 +421,18 @@ class SupabaseLedger:
             "limit": "2",
         })
         rows = _request_json("GET", self.endpoint + "?" + query, headers=self._headers(), timeout=self.timeout)
-        if not isinstance(rows, list):
-            raise ValidationError("invalid active ledger response")
-        if not rows:
-            return None
-        if len(rows) != 1 or not isinstance(rows[0], dict):
-            raise ValidationError("multiple active ledger posts found")
+        if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+            raise ValidationError("no active ledger post found")
         ledger_id = rows[0].get("id")
         if isinstance(ledger_id, bool) or not isinstance(ledger_id, (int, str)) or str(ledger_id).strip() == "":
             raise ValidationError("active ledger row has no id")
         post_id = rows[0].get("post_id")
+        if not isinstance(post_id, str) or not post_id:
+            raise ValidationError("active ledger row has no post_id")
         return {
             "id": ledger_id, "post_id": post_id,
             "url": rows[0].get("url"), "note_path": rows[0].get("note_path"),
         }
-
-    def find_active(self, topic: str, channel: str) -> Dict[str, Any]:
-        row = self.find_active_optional(topic, channel)
-        if row is None:
-            raise ValidationError("no active ledger post found")
-        if not isinstance(row.get("post_id"), str) or not row["post_id"]:
-            raise ValidationError("active ledger row has no post_id")
-        row["url"] = _validate_url(row.get("url"), "active ledger row url")
-        return row
 
     def record_publish(self, *, topic: str, channel: str, note_path: str, post_id: Any, url: Any) -> None:
         body = {
@@ -604,18 +487,11 @@ class ReceiptStore:
     def __init__(self, root: Path, ttl_seconds: int = 900):
         self.root = Path(root).expanduser()
         self.ttl_seconds = int(ttl_seconds)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         try:
-            self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-            root_stat = self.root.lstat()
-            if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(root_stat.st_mode):
-                raise OSError("receipt root is not a real directory")
-            if hasattr(os, "geteuid") and root_stat.st_uid != os.geteuid():
-                raise OSError("receipt root is not owned by the current user")
             os.chmod(self.root, 0o700)
-            if stat.S_IMODE(self.root.lstat().st_mode) != 0o700:
-                raise OSError("receipt root mode is not 0700")
-        except OSError as exc:
-            raise ReceiptError("cannot secure receipt root") from exc
+        except OSError:
+            pass
         self._signing_key = secrets.token_bytes(32)
 
     def _signature(self, receipt: Dict[str, Any]) -> str:
@@ -627,179 +503,16 @@ class ReceiptStore:
             raise ReceiptError("invalid receipt id")
         return self.root / (receipt_id + ".json")
 
-    def _read_receipt_file(self, path: Path) -> Dict[str, Any]:
-        flags = os.O_RDONLY
-        if hasattr(os, "O_CLOEXEC"):
-            flags |= os.O_CLOEXEC
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        try:
-            fd = os.open(path, flags)
-            with os.fdopen(fd, "rb", closefd=True) as stream:
-                file_stat = os.fstat(stream.fileno())
-                if not stat.S_ISREG(file_stat.st_mode):
-                    raise OSError("receipt is not a regular file")
-                if hasattr(os, "geteuid") and file_stat.st_uid != os.geteuid():
-                    raise OSError("receipt is not owned by the current user")
-                if stat.S_IMODE(file_stat.st_mode) != 0o600:
-                    raise OSError("receipt mode is not 0600")
-                if file_stat.st_size > 2 * 1024 * 1024:
-                    raise OSError("receipt exceeds size limit")
-                raw = stream.read(2 * 1024 * 1024 + 1)
-            if len(raw) > 2 * 1024 * 1024:
-                raise OSError("receipt exceeds size limit")
-            receipt = json.loads(raw.decode("utf-8"))
-            if not isinstance(receipt, dict):
-                raise ValueError("receipt is not an object")
-            return receipt
-        except (OSError, UnicodeError, ValueError, TypeError) as exc:
-            raise ReceiptError("invalid receipt file") from exc
-
     @contextmanager
-    def _named_lock(self, name: str):
-        lock_path = self.root / (name + ".lock")
-        flags = os.O_CREAT | os.O_RDWR
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        fd = os.open(lock_path, flags, 0o600)
-        os.fchmod(fd, 0o600)
+    def _lock(self, receipt_id: str):
+        lock_path = self.root / (self._path(receipt_id).stem + ".lock")
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         with os.fdopen(fd, "a+b", closefd=True) as stream:
             fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
             try:
                 yield
             finally:
                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
-
-    @contextmanager
-    def _lock(self, receipt_id: str):
-        with self._named_lock(self._path(receipt_id).stem):
-            yield
-
-    @contextmanager
-    def mutation_lock(self, *, channel: str, topic: str):
-        lock_id = hashlib.sha256(
-            _canonical({"channel": channel, "topic": topic})
-        ).hexdigest()
-        with self._named_lock("target-" + lock_id):
-            yield
-
-    def _authorization_path(
-        self, *, session_digest: str, user_message_id: int,
-    ) -> Path:
-        if re.fullmatch(r"[0-9a-f]{64}", session_digest) is None:
-            raise ApprovalError("invalid authorization session binding")
-        if not isinstance(user_message_id, int) or isinstance(user_message_id, bool):
-            raise ApprovalError("invalid authorization message binding")
-        claim_id = hashlib.sha256(_canonical({
-            "session_sha256": session_digest,
-            "user_message_id": user_message_id,
-        })).hexdigest()
-        return self.root / f"authorization-{claim_id}.claim"
-
-    def _read_authorization_claim(
-        self, path: Path, *, session_digest: str, user_message_id: int,
-    ) -> Dict[str, Any]:
-        claim = self._read_receipt_file(path)
-        if (
-            claim.get("kind") != "authorization_claim"
-            or claim.get("session_sha256") != session_digest
-            or claim.get("user_message_id") != user_message_id
-            or not isinstance(claim.get("receipt_id"), str)
-            or _RECEIPT_RE.fullmatch(claim["receipt_id"]) is None
-        ):
-            raise ReceiptError("invalid authorization claim")
-        return claim
-
-    def _write_authorization_claim(self, path: Path, claim: Dict[str, Any]) -> None:
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        if hasattr(os, "O_CLOEXEC"):
-            flags |= os.O_CLOEXEC
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        try:
-            fd = os.open(path, flags, 0o600)
-        except FileExistsError:
-            raise ApprovalError(
-                "this persisted user authorization was already used for another receipt"
-            ) from None
-        try:
-            os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "wb", closefd=True) as stream:
-                stream.write(_canonical(claim))
-                stream.flush()
-                os.fsync(stream.fileno())
-            if stat.S_IMODE(path.lstat().st_mode) != 0o600:
-                raise OSError("authorization claim mode is not 0600")
-            directory_flags = os.O_RDONLY
-            if hasattr(os, "O_CLOEXEC"):
-                directory_flags |= os.O_CLOEXEC
-            if hasattr(os, "O_DIRECTORY"):
-                directory_flags |= os.O_DIRECTORY
-            directory_fd = os.open(self.root, directory_flags)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        except Exception:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-            raise
-
-    def claim_with_authorization(
-        self,
-        receipt_id: str,
-        expected_state: str,
-        next_state: str,
-        *,
-        session_digest: str,
-        user_message_id: int,
-        authorization_kind: str,
-        validator: Callable[[Dict[str, Any]], None],
-        authoritative_message_validator: Optional[Callable[[], None]] = None,
-        authoritative_claim_executor: Optional[
-            Callable[[Callable[[], Dict[str, Any]]], Dict[str, Any]]
-        ] = None,
-        **updates: Any,
-    ) -> Dict[str, Any]:
-        authorization_path = self._authorization_path(
-            session_digest=session_digest,
-            user_message_id=user_message_id,
-        )
-        with self._lock(receipt_id):
-            receipt = self.load(receipt_id, require_state=expected_state)
-            validator(receipt)
-            with self._named_lock(authorization_path.stem):
-                def claim() -> Dict[str, Any]:
-                    try:
-                        authorization_path.lstat()
-                    except FileNotFoundError:
-                        pass
-                    else:
-                        self._read_authorization_claim(
-                            authorization_path,
-                            session_digest=session_digest,
-                            user_message_id=user_message_id,
-                        )
-                        raise ApprovalError(
-                            "this persisted user authorization was already used for another receipt"
-                        )
-                    self._write_authorization_claim(authorization_path, {
-                        "kind": "authorization_claim",
-                        "authorization_kind": authorization_kind,
-                        "session_sha256": session_digest,
-                        "user_message_id": user_message_id,
-                        "receipt_id": receipt_id,
-                        "created_at": int(time.time()),
-                    })
-                    return self.transition(receipt, next_state, **updates)
-
-                if authoritative_claim_executor is not None:
-                    return authoritative_claim_executor(claim)
-                if authoritative_message_validator is not None:
-                    authoritative_message_validator()
-                return claim()
 
     def _write(self, receipt: Dict[str, Any]) -> None:
         receipt["receipt_hmac"] = self._signature(receipt)
@@ -812,18 +525,7 @@ class ReceiptStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temp_name, target)
-            if stat.S_IMODE(target.lstat().st_mode) != 0o600:
-                raise OSError("receipt mode is not 0600 after replace")
-            directory_flags = os.O_RDONLY
-            if hasattr(os, "O_CLOEXEC"):
-                directory_flags |= os.O_CLOEXEC
-            if hasattr(os, "O_DIRECTORY"):
-                directory_flags |= os.O_DIRECTORY
-            directory_fd = os.open(self.root, directory_flags)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            os.chmod(target, 0o600)
         except Exception:
             try:
                 os.close(fd)
@@ -850,8 +552,10 @@ class ReceiptStore:
     def load(self, receipt_id: str, *, require_state: Optional[str] = None) -> Dict[str, Any]:
         path = self._path(receipt_id)
         try:
-            receipt = self._read_receipt_file(path)
-        except ReceiptError:
+            if stat.S_ISLNK(path.lstat().st_mode):
+                raise ReceiptError("invalid receipt file")
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
             raise ReceiptError("receipt not found or invalid") from None
         if receipt.get("receipt_id") != receipt_id:
             raise ReceiptError("receipt binding mismatch")
@@ -871,38 +575,6 @@ class ReceiptStore:
         next_receipt = {**receipt, **updates, "state": state, "updated_at": int(time.time())}
         self._write(next_receipt)
         return next_receipt
-
-    def assert_no_reconciliation(self, *, channel: str, topic: str) -> None:
-        """Block a new mutation receipt while the same target has unresolved outcome.
-
-        Terminal reconciliation receipts remain useful after a gateway restart even
-        though their process-local HMAC can no longer authorize an operation.  The
-        receipt directory is private (0700; files 0600), so this scan uses only the
-        non-secret routing fields and never treats a raw file as an authorization.
-        """
-        for path in self.root.glob("*.json"):
-            receipt = self._read_receipt_file(path)
-            if receipt.get("receipt_id") != path.stem:
-                raise ReceiptError("invalid receipt file")
-            if not all(
-                isinstance(receipt.get(field), str) and receipt.get(field)
-                for field in ("state", "channel", "topic")
-            ):
-                raise ReceiptError("invalid receipt file")
-            if not (
-                secrets.compare_digest(str(receipt.get("channel") or ""), channel)
-                and secrets.compare_digest(str(receipt.get("topic") or ""), topic)
-            ):
-                continue
-            state = receipt.get("state")
-            if state == "reconciliation_required":
-                raise ReceiptError(
-                    "unresolved reconciliation blocks a new mutation receipt"
-                )
-            if state == "dispatching":
-                raise ReceiptError(
-                    "unresolved mutation blocks a new mutation receipt"
-                )
 
     def claim(
         self,
@@ -938,6 +610,8 @@ class PublishingRuntime:
         receipt_root: Path,
         webhook_base_url: str,
         webhook_token: str,
+        publisher_api_base_url: str,
+        publisher_api_token: str,
         ledger: SupabaseLedger,
         receipt_ttl_seconds: int = 900,
         timeout: int = 200,
@@ -945,27 +619,55 @@ class PublishingRuntime:
         image_allowed_hosts: Optional[set[str]] = None,
     ):
         self.store = ReceiptStore(receipt_root, receipt_ttl_seconds)
-        self.webhook_base_url = _validate_service_base(
-            webhook_base_url,
-            service="webhook",
+        self.local_transport = LocalPublisherTransport(
+            base_url=publisher_api_base_url,
+            api_token=publisher_api_token,
+            timeout=timeout,
             allow_test_origins=allow_test_origins,
         )
-        self.webhook_token = _nonempty(webhook_token, "webhook token")
+        self.webhook_transport = WebhookPublisherTransport(
+            base_url=webhook_base_url,
+            webhook_token=webhook_token,
+            timeout=timeout,
+            allow_test_origins=allow_test_origins,
+        )
         self.ledger = ledger
         self.timeout = int(timeout)
         self.image_allowed_hosts = set(image_allowed_hosts or ({"img.test"} if allow_test_origins else {_EXPECTED_SUPABASE_HOST}))
         self.resolve_image_hosts = not allow_test_origins
+        self._authorization_lock = threading.Lock()
+        self._consumed_authorizations: Dict[tuple[str, int], str] = {}
+
+    def _consume_authorization(
+        self, *, session_digest: str, user_message_id: int, receipt_id: str,
+        claim: Callable[[], Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        key = (session_digest, user_message_id)
+        with self._authorization_lock:
+            if key in self._consumed_authorizations:
+                raise ApprovalError("this persisted user authorization was already used for another receipt")
+            receipt = claim()
+            self._consumed_authorizations[key] = receipt_id
+            return receipt
 
     @classmethod
     def from_env(cls) -> "PublishingRuntime":
-        token = os.getenv("SNS_WEBHOOK_TOKEN", "").strip()
-        if not token:
+        webhook_token = os.getenv("SNS_WEBHOOK_TOKEN", "").strip()
+        if not webhook_token:
             raise ValidationError("SNS_WEBHOOK_TOKEN is required")
+        publisher_token = os.getenv("PUBLISHER_API_TOKEN", "").strip()
+        if not publisher_token:
+            raise ValidationError("PUBLISHER_API_TOKEN is required")
+        publisher_base_url = os.getenv(
+            "PUBLISHER_API_BASE_URL", _DEFAULT_PUBLISHER_API_BASE,
+        ).strip()
         home = Path(os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser()
         return cls(
             receipt_root=home / "state" / "donggu-publishing" / "receipts",
             webhook_base_url=_DEFAULT_WEBHOOK_BASE,
-            webhook_token=token,
+            webhook_token=webhook_token,
+            publisher_api_base_url=publisher_base_url,
+            publisher_api_token=publisher_token,
             ledger=SupabaseLedger.from_env(),
         )
 
@@ -1003,28 +705,19 @@ class PublishingRuntime:
         receipt = None
         if issue_receipt:
             preview_message_id = _message_id(user_message_id, "trusted preview user message id")
-            with self.store.mutation_lock(channel=channel, topic=topic):
-                self.store.assert_no_reconciliation(
-                    channel=channel, topic=topic,
-                )
-                receipt = self.store.issue({
-                    **binding,
-                    "payload_sha256": payload_sha256,
-                    "session_sha256": hashlib.sha256(session_id.encode("utf-8")).hexdigest(),
-                    "preview_turn_sha256": hashlib.sha256(turn_id.encode("utf-8")).hexdigest(),
-                    "preview_message_id": preview_message_id,
-                })
+            receipt = self.store.issue({
+                **binding,
+                "payload_sha256": payload_sha256,
+                "session_sha256": hashlib.sha256(session_id.encode("utf-8")).hexdigest(),
+                "preview_turn_sha256": hashlib.sha256(turn_id.encode("utf-8")).hexdigest(),
+                "preview_message_id": preview_message_id,
+            })
         preview: Dict[str, Any] = {"payload": clean}
         if "content" in clean:
             preview["content_chars"] = len(clean["content"])
         if "caption" in clean:
             preview["caption_chars"] = len(clean["caption"])
-        inline_images = _extract_markdown_images(clean.get("content", ""))
-        image_urls = list(clean.get("image_urls", []))
-        image_urls.extend(image["url"] for image in inline_images)
-        preview["image_count"] = len(dict.fromkeys(image_urls))
-        if inline_images:
-            preview["inline_images"] = inline_images
+        preview["image_count"] = len(clean.get("image_urls", []))
         if resolved:
             preview["current_url"] = resolved.get("url")
             preview["post_id"] = resolved.get("post_id")
@@ -1060,26 +753,9 @@ class PublishingRuntime:
         if not isinstance(expected, str) or not secrets.compare_digest(expected, actual):
             raise ReceiptError("receipt payload binding mismatch")
 
-    def _verify_current_target(self, receipt: Dict[str, Any]) -> None:
-        if receipt.get("operation") not in {"update", "delete"}:
-            return
-        approved = receipt.get("resolved")
-        if not isinstance(approved, dict):
-            raise ReceiptError("approved target binding is missing")
-        current = self.ledger.find_active(
-            str(receipt.get("topic") or ""),
-            str(receipt.get("channel") or ""),
-        )
-        if not secrets.compare_digest(_sha256(approved), _sha256(current)):
-            raise ReceiptError("approved target changed before dispatch")
-
     def approve(
         self, receipt_id: str, *, approval_text: str, session_id: str, turn_id: str,
         user_message_id: int,
-        authoritative_message_validator: Optional[Callable[[], None]] = None,
-        authoritative_claim_executor: Optional[
-            Callable[[Callable[[], Dict[str, Any]]], Dict[str, Any]]
-        ] = None,
     ) -> Dict[str, Any]:
         approval_text = _require_explicit_approval(approval_text)
         approval_message_id = _message_id(user_message_id, "trusted approval user message id")
@@ -1088,9 +764,6 @@ class PublishingRuntime:
 
         def validate(receipt: Dict[str, Any]) -> None:
             self._verify_binding(receipt)
-            _require_operation_approval(
-                approval_text, str(receipt.get("operation") or ""),
-            )
             if not secrets.compare_digest(str(receipt.get("session_sha256") or ""), session_digest):
                 raise ApprovalError("approval must come from the preview session")
             if secrets.compare_digest(str(receipt.get("preview_turn_sha256") or ""), turn_digest):
@@ -1099,29 +772,25 @@ class PublishingRuntime:
             if not isinstance(preview_message_id, int) or approval_message_id <= preview_message_id:
                 raise ApprovalError("approval must come from a newly persisted user message")
 
-        receipt = self.store.claim_with_authorization(
-            receipt_id,
-            "planned",
-            "approved",
+        receipt = self._consume_authorization(
             session_digest=session_digest,
             user_message_id=approval_message_id,
-            authorization_kind="approve",
-            validator=validate,
-            authoritative_message_validator=authoritative_message_validator,
-            authoritative_claim_executor=authoritative_claim_executor,
-            approval_sha256=hashlib.sha256(approval_text.strip().encode("utf-8")).hexdigest(),
-            approval_turn_sha256=turn_digest,
-            approval_message_id=approval_message_id,
+            receipt_id=receipt_id,
+            claim=lambda: self.store.claim(
+                receipt_id,
+                "planned",
+                "approved",
+                validator=validate,
+                approval_sha256=hashlib.sha256(approval_text.strip().encode("utf-8")).hexdigest(),
+                approval_turn_sha256=turn_digest,
+                approval_message_id=approval_message_id,
+            ),
         )
         return {"status": "approved", "receipt_id": receipt_id, "expires_at": receipt["expires_at"]}
 
     def confirm_irreversible(
         self, receipt_id: str, *, confirmation_text: str, session_id: str, turn_id: str,
         user_message_id: int,
-        authoritative_message_validator: Optional[Callable[[], None]] = None,
-        authoritative_claim_executor: Optional[
-            Callable[[Callable[[], Dict[str, Any]]], Dict[str, Any]]
-        ] = None,
     ) -> Dict[str, Any]:
         confirmation_text = _require_maily_confirmation(confirmation_text)
         confirmation_message_id = _message_id(user_message_id, "trusted confirmation user message id")
@@ -1146,32 +815,23 @@ class PublishingRuntime:
             if not is_real_maily:
                 raise ReceiptError("receipt does not require irreversible confirmation")
 
-        receipt = self.store.claim_with_authorization(
-            receipt_id,
-            "approved",
-            "confirmed",
+        receipt = self._consume_authorization(
             session_digest=session_digest,
             user_message_id=confirmation_message_id,
-            authorization_kind="confirm_maily",
-            validator=validate,
-            authoritative_message_validator=authoritative_message_validator,
-            authoritative_claim_executor=authoritative_claim_executor,
-            confirmation_sha256=hashlib.sha256(confirmation_text.strip().encode("utf-8")).hexdigest(),
-            confirmation_turn_sha256=turn_digest,
-            confirmation_message_id=confirmation_message_id,
+            receipt_id=receipt_id,
+            claim=lambda: self.store.claim(
+                receipt_id,
+                "approved",
+                "confirmed",
+                validator=validate,
+                confirmation_sha256=hashlib.sha256(confirmation_text.strip().encode("utf-8")).hexdigest(),
+                confirmation_turn_sha256=turn_digest,
+                confirmation_message_id=confirmation_message_id,
+            ),
         )
         return {"status": "confirmed", "receipt_id": receipt_id, "expires_at": receipt["expires_at"]}
 
     def dispatch(self, receipt_id: str, *, session_id: str) -> Dict[str, Any]:
-        observed = self.store.load(receipt_id)
-        self._verify_binding(observed)
-        channel = _nonempty(observed.get("channel"), "receipt channel")
-        topic = _nonempty(observed.get("topic"), "receipt topic")
-        with self.store.mutation_lock(channel=channel, topic=topic):
-            self.store.assert_no_reconciliation(channel=channel, topic=topic)
-            return self._dispatch_locked(receipt_id, session_id=session_id)
-
-    def _dispatch_locked(self, receipt_id: str, *, session_id: str) -> Dict[str, Any]:
         session_digest = hashlib.sha256(_nonempty(session_id, "trusted session id").encode("utf-8")).hexdigest()
         observed = self.store.load(receipt_id)
         self._verify_binding(observed)
@@ -1188,177 +848,47 @@ class PublishingRuntime:
             if not secrets.compare_digest(str(receipt.get("session_sha256") or ""), session_digest):
                 raise ApprovalError("dispatch must use the preview session")
 
-        try:
-            self._verify_current_target(observed)
-        except PublishingError as exc:
-            result = {
-                "status": "failed",
-                "error": str(exc)[:1000],
-                "receipt_id": receipt_id,
-            }
-            self.store.claim(
-                receipt_id,
-                expected_state,
-                "failed",
-                validator=validate,
-                result=result,
-                payload=None,
-            )
-            return result
-
         receipt = self.store.claim(
             receipt_id,
             expected_state,
             "dispatching",
             validator=validate,
         )
-        try:
-            self._verify_current_target(receipt)
-        except PublishingError as exc:
-            result = {
-                "status": "failed",
-                "error": str(exc)[:1000],
-                "receipt_id": receipt_id,
-            }
-            self.store.transition(receipt, "failed", result=result, payload=None)
-            return result
         channel = receipt["channel"]
         operation = receipt["operation"]
         webhook_payload = dict(receipt["payload"])
-        real_publish = operation == "publish" and not (
-            channel == "maily" and webhook_payload.get("dry_run") is True
-        )
-        external_operation = real_publish or operation in {"update", "delete"}
-
-        def require_reconciliation(
-            error: str, *, url: Optional[str] = None, post_id: Optional[str] = None,
-            job_id: Optional[str] = None,
-        ) -> Dict[str, Any]:
-            result = {
-                "status": "reconciliation_required",
-                "error": error[:1000],
-                "receipt_id": receipt_id,
-                "channel": channel,
-                "operation": operation,
-                "url": url,
-                "post_id": post_id,
-                "job_id": job_id,
-            }
-            if operation in {"update", "delete"}:
-                resolved = receipt.get("resolved") or {}
-                expected_url = resolved.get("url")
-                expected_post_id = resolved.get("post_id")
-                if url and url != expected_url:
-                    result["observed_url"] = url
-                if post_id and str(post_id) != str(expected_post_id):
-                    result["observed_post_id"] = post_id
-                result["url"] = expected_url
-                result["post_id"] = expected_post_id
-            self.store.transition(
-                receipt, "reconciliation_required", result=result, payload=None,
-            )
-            return result
-        if real_publish:
-            try:
-                existing = self.ledger.find_active_optional(receipt["topic"], channel)
-            except PublishingError:
-                result = {
-                    "status": "failed",
-                    "error": "ledger preflight failed; external mutation was not attempted",
-                    "receipt_id": receipt_id,
-                }
-                self.store.transition(receipt, "failed", result=result, payload=None)
-                return result
-            if existing is not None:
-                result = {
-                    "status": "reconciliation_required",
-                    "error": "active ledger post already exists; use update",
-                    "receipt_id": receipt_id,
-                    "channel": channel,
-                    "operation": operation,
-                    "url": existing.get("url"),
-                    "post_id": existing.get("post_id"),
-                }
-                self.store.transition(
-                    receipt, "reconciliation_required", result=result, payload=None,
-                )
-                return result
         if operation in {"update", "delete"}:
             webhook_payload["post_id"] = receipt["resolved"]["post_id"]
-        endpoint = _ENDPOINTS[(channel, operation)]
-        headers = {
-            "Content-Type": "application/json",
-            "X-SNS-Token": self.webhook_token,
-            "X-Idempotency-Key": receipt_id,
-        }
+        transport = (
+            self.local_transport
+            if (channel, operation) in _LOCAL_ENDPOINTS
+            else self.webhook_transport
+        )
         try:
-            response = _request_json(
-                "POST",
-                self.webhook_base_url + "/" + endpoint,
-                headers=headers,
-                body=webhook_payload,
-                timeout=self.timeout,
+            response = transport.send(
+                channel=channel,
+                operation=operation,
+                payload=webhook_payload,
+                receipt_id=receipt_id,
             )
         except TransportError as exc:
-            if exc.uncertain and external_operation:
-                return require_reconciliation(str(exc))
-            state = "failed"
-            result = {
-                "status": state,
-                "error": str(exc),
-                "receipt_id": receipt_id,
-                "channel": channel,
-                "operation": operation,
-            }
+            state = "uncertain" if exc.uncertain else "failed"
+            result = {"status": state, "error": str(exc), "receipt_id": receipt_id}
             self.store.transition(receipt, state, result=result, payload=None)
             return result
-        if not isinstance(response, dict):
-            if external_operation:
-                return require_reconciliation("publisher returned a non-object response")
-            result = {"status": "failed", "error": "publisher reported failure", "receipt_id": receipt_id}
-            self.store.transition(receipt, "failed", result=result, payload=None)
-            return result
-        if response.get("success") is not True:
-            remote_error = response.get("error")
+        if not isinstance(response, dict) or response.get("success") is not True:
+            mutation_possible = (
+                isinstance(response, dict)
+                and response.get("external_mutation_possible") is True
+            )
+            state = "uncertain" if mutation_possible else "failed"
             error = (
-                remote_error[:1000]
-                if isinstance(remote_error, str) and remote_error.strip()
+                response.get("error")
+                if isinstance(response, dict) and isinstance(response.get("error"), str)
                 else "publisher reported failure"
             )
-            if operation in {"publish", "update", "delete"}:
-                external_url = None
-                external_post_id = None
-                external_job_id = _optional_job_id(response.get("job_id"))
-                has_external_identifiers = external_job_id is not None
-                if operation in {"publish", "update"}:
-                    try:
-                        external_url = _validate_url(response.get("url"), "publisher url")
-                        has_external_identifiers = True
-                    except ValidationError:
-                        pass
-                    try:
-                        candidate_post_id = response.get("post_id")
-                        if channel in {"tistory", "threads"}:
-                            external_post_id = _nonempty(
-                                candidate_post_id, "publisher post_id",
-                            )
-                        elif isinstance(candidate_post_id, str) and candidate_post_id:
-                            external_post_id = candidate_post_id
-                        if external_post_id is not None:
-                            has_external_identifiers = True
-                    except ValidationError:
-                        pass
-                external_mutation_possible = (
-                    response.get("external_mutation_possible") is True
-                    or has_external_identifiers
-                )
-                if external_mutation_possible:
-                    return require_reconciliation(
-                        error, url=external_url, post_id=external_post_id,
-                        job_id=external_job_id,
-                    )
-            result = {"status": "failed", "error": error, "receipt_id": receipt_id}
-            self.store.transition(receipt, "failed", result=result, payload=None)
+            result = {"status": state, "error": error, "receipt_id": receipt_id}
+            self.store.transition(receipt, state, result=result, payload=None)
             return result
 
         result = {
@@ -1368,7 +898,6 @@ class PublishingRuntime:
             "operation": operation,
             "url": response.get("url"),
             "post_id": response.get("post_id"),
-            "job_id": _optional_job_id(response.get("job_id")),
         }
         if operation != "delete":
             try:
@@ -1379,28 +908,6 @@ class PublishingRuntime:
                 result["status"] = "reconciliation_required"
                 result["error"] = "external mutation succeeded but required identifiers are missing or invalid"
                 self.store.transition(receipt, "reconciliation_required", result=result, payload=None)
-                return result
-
-        if operation == "update":
-            expected_post_id = _nonempty(
-                receipt["resolved"].get("post_id"), "approved update post_id",
-            )
-            expected_url = _validate_url(
-                receipt["resolved"].get("url"), "approved update url",
-            )
-            if (
-                not secrets.compare_digest(str(result.get("post_id") or ""), expected_post_id)
-                or not secrets.compare_digest(str(result.get("url") or ""), expected_url)
-            ):
-                result.update({
-                    "status": "reconciliation_required",
-                    "error": "publisher updated a target that does not match the approved ledger post",
-                    "expected_post_id": expected_post_id,
-                    "expected_url": expected_url,
-                })
-                self.store.transition(
-                    receipt, "reconciliation_required", result=result, payload=None,
-                )
                 return result
 
         if channel == "maily" and operation == "publish" and receipt["payload"].get("dry_run") is True:

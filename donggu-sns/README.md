@@ -118,7 +118,7 @@ codex plugin add donggu-sns@donggu-skills
 - 텍스트 작성: 추가 런타임 의존성 없음
 - YouTube research: `baoyu-youtube-transcript`; thumbnail design/QA: `youtube-thumbnail-design`
 - AI 이미지: 선택한 `get-ai-image` backend의 기존 환경변수 또는 로컬 ComfyUI
-- publishing adapter: `SNS_WEBHOOK_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
+- publishing adapter: `PUBLISHER_API_TOKEN`(Tistory·Maily loopback API), `SNS_WEBHOOK_TOKEN`(나머지 채널), `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 
 ---
 
