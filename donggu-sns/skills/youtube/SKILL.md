@@ -1,6 +1,6 @@
 ---
 name: youtube
-description: Use when planning, building, reviewing, or operating the user's YouTube channel in Obsidian, including long-form episodes, Shorts packs, title-thumbnail hypotheses, production safety, analytics retrospectives, and post-publication CORE reconciliation.
+description: Use when planning, reviewing, or operating the user's YouTube channel in Obsidian, including long-form episodes, Shorts-candidate packs, title-thumbnail hypotheses, production safety, analytics retrospectives, and post-publication CORE reconciliation.
 ---
 
 # YouTube
@@ -18,7 +18,7 @@ YouTube를 기존 글의 영상 변환기가 아니라 **독립 제작 라인**�
 - 발행 후 리텐션·시청자·A/B 결과를 회고할 때
 - 영상에서 CORE·Snippet·다음 콘텐츠를 환원할 때
 
-경쟁 영상 자막·챕터·SRT 수집은 `baoyu-youtube-transcript`, 썸네일 설계·시각 QA는 `youtube-thumbnail-design`, 이미지 생성은 `get-ai-image`, 실제 Shorts 아티팩트 제작은 `make-shorts`, 주간 인박스 CORE 추출은 `extract-core`, 실제 SNS 게시는 `publish-sns`를 사용한다.
+경쟁 영상 자막·챕터·SRT 수집은 `baoyu-youtube-transcript`, 썸네일 설계·시각 QA는 `youtube-thumbnail-design`, 이미지 생성은 `get-ai-image`, 주간 인박스 CORE 추출은 `extract-core`, 실제 SNS 게시는 `publish-sns`를 사용한다. 완성된 Shorts/영상 파일과 CapCut 드래프트 제작은 이 스킬 밖이며 사용자 또는 외부 편집자가 실행한다.
 
 ## Source of Truth
 
@@ -145,6 +145,8 @@ Shorts/   # 실제 make 후보만
 
 모든 Longform에서 후보 0~3개를 검토한다.
 
+이 단계의 산출물은 Shorts **후보 기획**이다. 완성 영상 파일이나 CapCut 드래프트를 생성한다고 약속하지 않는다. 승인된 후보의 촬영·편집·렌더링은 사용자 또는 외부 편집자가 수행한다.
+
 ```yaml
 type: video_short
 format: short
@@ -241,7 +243,6 @@ frontmatter:
 - `get-youtube-scripts` — `*-orig` 선택·단일 트랙·429 회피가 필요한 captions-only fallback
 - `youtube-thumbnail-design` — 썸네일 브리프·디자인·120px 시각 QA
 - `get-ai-image` — `belt`가 없을 때 썸네일 이미지 생성 backend
-- `make-shorts` — 승인된 Shorts의 9:16 CapCut 아티팩트 제작
 - `extract-core` — 주간 인박스·저널 CORE 후보 추출
 - `writing-social-content` — 영상에서 검증된 인사이트의 텍스트 채널 독립 작성
 - `publish-sns` — 지원되는 외부 채널 발행

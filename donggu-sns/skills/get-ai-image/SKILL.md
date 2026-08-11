@@ -1,21 +1,20 @@
 ---
 name: get-ai-image
-description: "Use when a blog or SNS post needs an AI-generated image such as a representative image or illustration instead of a stock photo. Supports OpenRouter, local ComfyUI, Pollinations, Cloudflare, direct Gemini, and fal.ai with selectable models. Not for card news or text-heavy thumbnails."
+description: "Use when a Blog or SNS post needs one AI-generated representative image or illustration and the user has not provided a suitable screenshot or asset. Supports OpenRouter, local ComfyUI, Pollinations, Cloudflare, direct Gemini, and fal.ai with selectable models."
 ---
 
 # get-ai-image
 
 ## Overview
-프롬프트 → AI 생성 이미지 1장. `get-stock-image`의 **AI 버전**이다 — 같은 계약
-(프롬프트→파일 저장 + JSON 1줄)이라 블로그 이미지 파이프라인(`prepare_blog_images`)에
-스톡 대신 그대로 끼운다. 단일 진입점 `gen_image.py`, 백엔드·모델 선택형.
+Blog/SNS용 대표이미지 또는 삽화 1장을 AI로 생성한다. 계약은 프롬프트 → 파일 저장 + JSON 1줄이다. 단일 진입점 `gen_image.py`, 백엔드·모델 선택형.
 
-**핵심 원칙: 소스만 바뀌고 계약은 그대로.** 작성자는 stock이냐 ai냐만 고르면 되고,
-저장·임베드·발행(대표이미지 포함)은 기존 파이프라인이 그대로 처리한다.
+**이미지 소싱 순서:** 사용자가 제공한 스크린샷·사진·제품 자산이 1순위다. 적합한 사용자 제공 이미지가 없고 생성 이미지가 목적에 맞을 때만 이 스킬을 사용한다. 실제 인물·장소·고객·제품 상태·사건의 사실적 묘사를 AI로 꾸며내지 않는다. 그런 사실성이 필요하면 사용자가 제공하거나 검증한 자산을 요구한다.
+
+저장·임베드·업로드·발행은 `publish-sns`로 넘긴다. 카드, 스톡 검색, 글자 중심 시각 합성을 다른 `donggu-sns` 스킬로 라우팅하지 않는다.
 
 ## When to Use
-- 블로그 대표이미지·문단 삽화를 **스톡 말고 AI로** 만들고 싶을 때 (`blog` 한정 — 다른 채널은 해당 아티팩트 전문 스킬 사용)
-- **When NOT:** 카드뉴스/캐러셀 → `make-insta-card-news` · **글자(한글) 박힌 이미지** → AI는 텍스트 약함, 카드로 · 동구님이 직접 찍은 결과물이 있으면 그게 1순위
+- Blog/SNS 대표이미지·문단 삽화를 AI로 만들고 싶을 때
+- **When NOT:** 사용자가 적합한 스크린샷·사진·자산을 제공했을 때 · 실제 인물·장소·고객·제품 상태·사건의 사실적 묘사가 필요할 때 · 글자 중심 시각 합성이 필요할 때
 
 ## 백엔드
 | backend | 비용 | 키 | 특징 |
@@ -66,18 +65,17 @@ ComfyUI는 **호스트 네이티브로 GPU**를 쓴다(맥 Docker는 GPU 패스�
 - **컨테이너**(n8n/api 노드): `COMFYUI_URL=http://host.docker.internal:8188` — `docker-compose.yml`의 `x-n8n-env` 앵커에서 주입. n8n 노드에선 `{{ $env.COMFYUI_URL }}/prompt` 로 호출.
 - 미설정 시 스킬 기본값은 `127.0.0.1:8188`. compose 변경은 n8n 컨테이너 재기동 후 반영.
 
-## 블로그 파이프라인 통합
-이미지 준비 단계에서 **소스 선택**: stock(`get-stock-image`) | ai(이 스킬). 저장 위치·임베드·대표이미지 계약은 저장·발행 파이프라인이 소유한다. `prepare_blog_images`가 기존 로컬 임베드를 업로드·치환하고, 발행기가 hero를 대표이미지로 올린다. `writing-social-content`는 이미지 배치나 경로를 소유하지 않는다.
+## 발행 파이프라인 통합
+저장 위치·임베드·대표이미지 계약은 저장·발행 파이프라인이 소유한다. `publish-sns`의 `prepare_blog_images.py`가 기존 로컬 임베드를 업로드·치환하고, 발행기가 hero를 대표이미지로 올린다. `writing-social-content`는 이미지 배치나 경로를 소유하지 않는다.
 
 ## Common Mistakes
 | 실수 | 수정 |
 |---|---|
-| 글자 박힌 썸네일을 AI로 | AI는 텍스트 약함 → `make-insta-card-news` 카드 |
+| 사용자 제공 자산을 두고 새 이미지를 생성 | 제공 자산을 우선 사용 |
+| 실제 고객·제품 상태를 AI로 재현 | 제공되거나 검증된 사실적 자산을 요청 |
 | ComfyUI 안 띄우고 `--backend comfyui` | 먼저 `start_comfyui.sh` (또는 자동 폴백에 맡김) |
 | 한국어 프롬프트 | 영어로 — 품질 차이 큼 |
-| 같은 이미지 재사용/장식용 남발 | 1장=1주제 (get-stock-image 원칙 동일) |
+| 같은 이미지 재사용/장식용 남발 | 1장=1주제 |
 
 ## Related
-- 스톡 사진: `donggu-sns:get-stock-image`
 - 업로드·치환·발행: `donggu-sns:publish-sns`(prepare_blog_images, cover_image)
-- 카드뉴스: `donggu-sns:make-insta-card-news`

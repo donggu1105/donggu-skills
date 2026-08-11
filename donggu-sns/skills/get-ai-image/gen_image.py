@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""gen_image.py — 프롬프트 → AI 생성 이미지 1장. 백엔드·모델 선택형.
-
-get-stock-image와 같은 계약(프롬프트→파일 저장 + JSON 1줄)이라, 블로그 이미지
-파이프라인(prepare_blog_images)에 스톡 대신 그대로 끼울 수 있다.
+"""gen_image.py — 프롬프트 → 저장된 AI 이미지 파일 + JSON 1줄.
 
 사용:
   python3 gen_image.py "<프롬프트>" <out.jpg> [--backend ...] [--model ...]

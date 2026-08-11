@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
-"""Upload a card-news image set to Supabase Storage with a dated, ordered path.
+"""Upload finalized local image files to Supabase Storage in stable order.
 
-Path convention (browsable + cleanup-friendly + collision-safe):
+Path convention:
   <channel>/<YYYY>/<MM-DD>/<topic-slug>-<HHMMSS>/<NN><ext>
-  e.g. instagram/2026/06-12/yeopjari-launch-142305/01.png
-
-One carousel set = one folder. Card order is preserved by zero-padded index.
-Returns the public URLs in order (carousel order) as JSON.
-
-Env:
-  SUPABASE_URL          e.g. https://fvfayignxybdyyravorg.supabase.co
-  SUPABASE_SERVICE_KEY  service_role key (server-side upload, bypasses RLS)
 
 Usage:
-  python3 supabase_upload.py <channel> <topic-slug> <bucket> file1.png file2.png ...
-  # files are uploaded in the order given → that IS the carousel order
+  python3 upload_images.py <channel> <topic-slug> <bucket> file1.png file2.png ...
+
+The input order is preserved in the returned ``image_urls`` JSON array.
 """
 import os, sys, json, datetime, urllib.request, mimetypes
 

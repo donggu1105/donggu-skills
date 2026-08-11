@@ -3,19 +3,19 @@
 > Portable SNS authoring and gated publishing — part of [`donggu-skills`](../) marketplace.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
-[![Skills](https://img.shields.io/badge/skills-7-green)](#-skills)
+[![Skills](https://img.shields.io/badge/skills-4-green)](#-skills)
 
-Blog·LinkedIn·Threads·Maily 텍스트 작성, Instagram·Shorts 아티팩트 생성, YouTube 기획, 외부 채널 발행을 역할별 스킬로 분리한다.
+Blog·LinkedIn·Threads·Maily 텍스트 작성, AI 이미지 생성, YouTube 기획, 외부 채널 발행을 역할별 스킬로 분리한다.
 
 ---
 
-## 경계 — 말 / 물건 / 발행
+## 경계 — 말 / 이미지 / 영상 기획 / 발행
 
 ```text
-writing-social-content   = 말       — 글자만 작성
-make-*                   = 물건     — 카드·영상 아티팩트 생성
-youtube                  = 영상 기획 — Longform + Shorts Pack
-publish-sns              = 발행     — 승인 뒤 외부 채널 반영
+writing-social-content   = 말        — 글자만 작성
+get-ai-image             = 이미지    — 사용자 제공 이미지가 없을 때 생성
+youtube                  = 영상 기획  — Longform + Shorts 후보 Pack
+publish-sns              = 발행      — 승인 뒤 확정 텍스트·이미지 반영
 ```
 
 ## Skills
@@ -23,12 +23,9 @@ publish-sns              = 발행     — 승인 뒤 외부 채널 반영
 | Skill | 사용 시점 | Output |
 |---|---|---|
 | **writing-social-content** | Blog·LinkedIn·Threads·Maily 텍스트 작성·변환 | 채널별 확정 초안 |
-| **make-insta-card-news** | Instagram 카드뉴스 이미지 | 1080×1350 PNG 세트 |
-| **make-shorts** | 세로 숏폼 영상 | CapCut 드래프트 |
-| **youtube** | YouTube Longform + Shorts Pack 기획·회고 | 영상 Pack |
+| **youtube** | YouTube Longform + Shorts 후보 기획·회고 | 영상 Pack |
 | **publish-sns** | tistory·maily·threads·linkedin·instagram 발행·삭제 | 발행 결과 + ledger |
-| **get-stock-image** | 스톡 이미지 검색·저장 | 이미지 파일 |
-| **get-ai-image** | 로컬 생성 이미지 | 이미지 파일 |
+| **get-ai-image** | 사용자 이미지가 없을 때 대표이미지·삽화 생성 | 이미지 파일 |
 
 ---
 
@@ -83,9 +80,8 @@ common-voice + 요청 채널 규칙
 ```text
 텍스트 확정
 ├── 파일 저장 요청 → target-native 파일 도구
-├── 이미지 요청    → get-stock-image / get-ai-image
-├── 카드 요청      → make-insta-card-news
-├── 영상 요청      → youtube / make-shorts
+├── 이미지 요청    → 사용자 제공 이미지 / get-ai-image
+├── 영상 기획      → youtube
 └── 게시 요청      → publish-sns preview·approval
 ```
 
@@ -121,8 +117,7 @@ codex plugin add donggu-sns@donggu-skills
 
 - 텍스트 작성: 추가 런타임 의존성 없음
 - YouTube research: `baoyu-youtube-transcript`; thumbnail design/QA: `youtube-thumbnail-design`
-- make-shorts: `edge-tts`, `pyCapCut`
-- make-insta-card-news: Playwright 또는 headless render API
+- AI 이미지: 선택한 `get-ai-image` backend의 기존 환경변수 또는 로컬 ComfyUI
 - publishing adapter: `SNS_WEBHOOK_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 
 ---

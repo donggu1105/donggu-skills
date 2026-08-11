@@ -43,9 +43,9 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 
 - 파일 저장, 노트 경로·schema·frontmatter 처리
 - 실제 게시·수정·삭제 → `publish-sns`
-- Instagram 카드·캐러셀 → `make-insta-card-news`
-- 대표이미지·본문 사진 → `get-stock-image` 또는 `get-ai-image`
-- YouTube·Shorts·Reels 영상 → `youtube` 또는 `make-shorts`
+- Instagram 카드·캐러셀 구성 또는 완성 영상 제작
+- 대표이미지·본문 사진 → 사용자 제공 자산을 우선하고, 없으면 `get-ai-image`
+- YouTube Longform·Shorts 후보 기획 → `youtube`
 
 ## 채널 매트릭스
 
@@ -138,6 +138,8 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 
 - authoring-only: 채널별 확정 초안만 보여준다.
 - 파일 저장 요청: 확정 본문을 target-native 파일 도구에 넘긴다. 이 스킬은 경로·schema·frontmatter를 소유하지 않는다.
+- 이미지 요청: 사용자 제공 스크린샷·사진·자산을 우선하고, 적합한 자산이 없으면 `get-ai-image`로 넘긴다.
+- 영상 요청: YouTube 기획만 `youtube`로 넘긴다. Instagram 카드·캐러셀 구성과 완성 영상 제작은 이 스킬 밖이다.
 - 게시 요청: `publish-sns`의 preview·approval 절차로 넘긴다. LinkedIn·Threads 초안의 외부 URL은 제거하고 본문 계약을 다시 검수한다. 이 스킬은 게시하지 않는다.
 
 ## Common Mistakes
@@ -161,7 +163,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 
 ## 경계
 
-- **글자만 쓴다.** 파일 저장·이미지·카드·영상·게시를 수행하지 않는다.
+- **글자만 쓴다.** 지원 범위는 Blog·LinkedIn·Threads·Maily이며 파일 저장·이미지·카드·영상·게시를 수행하지 않는다.
 - 페르소나 선택은 source의 사실 권한을 넓히지 않는다.
 - **외부 보이스 저장소를 요구하지 않는다.** 사용자가 파일 하나를 source로 직접 지정하면 일반 source로 읽을 수 있지만 주변 파일을 자동 확장 조회하지 않는다.
 - **게시하지 않는다.** 외부 변경은 `publish-sns`가 별도 승인 절차로 수행한다.
@@ -170,9 +172,8 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 
 - 출처 기반 논지 검수: `source-grounded-content-writing`
 - 자연스러운 한국어 윤문: `korean-humanizer`
-- 이미지: `get-stock-image` · `get-ai-image`
-- 카드: `make-insta-card-news`
-- 영상: `youtube` · `make-shorts`
+- 이미지: 사용자 제공 자산 · `get-ai-image`
+- YouTube 기획: `youtube`
 - 게시: `publish-sns`
 
 ## 태그

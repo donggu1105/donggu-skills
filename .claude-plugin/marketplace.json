@@ -26,8 +26,8 @@
     {
       "name": "donggu-sns",
       "source": "./donggu-sns",
-      "description": "SNS and YouTube editorial operations — portable channel-native text authoring, Longform + Shorts Pack planning, visual artifacts, and gated publishing.",
-      "version": "2.7.7",
+      "description": "SNS and YouTube editorial operations — portable channel-native text authoring, AI-image generation, YouTube planning, and gated publishing.",
+      "version": "2.8.0",
       "strict": false
     },
     {

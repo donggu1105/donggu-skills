@@ -1,6 +1,6 @@
 ---
 name: publish-sns
-description: Use when the user asks to publish, post, or delete SNS content (올려줘, 발행해줘, 게시해줘, 삭제해줘, 내려줘) on tistory, maily, threads, linkedin, or instagram — including when no draft note exists yet, or when a make-*/writing-* skill has just produced a channel note that should go live.
+description: Use when the user asks to publish, post, or delete finalized SNS content (올려줘, 발행해줘, 게시해줘, 삭제해줘, 내려줘) on tistory, maily, threads, linkedin, or instagram, including finalized local image files.
 ---
 
 # Publish SNS
@@ -12,9 +12,9 @@ Publish channel notes from the Obsidian vault to live SNS channels through n8n w
 **Three iron rules:**
 1. **Never publish or delete without an explicit user approval AFTER showing a preview.** Channel agreement is not approval. Body shown ≠ body changed later — re-preview after any edit.
 2. **The ledger is the only memory.** post_id/url live in `published_posts`, never in conversation memory.
-3. **Blog/Tistory needs a section image plan, not merely “an image.”** Every Blog publish or update must include a hero image as `cover_image` **and section-specific body images distributed through the article**. Give every major `##` section a matching image; two short adjacent sections may share one only when they express the same visual concept. For a post with 3 or more `##` sections, require at least 3 images total (hero + at least 2 body images) and never leave more than 2 consecutive `##` sections without an image. Place each body image after the opening paragraph of the section it illustrates, not as a gallery at the top or bottom. Prefer the user’s real screenshots/assets; otherwise generate with `get-ai-image`, using stock only when factual depiction of a real person/place/product matters. The first image remains the hero/cover so body, list thumbnail, and OG image stay aligned. A hero plus a final related-video thumbnail does **not** satisfy this gate.
+3. **Blog/Tistory needs a section image plan, not merely “an image.”** Every Blog publish or update must include a hero image as `cover_image` **and section-specific body images distributed through the article**. Give every major `##` section a matching image; two short adjacent sections may share one only when they express the same visual concept. For a post with 3 or more `##` sections, require at least 3 images total (hero + at least 2 body images) and never leave more than 2 consecutive `##` sections without an image. Place each body image after the opening paragraph of the section it illustrates, not as a gallery at the top or bottom. Prefer the user’s real screenshots/assets; otherwise generate with `get-ai-image` when appropriate. A factual depiction of a real person, place, customer, product state, or event requires a supplied or verified asset and must never be fabricated with AI. The first image remains the hero/cover so body, list thumbnail, and OG image stay aligned. A hero plus a final related-video thumbnail does **not** satisfy this gate.
 
-Content *formats* are NOT defined here — each channel's note structure is owned by its authoring skill (text channels = `writing-social-content`, cards = `make-insta-card-news`). This skill owns the *publishing* contract only.
+Content *formats* are NOT defined here. Text drafts are owned by `writing-social-content`; this skill accepts only finalized text and finalized image files and owns the upload and publishing contract. It does not generate cards or finished Shorts/video files.
 
 ### Post-publication review boundary
 
@@ -28,9 +28,8 @@ Content *formats* are NOT defined here — each channel's note structure is owne
      folder→channel: Blog→tistory · Maily→maily · Threads→threads · LinkedIn→linkedin · Instagram→instagram
      │
      ├─ note MISSING ──► DO NOT stop and ask for a filename.
-     │     Offer to CREATE it first: draft with the matching skill
-     │     (text channels = writing-social-content, cards = make-insta-card-news,
-     │      video = make-shorts), save the note
+     │     Offer to CREATE a missing text-channel draft with writing-social-content,
+     │     then save the note
      │     (`status: draft`), then continue at step 2 with the new note.
      │
      └─ note EXISTS ──► 2. Extract body per channel (see table). For LinkedIn/Threads only,
@@ -55,9 +54,10 @@ Content *formats* are NOT defined here — each channel's note structure is owne
      Questions, deliberation,
      deferral, and negation such as `발행해 볼까?`, `나중에 발행해`, or `발행해 두지 마`
      are never approvals.
-     State whether the post will include images. For threads/instagram, if the `## 발행`
+     State whether the post will include images. Instagram requires a finalized caption plus
+     finalized image files. For threads/instagram, if the `## 발행`
      section has no `![[image]]` embeds the post goes out TEXT-ONLY — say so and confirm
-     that's intended (offer to source/render images) before firing. Never silently drop
+     that's intended (offer user-provided assets or get-ai-image when appropriate) before firing. Never silently drop
      images a showcase/proof post needs.
      maily = irreversible email send → confirm once more right before firing.
      After the final Maily click, treat only a same-origin public `/slug/posts/<id>` page whose
@@ -143,7 +143,7 @@ harness-specific scripts.
   Direct webhook and direct ledger mutation are forbidden. The references below are diagnostic
   contract documentation only, not a fallback execution path.
 
-### Channel extraction (format canon = make-* skill)
+### Channel extraction
 
 | Channel | Body source in note | Payload notes | Format canon |
 |---|---|---|---|
@@ -151,7 +151,7 @@ harness-specific scripts.
 | maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is — **blog-image prep first if it has `![[embeds]]`** | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
 | threads | `## 발행` text until the next `##` = `content`; `![[image]]` embeds → `image_urls` | ≤500 chars, 0 hashtags, 0 body URLs; native preview rejects overlength, hashtags, and unambiguous URL strings | **writing-social-content** |
 | linkedin | `## Draft` final version until the next `##` | `content` only, 0 body URLs; native preview rejects unambiguous URL strings | writing-social-content |
-| instagram | card texts in note → self-contained HTML → render webhook → `image_urls` + `caption` | 1 img=single, 2–10=carousel | **make-insta-card-news** (Mode B) |
+| instagram | finalized caption + finalized local image files → `upload_images.py` → `image_urls` | 1 img=single, 2–10=carousel | finalized caption and images |
 
 ### Tags (tistory blog)
 
@@ -187,11 +187,11 @@ browser lookup.
 
 **tistory 대표이미지(썸네일/OG)**: tistory는 본문의 외부 `<img>` 핫링크로는 대표이미지를 못 잡는다 — 발행기가 **별도로 hero를 티스토리에 업로드**해야 og:image가 잡힌다. `sns-pub-tistory`/`sns-update-tistory` 호출 시 `cover_image`(= `.cover` 파일의 hero URL)를 같이 보내면 발행기가 발행모달의 '대표이미지 추가'에 업로드한다. 빠뜨리면 본문 이미지는 보여도 썸네일/공유 카드가 비는 placeholder가 된다. (maily는 cover 개념 없음 — 보내지 말 것.)
 
-### Images (threads · instagram — unified pipeline)
+### Images (threads · instagram — finalized files)
 
-- **Image gate (ask first)**: threads/instagram images come only from `## 발행` `![[embeds]]`. No embeds → text-only. Before posting, confirm with the user whether images are wanted; if yes and the note has none, get them (user screenshot or a fresh render) BEFORE firing — never post text-only and backfill later.
-- **New cards**: build self-contained HTML (absolute URLs only — `make-insta-card-news` Mode B) → POST render webhook (`sns-render-instagram` / `sns-render-threads`, body `{html, slug}`) → api renders 4:5 + uploads to `sns-cards/<channel>/<YYYY>/<MM-DD>/<slug>-<HHMMSS>/<NN>.png` → returns `image_urls` in carousel order.
-- **User-provided screenshots**: use `make-insta-card-news/supabase_upload.py`, which reads credentials from the environment and does not place expanded service keys in argv. Upload to the same dated path; 409 means reuse the existing public URL.
+- **Image gate (ask first)**: threads/instagram images come from finalized local files referenced by `## 발행` `![[embeds]]`. No embeds → text-only. Before posting, confirm with the user whether images are wanted; if yes and the note has none, use user-provided assets first or `get-ai-image` when appropriate BEFORE firing — never post text-only and backfill later. Factual real-world imagery requires a supplied or verified asset.
+- **Ordered upload**: run `python3 <skill>/upload_images.py <channel> <topic-slug> <bucket> file1 ...`. The input file order is preserved in the returned `image_urls`. The script reads credentials from the environment and does not place expanded service keys in argv.
+- **Instagram gate**: require a finalized caption plus 1–10 finalized image files. This skill uploads and publishes those files; it does not create a card deck or video.
 
 ## Webhook reference
 
@@ -206,7 +206,6 @@ agents must never call mutation webhooks directly. All require `X-SNS-Token`; ne
 | threads pub | `sns-pub-threads` | `{content, image_urls?}` | `{success, url, post_id, error}` |
 | linkedin pub | `sns-pub-linkedin` | `{content}` | `{success, url, post_id, error}` |
 | instagram pub | `sns-pub-instagram` | `{image_urls, caption}` | `{success, url, post_id, error}` |
-| render (insta/threads) | `sns-render-instagram` / `sns-render-threads` | `{html, slug}` | `{success, image_urls, folder, count}` |
 | delete | `sns-del-tistory` / `sns-del-threads` | `{post_id}` | `{success, error}` |
 
 Delete exists only for tistory·threads. maily emails can't be recalled; linkedin = manual delete.
@@ -225,7 +224,7 @@ Delete flow: adapter preview resolves the latest active ledger row → show topi
 - About to POST a pub webhook without having shown a preview *and* received explicit approval in this conversation → STOP, preview first. "The note already says status:draft and user said 올려줘 by topic" is NOT approval of the body.
 - Extracted body = whole note after frontmatter → STOP, use the channel's section (`## 발행` / `## Draft`).
 - Threads body is over 500자를 넘거나 해시태그·본문 URL을 포함함, or LinkedIn body contains a URL → STOP before preview; remove the URL from the canonical body, save the corrected draft, and re-preview.
-- No note found and you're about to ask the user for a filename → STOP, offer to create the draft via the matching writing-social-content / make-* skill instead.
+- No text-channel note found and you're about to ask the user for a filename → STOP, offer to create the draft via `writing-social-content` instead. For missing images, use supplied assets first or `get-ai-image` when appropriate.
 - post_id from conversation memory → STOP, SELECT from the ledger.
 - maily without a subtitle line, or real-send without the second confirmation → STOP.
 - About to send a threads/instagram post text-only (no `image_urls`) when it's a showcase/proof post or its `## 발행` has no embeds → STOP, confirm images with the user first.
@@ -235,7 +234,7 @@ Delete flow: adapter preview resolves the latest active ledger row → show topi
 | Excuse | Reality |
 |---|---|
 | "User said 올려줘, that IS the approval" | They approved the *intent*, not the *body*. Preview, then approval. |
-| "Note doesn't exist, user must tell me where it is" | Creating it is your job — offer the make-* path. |
+| "Note doesn't exist, user must tell me where it is" | For a text channel, offer the `writing-social-content` path. For imagery, ask for supplied assets or use `get-ai-image` when appropriate. |
 | "I remember the post_id from earlier" | Sessions die. The ledger doesn't. |
 | "User said 올려/다시 올려, so text-only is fine" | Re-posting ≠ an image decision. Confirm whether images should ride along first. |
 | "Body has `![[…]]`, tistory will render it" | It won't. Vault wikilinks are local. Run `prepare_blog_images.py` → `![](url)` first. |

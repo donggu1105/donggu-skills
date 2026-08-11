@@ -1,7 +1,7 @@
 {
   "name": "donggu-sns",
-  "version": "2.7.7",
-  "description": "SNS and YouTube editorial operations with FDE or solo-builder persona routing, artifact creation, and gated publishing.",
+  "version": "2.8.0",
+  "description": "SNS and YouTube editorial operations with FDE or solo-builder persona routing, optional AI-image generation, YouTube planning, and gated publishing.",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"
@@ -24,8 +24,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Donggu SNS",
-    "shortDescription": "FDE·1인 빌더 관점의 SNS·YouTube 제작과 승인형 발행",
-    "longDescription": "FDE와 1인 빌더 중 하나의 관점을 선택해 Blog, LinkedIn, Threads, Maily 글과 YouTube 기획을 만들고 이미지·숏폼 산출물과 승인형 발행 워크플로를 제공합니다.",
+    "shortDescription": "FDE·1인 빌더 관점의 SNS 작성·YouTube 기획과 승인형 발행",
+    "longDescription": "FDE와 1인 빌더 중 하나의 관점을 선택해 Blog, LinkedIn, Threads, Maily 글과 YouTube 기획을 만들고, 사용자 제공 이미지 또는 선택적 AI 이미지와 승인형 발행 워크플로를 제공합니다.",
     "developerName": "강동현 (donggu)",
     "category": "Productivity",
     "capabilities": ["Read", "Write", "Shell"],
