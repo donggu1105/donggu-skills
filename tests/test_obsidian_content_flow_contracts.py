@@ -103,6 +103,20 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         self.assertNotIn("/Users/", personas)
         self.assertNotIn("[[", personas)
 
+    def test_writing_shared_signals_do_not_resolve_persona_without_context(self):
+        personas = self.writing_references["personas"]
+
+        for signal in ("직접 만들었다", "자동화", "AX"):
+            with self.subTest(signal=signal):
+                self.assertIn(signal, personas)
+        self.assertIn("공통 신호만으로는 페르소나를 추론하지 않는다", personas)
+        self.assertIn("고객·조직 맥락", personas)
+        self.assertIn("자기 제품·시장 가설 맥락", personas)
+        self.assertIn(
+            "둘 다 없으면 `FDE`와 `1인 빌더` 중 하나를 한 번만 묻는다",
+            personas,
+        )
+
     def test_writing_references_own_channel_contracts(self):
         expected = {
             "common": ("## 사실 경계", "## 금지 표현과 장치"),
