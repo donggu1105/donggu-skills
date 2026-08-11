@@ -6,7 +6,7 @@
 
 **Architecture:** Add a repo-local Codex marketplace catalog that exposes only `donggu-sns`, and add a Codex manifest that points at the existing `donggu-sns/skills/` tree. Keep Claude, Hermes, and Codex package metadata versioned together at `2.7.7`; preserve all current skill behavior and persona rules.
 
-**Tech Stack:** JSON plugin manifests, YAML Hermes manifest, Markdown documentation, Python `unittest` contracts executed with `pytest`, Codex plugin CLI and plugin-creator validator.
+**Tech Stack:** JSON plugin manifests, YAML Hermes manifest, Markdown documentation, Python standard-library `unittest`, Codex plugin CLI and plugin-creator validator.
 
 ## Global Constraints
 
@@ -103,8 +103,11 @@ Add these methods to `NativePluginPackageTests` near the existing manifest tests
 Run:
 
 ```bash
-python3 -m pytest tests/test_native_plugin_packages.py \
-  -k 'codex_marketplace or sns_codex_manifest or sns_claude_and_hermes_manifests' -q
+python3 -m unittest \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_codex_marketplace_exposes_only_sns_from_existing_domain_path \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_sns_codex_manifest_reuses_all_skills_and_matches_release_versions \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_sns_claude_and_hermes_manifests_share_identity_and_version \
+  -v
 ```
 
 Expected: FAIL because `.agents/plugins/marketplace.json` and `donggu-sns/.codex-plugin/plugin.json` do not exist and the existing release metadata is still `2.7.6`.
@@ -199,8 +202,12 @@ Do not change other plugin versions or persona content.
 Run:
 
 ```bash
-python3 -m pytest tests/test_native_plugin_packages.py \
-  -k 'codex_marketplace or sns_codex_manifest or sns_claude_and_hermes_manifests or claude_marketplace_versions' -q
+python3 -m unittest \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_codex_marketplace_exposes_only_sns_from_existing_domain_path \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_sns_codex_manifest_reuses_all_skills_and_matches_release_versions \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_sns_claude_and_hermes_manifests_share_identity_and_version \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_claude_marketplace_versions_match_dual_harness_packages \
+  -v
 python3 '/Users/joeykang/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py' donggu-sns
 git diff --check
 ```
@@ -253,8 +260,9 @@ Add this method to `NativePluginPackageTests`:
 Run:
 
 ```bash
-python3 -m pytest tests/test_native_plugin_packages.py \
-  -k codex_install_docs_name_marketplace_plugin_and_new_thread_boundary -q
+python3 -m unittest \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_codex_install_docs_name_marketplace_plugin_and_new_thread_boundary \
+  -v
 ```
 
 Expected: FAIL because neither README currently documents Codex installation.
@@ -305,9 +313,13 @@ codex plugin add donggu-sns@donggu-skills
 Run:
 
 ```bash
-python3 -m pytest tests/test_native_plugin_packages.py \
-  -k 'codex_install_docs or codex_marketplace or sns_codex_manifest or sns_claude_and_hermes_manifests' -q
-python3 -m pytest -q
+python3 -m unittest \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_codex_install_docs_name_marketplace_plugin_and_new_thread_boundary \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_codex_marketplace_exposes_only_sns_from_existing_domain_path \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_sns_codex_manifest_reuses_all_skills_and_matches_release_versions \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_sns_claude_and_hermes_manifests_share_identity_and_version \
+  -v
+python3 -m unittest discover -s tests -p 'test_*.py' -q
 python3 '/Users/joeykang/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py' donggu-sns
 git diff --check
 ```
@@ -326,7 +338,7 @@ git commit -m "docs(sns): document Codex installation"
 Before handing the branch back, run:
 
 ```bash
-python3 -m pytest -q
+python3 -m unittest discover -s tests -p 'test_*.py' -q
 python3 '/Users/joeykang/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py' donggu-sns
 claude plugin validate .
 git diff --check
