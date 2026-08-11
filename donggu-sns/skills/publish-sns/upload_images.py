@@ -18,8 +18,8 @@ if not url or not key:
 
 channel, slug, bucket = sys.argv[1], sys.argv[2], sys.argv[3]
 files = sys.argv[4:]
-if not files:
-    sys.exit("no files given")
+if not 1 <= len(files) <= 10:
+    sys.exit("upload_images.py requires 1–10 image files")
 
 now = datetime.datetime.now()
 folder = f"{channel}/{now:%Y}/{now:%m-%d}/{slug}-{now:%H%M%S}"

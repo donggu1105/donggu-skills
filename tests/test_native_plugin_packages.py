@@ -321,6 +321,53 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertEqual([30, 30], [timeout for _, timeout in requests])
         self.assertEqual([b"first", b"second"], [request.data for request, _ in requests])
 
+    def test_sns_publish_image_uploader_rejects_invalid_counts_before_io(self):
+        import contextlib
+        import io
+        import os
+        import runpy
+
+        uploader = ROOT / "donggu-sns" / "skills" / "publish-sns" / "upload_images.py"
+        expected = ("upload_images.py requires 1–10 image files", 0, 0)
+
+        for count in (0, 11):
+            with self.subTest(file_count=count):
+                file_open = mock.mock_open()
+                file_open.return_value.read.return_value = b"image"
+                upload = mock.Mock(return_value=object())
+                argv = [
+                    str(uploader),
+                    "instagram",
+                    "launch",
+                    "sns-media",
+                    *(f"image-{index}.png" for index in range(count)),
+                ]
+                error = None
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "SUPABASE_URL": "https://example.supabase.co",
+                        "SUPABASE_SERVICE_KEY": "secret",
+                    },
+                ), mock.patch("sys.argv", argv), mock.patch(
+                    "builtins.open", file_open
+                ), mock.patch(
+                    "urllib.request.urlopen", upload
+                ), contextlib.redirect_stdout(io.StringIO()):
+                    try:
+                        runpy.run_path(str(uploader), run_name="__main__")
+                    except SystemExit as exc:
+                        error = exc
+
+                self.assertEqual(
+                    expected,
+                    (
+                        None if error is None else str(error),
+                        file_open.call_count,
+                        upload.call_count,
+                    ),
+                )
+
     def test_sns_registers_exact_native_tool_surface(self):
         package = load_package(ROOT / "donggu-sns", "donggu_sns_plugin_test")
         ctx = FakeContext()
