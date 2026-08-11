@@ -308,6 +308,8 @@ git commit -m "chore(sns): release persona routing 2.7.6"
 - Consumes: committed source package version `2.7.6`.
 - Produces: behavioral evidence for explicit FDE selection, explicit 1인 빌더 selection, ambiguous selection, channel independence, and installed-package parity.
 
+> **Post-merge release gate:** Task 4는 feature branch를 main에 merge한 뒤 실행하는 post-merge release gate다. plugin manager는 main marketplace checkout을 읽으므로 feature branch에서는 plugin update와 installed parity를 완료 증거로 사용할 수 없다.
+
 - [ ] **Step 1: Run skill-specific behavioral scenarios**
 
 Use the `superpowers:writing-skills` testing protocol with fresh agents for these prompts:

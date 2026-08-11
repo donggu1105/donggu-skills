@@ -178,6 +178,48 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         self.assertIn("지속 사용만으로는", writing)
         self.assertIn(clarification, writing)
 
+    def test_writing_persona_release_boundaries_are_explicit(self):
+        writing = self.skills["writing"]
+        personas = self.writing_references["personas"]
+        readme = (REPO_ROOT / "donggu-sns" / "README.md").read_text(encoding="utf-8")
+        plan = (
+            REPO_ROOT
+            / "docs/superpowers/plans/2026-08-11-writing-social-content-persona-selection.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("논지·근거·오디언스가 그 관점과 일치", writing)
+        self.assertIn(
+            "논지·근거가 선택한 페르소나의 관점과 일치하는가", writing
+        )
+        self.assertIn(
+            "오디언스는 글마다 별도로 검수하며 페르소나를 추론하거나 제한하는 데 사용하지 않았는가",
+            writing,
+        )
+        self.assertIn(
+            "`FDE` 관점의 글도 1인 빌더를 오디언스로 정할 수 있고, `1인 빌더` 관점의 글도 FDE를 오디언스로 정할 수 있다",
+            writing,
+        )
+        self.assertIn(
+            "로드 순서: `personas.md` → `common-voice.md` → 요청 채널 규칙",
+            readme,
+        )
+        self.assertIn(
+            "`Forward Deployed Engineer`는 canonical `FDE`의 확장 표기이자 별칭이다",
+            personas,
+        )
+        self.assertIn(
+            "`AX Engineer`와 `DA`는 `FDE`의 별칭이 아니며 공개 페르소나 선택지도 아니다",
+            personas,
+        )
+        self.assertIn(
+            "Task 4는 feature branch를 main에 merge한 뒤 실행하는 post-merge release gate다",
+            plan,
+        )
+        self.assertIn(
+            "plugin manager는 main marketplace checkout을 읽으므로 feature branch에서는 plugin update와 installed parity를 완료 증거로 사용할 수 없다",
+            plan,
+        )
+
     def test_writing_references_own_channel_contracts(self):
         expected = {
             "common": ("## 사실 경계", "## 금지 표현과 장치"),
