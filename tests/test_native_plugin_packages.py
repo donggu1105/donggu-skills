@@ -139,6 +139,13 @@ class NativePluginPackageTests(unittest.TestCase):
             self.assertIn("새 thread", text)
         self.assertIn("Hermes", sns_readme)
         self.assertIn("plugin.yaml", sns_readme)
+        self.assertIn("Claude Code와 Codex는 같은 `skills/` 트리를 읽고", sns_readme)
+        self.assertIn(
+            "Hermes `plugin.yaml`은 같은 package root에서 "
+            "trusted native publishing tools를 추가로 제공한다",
+            sns_readme,
+        )
+        self.assertIn("실제 mutation은 Hermes에서만 수행한다", sns_readme)
         self.assertIn("codex plugin marketplace upgrade donggu-skills", root_readme)
         self.assertIn(".agents/plugins/marketplace.json", root_readme)
         self.assertIn(".codex-plugin/plugin.json", root_readme)
