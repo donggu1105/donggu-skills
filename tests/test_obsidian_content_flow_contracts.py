@@ -126,11 +126,20 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         precedence_contracts = (
             "두 맥락 중 정확히 하나만 source 또는 요청/브리프에 명시되면",
             "두 맥락이 모두 나타나면 사용자가 명시한 페르소나가 우선한다",
-            "요청/브리프가 주장과 독자를 소유하는 주 관점을 분명히 하면 주 페르소나를 정확히 하나 선택한다",
             "주 관점이 불명확하고 선택이 논지를 바꾸면",
             "두 페르소나를 동시에 선택하거나 `혼합`을 만들지 않는다",
         )
         for contract in precedence_contracts:
+            with self.subTest(contract=contract):
+                self.assertIn(contract, personas)
+                self.assertIn(contract, writing)
+        claim_owned_contracts = (
+            "source 또는 요청/브리프가 고객·조직 변화가 중심 주장임을 분명히 하면 `FDE`",
+            "source 또는 요청/브리프가 자기 제품·시장 검증이 중심 주장임을 분명히 하면 `1인 빌더`",
+            "오디언스가 명시되지 않아도 주 페르소나를 정확히 하나 선택한다",
+            "오디언스는 별도로 정하며 페르소나를 결정하지 않는다",
+        )
+        for contract in claim_owned_contracts:
             with self.subTest(contract=contract):
                 self.assertIn(contract, personas)
                 self.assertIn(contract, writing)
