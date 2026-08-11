@@ -137,7 +137,13 @@ class NativePluginPackageTests(unittest.TestCase):
             self.assertIn("codex plugin marketplace add donggu1105/donggu-skills", text)
             self.assertIn("codex plugin add donggu-sns@donggu-skills", text)
             self.assertIn("새 thread", text)
+        self.assertIn("Hermes", sns_readme)
+        self.assertIn("plugin.yaml", sns_readme)
         self.assertIn("codex plugin marketplace upgrade donggu-skills", root_readme)
+        self.assertIn(".agents/plugins/marketplace.json", root_readme)
+        self.assertIn(".codex-plugin/plugin.json", root_readme)
+        self.assertIn("현재 Codex catalog에 미등록", root_readme)
+        self.assertNotIn("Claude Code 전용", root_readme)
 
     def test_sns_codex_manifest_reuses_all_skills_and_matches_release_versions(self):
         package = ROOT / "donggu-sns"

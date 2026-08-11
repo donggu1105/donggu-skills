@@ -106,7 +106,7 @@ codex plugin marketplace upgrade donggu-skills
 codex plugin add donggu-sns@donggu-skills
 ```
 
-설치·업데이트된 skill 목록은 새 thread에서 다시 로드한다. 현재 Codex catalog에는 `donggu-sns`만 등록되어 있으며 나머지 domain plugin은 Claude Code 전용이다.
+설치·업데이트된 skill 목록은 새 thread에서 다시 로드한다. 현재 Codex catalog에는 `donggu-sns`만 등록되어 있으며 나머지 domain plugin은 현재 Codex catalog에 미등록이다.
 
 ---
 
@@ -132,7 +132,9 @@ claude plugin uninstall donggu-obsidian@donggu-skills
 ```
 donggu-skills/                       ← marketplace repo
 ├── .claude-plugin/
-│   └── marketplace.json             ← plugins 카탈로그
+│   └── marketplace.json             ← Claude Code 전체 plugin catalog
+├── .agents/plugins/marketplace.json      ← Codex manifest-ready subset catalog
+├── donggu-sns/.codex-plugin/plugin.json  ← Codex plugin manifest
 ├── donggu-obsidian/                 ← plugin (namespace: donggu-obsidian:)
 │   ├── .claude-plugin/
 │   │   └── plugin.json              ← plugin 메타
@@ -161,8 +163,10 @@ donggu-skills/                       ← marketplace repo
 ```
 
 **파일 역할**:
-- `marketplace.json` — 이 repo의 모든 plugin을 entry로 정의. 새 도메인 plugin 추가 시 `plugins` array 확장.
-- `plugin.json` — 각 plugin의 namespace + 메타. `name` 필드가 호출 시 prefix.
+- `.claude-plugin/marketplace.json` — Claude Code가 사용하는 전체 plugin catalog. 새 도메인 plugin 추가 시 `plugins` array 확장.
+- `.agents/plugins/marketplace.json` — Codex manifest가 준비된 plugin만 등록하는 subset catalog.
+- `<plugin>/.claude-plugin/plugin.json` — Claude Code plugin namespace + 메타. `name` 필드가 호출 시 prefix.
+- `<plugin>/.codex-plugin/plugin.json` — Codex plugin 메타와 공유 `skills/` 경로.
 - `SKILL.md` — 각 skill의 frontmatter(`name`, `description`) + 본문(workflow, examples).
 
 ---

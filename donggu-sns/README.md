@@ -115,7 +115,7 @@ codex plugin marketplace add donggu1105/donggu-skills
 codex plugin add donggu-sns@donggu-skills
 ```
 
-설치 후에는 새 thread에서 `donggu-sns`의 skill 목록을 다시 로드한다. Claude와 Codex는 이 디렉터리의 같은 `skills/` 트리를 사용한다.
+설치 후에는 새 thread에서 `donggu-sns`의 skill 목록을 다시 로드한다. Claude Code, Hermes `plugin.yaml`, Codex는 이 디렉터리의 같은 `skills/` 트리와 지원 표면을 공유한다.
 
 ## Dependencies
 
