@@ -105,17 +105,31 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
 
     def test_writing_shared_signals_do_not_resolve_persona_without_context(self):
         personas = self.writing_references["personas"]
+        writing = self.skills["writing"]
+        ambiguous_memo = "직접 만든 자동화가 일주일 뒤에도 계속 쓰였다"
+        clarification = "FDE와 1인 빌더 중 어떤 페르소나로 쓸까요?"
 
         for signal in ("직접 만들었다", "자동화", "AX"):
             with self.subTest(signal=signal):
                 self.assertIn(signal, personas)
+        self.assertIn(ambiguous_memo, personas)
         self.assertIn("공통 신호만으로는 페르소나를 추론하지 않는다", personas)
+        self.assertIn("지속 사용만으로는", personas)
+        self.assertIn("source가 명시적으로 제공", personas)
         self.assertIn("고객·조직 맥락", personas)
         self.assertIn("자기 제품·시장 가설 맥락", personas)
         self.assertIn(
             "둘 다 없으면 `FDE`와 `1인 빌더` 중 하나를 한 번만 묻는다",
             personas,
         )
+        self.assertIn(
+            f"설명이나 추가 선택지 없이 다음 한 문장만 사용한다: `{clarification}`",
+            personas,
+        )
+        self.assertIn("명시했으면 다시 묻지 않는다", personas)
+        self.assertIn("맥락이 source에 명시되어 있으면 다시 묻지 않는다", personas)
+        self.assertIn("지속 사용만으로는", writing)
+        self.assertIn(clarification, writing)
 
     def test_writing_references_own_channel_contracts(self):
         expected = {
