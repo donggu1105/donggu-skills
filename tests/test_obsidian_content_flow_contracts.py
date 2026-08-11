@@ -15,6 +15,7 @@ SKILL_PATHS = {
 }
 
 WRITING_REFERENCE_PATHS = {
+    "personas": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "personas.md",
     "common": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "common-voice.md",
     "blog": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "blog.md",
     "linkedin": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "linkedin.md",
@@ -63,6 +64,44 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         self.assertNotIn("Personal Branding/", writing)
         self.assertNotIn("VOICE -", writing)
         self.assertNotIn("canon:", writing)
+
+    def test_writing_resolves_one_persona_before_source_lock(self):
+        writing = self.skills["writing"]
+
+        self.assertIn("references/personas.md", writing)
+        self.assertIn("### 0. 발신 페르소나와 오디언스 잠금", writing)
+        self.assertLess(
+            writing.index("### 0. 발신 페르소나와 오디언스 잠금"),
+            writing.index("### 1. 범위와 source 잠금"),
+        )
+        self.assertIn("명시했으면 다시 묻지 않는다", writing)
+        self.assertIn("정확히 하나", writing)
+        self.assertIn("오디언스", writing)
+        self.assertIn("채널에 고정하지 않는다", writing)
+
+    def test_writing_persona_reference_has_exact_public_choices(self):
+        personas = self.writing_references["personas"]
+
+        self.assertIn("## FDE", personas)
+        self.assertIn("## 1인 빌더", personas)
+        self.assertIn("공개 페르소나 선택지는 정확히 두 개", personas)
+        self.assertIn("DA는 위시켓 내부 역할", personas)
+        self.assertIn("AX Engineer", personas)
+        self.assertIn("세 번째 페르소나", personas)
+        self.assertIn("모든 지원 채널", personas)
+        self.assertIn("오디언스는 글마다", personas)
+
+    def test_writing_persona_reference_preserves_evidence_boundaries(self):
+        personas = self.writing_references["personas"]
+
+        self.assertIn("고객·회사 식별정보", personas)
+        self.assertIn("수익", personas)
+        self.assertIn("출시", personas)
+        self.assertIn("근거가 있을 때만", personas)
+        self.assertIn("주 페르소나", personas)
+        self.assertNotIn("Personal Branding/", personas)
+        self.assertNotIn("/Users/", personas)
+        self.assertNotIn("[[", personas)
 
     def test_writing_references_own_channel_contracts(self):
         expected = {
