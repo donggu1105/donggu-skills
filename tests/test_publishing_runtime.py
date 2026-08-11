@@ -38,6 +38,7 @@ class FakeApiHandler(BaseHTTPRequestHandler):
     publisher_uncertain_without_identifiers = False
     publisher_uncertain_delete = False
     drop_webhook_connection = False
+    drop_local_maily_response = False
     forced_update_response: object = None
     active_posts_enabled = False
     duplicate_active_posts = False
@@ -143,6 +144,9 @@ class FakeApiHandler(BaseHTTPRequestHandler):
             self._send(200, {"success": True})
             return
         if parsed.path == "/publish-sync/maily":
+            if type(self).drop_local_maily_response:
+                self.close_connection = True
+                return
             self._send(200, {
                 "success": True,
                 "url": "https://maily.so/example/posts/post123",
@@ -190,6 +194,24 @@ class FakeApiHandler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
 
+class ProxyCaptureHandler(BaseHTTPRequestHandler):
+    requests = []
+
+    def log_message(self, format, *args):
+        pass
+
+    def do_POST(self):
+        size = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(size)
+        type(self).requests.append((self.path, dict(self.headers), body))
+        payload = json.dumps({"error": "proxy must not receive loopback publisher calls"}).encode("utf-8")
+        self.send_response(502)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+
 class PublishingRuntimeTests(unittest.TestCase):
     SESSION_ID = "session-1"
     PREVIEW_TURN = "turn-preview"
@@ -226,6 +248,8 @@ class PublishingRuntimeTests(unittest.TestCase):
         FakeApiHandler.publisher_uncertain_without_identifiers = False
         FakeApiHandler.publisher_uncertain_delete = False
         FakeApiHandler.drop_webhook_connection = False
+        FakeApiHandler.drop_local_maily_response = False
+        ProxyCaptureHandler.requests = []
         FakeApiHandler.forced_update_response = None
         FakeApiHandler.active_posts_enabled = False
         FakeApiHandler.active_post = {
@@ -256,12 +280,12 @@ class PublishingRuntimeTests(unittest.TestCase):
             turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
         )
 
-    def direct_runtime(self):
+    def direct_runtime(self, *, publisher_api_base_url=None):
         return self.module.PublishingRuntime(
             receipt_root=Path(self.tmp.name) / "direct-receipts",
             webhook_base_url=f"{self.base}/webhook",
             webhook_token="webhook-secret",
-            publisher_api_base_url=self.base,
+            publisher_api_base_url=publisher_api_base_url or self.base,
             publisher_api_token="publisher-secret",
             ledger=self.runtime.ledger,
             receipt_ttl_seconds=900,
@@ -1612,6 +1636,10 @@ class PublishingRuntimeTests(unittest.TestCase):
         self.assertEqual(plan["receipt_id"], headers["x-idempotency-key"])
         self.assertNotIn("x-sns-token", headers)
         self.assertEqual({"dry_run": False}, requests[0][3]["options"])
+        with self.assertRaises(self.module.ReceiptError):
+            runtime.dispatch(plan["receipt_id"], session_id=self.SESSION_ID)
+        requests = [item for item in FakeApiHandler.requests if item[1] == "/publish-sync/tistory"]
+        self.assertEqual(1, len(requests))
 
     def test_tistory_update_uses_loopback_with_approved_ledger_post(self):
         runtime = self.direct_runtime()
@@ -1860,6 +1888,92 @@ class PublishingRuntimeTests(unittest.TestCase):
 
         self.assertEqual("reconciliation_required", result["status"])
         self.assertEqual("published_identifiers_missing_after_submit", result["error"])
+        ledger_inserts = [
+            item for item in FakeApiHandler.requests
+            if item[0] == "POST" and item[1] == "/rest/v1/published_posts"
+        ]
+        self.assertEqual([], ledger_inserts)
+
+    def test_loopback_publisher_ignores_inherited_http_proxy(self):
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), ProxyCaptureHandler)
+        proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+        proxy_thread.start()
+        self.addCleanup(proxy.server_close)
+        self.addCleanup(proxy_thread.join, 5)
+        self.addCleanup(proxy.shutdown)
+
+        publisher_port = self.server.server_address[1]
+        runtime = self.direct_runtime(
+            publisher_api_base_url=f"http://localhost:{publisher_port}",
+        )
+        plan = runtime.preview(
+            channel="tistory",
+            operation="publish",
+            payload={
+                "title": "Proxy-safe",
+                "content": "Body",
+                "tags": ["FDE", "고객인터뷰", "업무분석"],
+            },
+            topic="proxy-safe",
+            note_path="Blog/proxy-safe.md",
+            session_id=self.SESSION_ID,
+            turn_id=self.PREVIEW_TURN,
+            user_message_id=self.PREVIEW_MESSAGE_ID,
+        )
+        runtime.approve(
+            plan["receipt_id"],
+            approval_text="발행해줘",
+            session_id=self.SESSION_ID,
+            turn_id=self.APPROVAL_TURN,
+            user_message_id=self.APPROVAL_MESSAGE_ID,
+        )
+        proxy_base = f"http://127.0.0.1:{proxy.server_address[1]}"
+        proxy_env = {
+            "HTTP_PROXY": proxy_base,
+            "http_proxy": proxy_base,
+            "NO_PROXY": "127.0.0.1",
+            "no_proxy": "127.0.0.1",
+        }
+
+        with mock.patch.dict(os.environ, proxy_env, clear=False):
+            result = runtime.dispatch(plan["receipt_id"], session_id=self.SESSION_ID)
+
+        self.assertEqual("completed", result["status"])
+        self.assertEqual([], ProxyCaptureHandler.requests)
+
+    def test_maily_draft_lost_response_requires_reconciliation(self):
+        runtime = self.direct_runtime()
+        plan = runtime.preview(
+            channel="maily",
+            operation="publish",
+            payload={
+                "title": "Draft",
+                "subtitle": "Subtitle",
+                "content": "Body",
+                "dry_run": True,
+            },
+            topic="uncertain-draft",
+            note_path="Maily/uncertain-draft.md",
+            session_id=self.SESSION_ID,
+            turn_id=self.PREVIEW_TURN,
+            user_message_id=self.PREVIEW_MESSAGE_ID,
+        )
+        runtime.approve(
+            plan["receipt_id"],
+            approval_text="발행해줘",
+            session_id=self.SESSION_ID,
+            turn_id=self.APPROVAL_TURN,
+            user_message_id=self.APPROVAL_MESSAGE_ID,
+        )
+        FakeApiHandler.drop_local_maily_response = True
+
+        result = runtime.dispatch(plan["receipt_id"], session_id=self.SESSION_ID)
+
+        self.assertEqual("reconciliation_required", result["status"])
+        self.assertEqual(
+            "reconciliation_required",
+            runtime.receipt_status(plan["receipt_id"])["state"],
+        )
         ledger_inserts = [
             item for item in FakeApiHandler.requests
             if item[0] == "POST" and item[1] == "/rest/v1/published_posts"

@@ -26,7 +26,7 @@ import time
 from typing import Any, Callable, Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 
 class PublishingError(Exception):
@@ -486,11 +486,22 @@ def _validate_payload(
     return clean
 
 
-def _request_json(method: str, url: str, *, headers: Dict[str, str], body: Optional[Dict[str, Any]] = None, timeout: int = 60) -> Any:
+def _request_json(
+    method: str,
+    url: str,
+    *,
+    headers: Dict[str, str],
+    body: Optional[Dict[str, Any]] = None,
+    timeout: int = 60,
+    disable_proxy: bool = False,
+) -> Any:
     data = None if body is None else _canonical(body)
     request = Request(url, data=data, method=method, headers=headers)
+    handlers: list = [_NoRedirect()]
+    if disable_proxy:
+        handlers.insert(0, ProxyHandler({}))
     try:
-        with build_opener(_NoRedirect()).open(request, timeout=timeout) as response:
+        with build_opener(*handlers).open(request, timeout=timeout) as response:
             raw = response.read()
             if not 200 <= response.status < 300:
                 raise TransportError(f"HTTP {response.status}", uncertain=response.status >= 500)
@@ -1280,7 +1291,7 @@ class PublishingRuntime:
         real_publish = operation == "publish" and not (
             channel == "maily" and webhook_payload.get("dry_run") is True
         )
-        external_operation = real_publish or operation in {"update", "delete"}
+        external_operation = operation in {"publish", "update", "delete"}
 
         def require_reconciliation(
             error: str, *, url: Optional[str] = None, post_id: Optional[str] = None,
@@ -1372,6 +1383,7 @@ class PublishingRuntime:
                 headers=headers,
                 body=request_body,
                 timeout=self.timeout,
+                disable_proxy=use_local_publisher,
             )
         except TransportError as exc:
             if exc.uncertain and external_operation:
