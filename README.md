@@ -1,6 +1,6 @@
 # donggu-skills
 
-> Personal Claude Code skill marketplace by **강동현** ([@donggu1105](https://github.com/donggu1105))
+> Personal Claude Code and Codex skill marketplace by **강동현** ([@donggu1105](https://github.com/donggu1105))
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin%20Marketplace-8B5CF6)](https://claude.com/claude-code)
@@ -91,6 +91,22 @@ claude plugin install donggu-obsidian@donggu-skills
 - "이 글에서 다시 쓸 CORE가 있는지 보여줘"
 - "FDE 프로젝트 노트 중복을 범위 안에서 점검해줘"
 - 실행 가능한 preview의 exact trigger: "수정안 보여줘"
+
+### Codex — 현재 `donggu-sns` 지원
+
+```bash
+codex plugin marketplace add donggu1105/donggu-skills
+codex plugin add donggu-sns@donggu-skills
+```
+
+업데이트할 때는 marketplace를 갱신한 뒤 plugin을 다시 설치한다.
+
+```bash
+codex plugin marketplace upgrade donggu-skills
+codex plugin add donggu-sns@donggu-skills
+```
+
+설치·업데이트된 skill 목록은 새 thread에서 다시 로드한다. 현재 Codex catalog에는 `donggu-sns`만 등록되어 있으며 나머지 domain plugin은 Claude Code 전용이다.
 
 ---
 

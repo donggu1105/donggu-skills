@@ -106,6 +106,17 @@ LinkedIn·Threads의 외부 URL은 본문에 넣지 않는다. 작성 결과와 
 
 ---
 
+## Install
+
+Claude Code에서는 기존 `donggu-skills` marketplace의 `donggu-sns`를 설치한다. Codex에서는 다음 명령으로 repo marketplace와 plugin을 설치한다.
+
+```bash
+codex plugin marketplace add donggu1105/donggu-skills
+codex plugin add donggu-sns@donggu-skills
+```
+
+설치 후에는 새 thread에서 `donggu-sns`의 skill 목록을 다시 로드한다. Claude와 Codex는 이 디렉터리의 같은 `skills/` 트리를 사용한다.
+
 ## Dependencies
 
 - 텍스트 작성: 추가 런타임 의존성 없음

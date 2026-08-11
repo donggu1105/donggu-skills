@@ -130,6 +130,15 @@ class NativePluginPackageTests(unittest.TestCase):
         )
         self.assertEqual("Productivity", entry["category"])
 
+    def test_codex_install_docs_name_marketplace_plugin_and_new_thread_boundary(self):
+        root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        sns_readme = (ROOT / "donggu-sns" / "README.md").read_text(encoding="utf-8")
+        for text in (root_readme, sns_readme):
+            self.assertIn("codex plugin marketplace add donggu1105/donggu-skills", text)
+            self.assertIn("codex plugin add donggu-sns@donggu-skills", text)
+            self.assertIn("새 thread", text)
+        self.assertIn("codex plugin marketplace upgrade donggu-skills", root_readme)
+
     def test_sns_codex_manifest_reuses_all_skills_and_matches_release_versions(self):
         package = ROOT / "donggu-sns"
         codex = json.loads(
