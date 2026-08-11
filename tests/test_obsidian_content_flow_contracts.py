@@ -115,9 +115,14 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         self.assertIn(ambiguous_memo, personas)
         self.assertIn("공통 신호만으로는 페르소나를 추론하지 않는다", personas)
         self.assertIn("지속 사용만으로는", personas)
-        self.assertIn("source가 명시적으로 제공", personas)
-        self.assertIn("고객·조직 맥락", personas)
-        self.assertIn("자기 제품·시장 가설 맥락", personas)
+        contextual_paths = (
+            "고객·조직 맥락을 source 또는 요청/브리프가 명시적으로 제공하면 `FDE`",
+            "자기 제품·시장 가설 맥락을 source 또는 요청/브리프가 명시적으로 제공하면 `1인 빌더`",
+        )
+        for contract in contextual_paths:
+            with self.subTest(contract=contract):
+                self.assertIn(contract, personas)
+                self.assertIn(contract, writing)
         self.assertIn(
             "둘 다 없으면 `FDE`와 `1인 빌더` 중 하나를 한 번만 묻는다",
             personas,
@@ -127,7 +132,8 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             personas,
         )
         self.assertIn("명시했으면 다시 묻지 않는다", personas)
-        self.assertIn("맥락이 source에 명시되어 있으면 다시 묻지 않는다", personas)
+        self.assertIn("사용하고 다시 묻지 않는다", personas)
+        self.assertIn("사용하고 다시 묻지 않는다", writing)
         self.assertIn("지속 사용만으로는", writing)
         self.assertIn(clarification, writing)
 
