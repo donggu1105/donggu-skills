@@ -54,11 +54,10 @@ Content *formats* are NOT defined here. Text drafts are owned by `writing-social
      Questions, deliberation,
      deferral, and negation such as `발행해 볼까?`, `나중에 발행해`, or `발행해 두지 마`
      are never approvals.
-     State whether the post will include images. Instagram requires a finalized caption plus
-     finalized image files. For threads/instagram, if the `## 발행`
-     section has no `![[image]]` embeds the post goes out TEXT-ONLY — say so and confirm
-     that's intended (offer user-provided assets or get-ai-image when appropriate) before firing. Never silently drop
-     images a showcase/proof post needs.
+     State whether the post will include images. Threads may publish text-only only after explicit confirmation.
+     Instagram requires a finalized caption. If 1–10 finalized image files are absent, STOP;
+     obtain user-provided assets first or `get-ai-image` when appropriate, then rebuild and re-preview.
+     Instagram must never publish text-only. Never silently drop images a showcase/proof post needs.
      maily = irreversible email send → confirm once more right before firing.
      After the final Maily click, treat only a same-origin public `/slug/posts/<id>` page whose
      visible `og:title`/`h1` matches the payload title, or an exact visible completion marker on
@@ -189,9 +188,9 @@ browser lookup.
 
 ### Images (threads · instagram — finalized files)
 
-- **Image gate (ask first)**: threads/instagram images come from finalized local files referenced by `## 발행` `![[embeds]]`. No embeds → text-only. Before posting, confirm with the user whether images are wanted; if yes and the note has none, use user-provided assets first or `get-ai-image` when appropriate BEFORE firing — never post text-only and backfill later. Factual real-world imagery requires a supplied or verified asset.
+- **Threads text-only gate**: Threads may publish text-only only after explicit confirmation. If images are wanted, use finalized local files referenced by `## 발행` `![[embeds]]`; obtain user-provided assets first or `get-ai-image` when appropriate before rebuilding the preview.
 - **Ordered upload**: run `python3 <skill>/upload_images.py <channel> <topic-slug> <bucket> file1 ...`. The input file order is preserved in the returned `image_urls`. The script reads credentials from the environment and does not place expanded service keys in argv.
-- **Instagram gate**: require a finalized caption plus 1–10 finalized image files. This skill uploads and publishes those files; it does not create a card deck or video.
+- **Instagram no-images gate — STOP**: If 1–10 finalized image files are absent, STOP; obtain user-provided assets first or `get-ai-image` when appropriate, then rebuild and re-preview. Instagram must never publish text-only. Require a finalized caption as well. Factual real-world imagery requires a supplied or verified asset. This skill uploads and publishes finalized files; it does not create a card deck or video.
 
 ## Webhook reference
 
@@ -227,7 +226,8 @@ Delete flow: adapter preview resolves the latest active ledger row → show topi
 - No text-channel note found and you're about to ask the user for a filename → STOP, offer to create the draft via `writing-social-content` instead. For missing images, use supplied assets first or `get-ai-image` when appropriate.
 - post_id from conversation memory → STOP, SELECT from the ledger.
 - maily without a subtitle line, or real-send without the second confirmation → STOP.
-- About to send a threads/instagram post text-only (no `image_urls`) when it's a showcase/proof post or its `## 발행` has no embeds → STOP, confirm images with the user first.
+- About to send a Threads post text-only without explicit confirmation → STOP, confirm that no images are intended.
+- About to send an Instagram post without 1–10 finalized `image_urls` → STOP, obtain finalized images, then rebuild and re-preview.
 - About to POST tistory/maily content that still contains `![[…]]` wikilinks → STOP, you skipped `prepare_blog_images.py`; the images will break in the published post.
 - Tistory preview has no exact tag list, fewer than 4 public tags, more than 7 without a stated reason, duplicate tags, or any namespaced tag containing `/` → STOP and rebuild the public tag set.
 
@@ -236,5 +236,5 @@ Delete flow: adapter preview resolves the latest active ledger row → show topi
 | "User said 올려줘, that IS the approval" | They approved the *intent*, not the *body*. Preview, then approval. |
 | "Note doesn't exist, user must tell me where it is" | For a text channel, offer the `writing-social-content` path. For imagery, ask for supplied assets or use `get-ai-image` when appropriate. |
 | "I remember the post_id from earlier" | Sessions die. The ledger doesn't. |
-| "User said 올려/다시 올려, so text-only is fine" | Re-posting ≠ an image decision. Confirm whether images should ride along first. |
+| "User said 올려/다시 올려, so text-only is fine" | For Threads, explicitly confirm text-only. Instagram never publishes text-only. |
 | "Body has `![[…]]`, tistory will render it" | It won't. Vault wikilinks are local. Run `prepare_blog_images.py` → `![](url)` first. |

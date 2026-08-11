@@ -228,6 +228,37 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertIn("image_urls", uploader_text)
         self.assertNotIn("card-news", uploader_text)
 
+    def test_sns_image_routes_split_instagram_gate_and_prefer_user_assets(self):
+        package = ROOT / "donggu-sns"
+        publish = (package / "skills" / "publish-sns" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        youtube = (package / "skills" / "youtube" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+
+        with self.subTest(skill="publish-sns"):
+            self.assertIn(
+                "Threads may publish text-only only after explicit confirmation.", publish
+            )
+            self.assertIn(
+                "If 1–10 finalized image files are absent, STOP", publish
+            )
+            self.assertIn(
+                "obtain user-provided assets first or `get-ai-image` when appropriate, "
+                "then rebuild and re-preview",
+                publish,
+            )
+            self.assertIn("Instagram must never publish text-only.", publish)
+
+        with self.subTest(skill="youtube"):
+            self.assertIn(
+                "사용자 제공 이미지·자산을 먼저 사용한다. 없고 AI 생성이 적절할 때만 "
+                "`get-ai-image`를 사용한다.",
+                youtube,
+            )
+            self.assertNotIn("`belt`", youtube)
+
     def test_sns_publish_image_uploader_preserves_order_and_public_urls(self):
         import contextlib
         import datetime

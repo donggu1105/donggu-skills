@@ -60,7 +60,7 @@ Personal Branding/40_Channel_Packs/YouTube/_anchors/
 
 ### Thumbnail Routing
 
-패키징 3가설 뒤 `youtube-thumbnail-design`으로 썸네일 브리프와 시각 QA를 수행한다. 이미지 생성 backend는 upstream의 `belt`가 준비돼 있으면 사용하고, 없으면 `get-ai-image`로 생성한다. backend가 달라도 아래 완료 계약은 같다.
+패키징 3가설 뒤 `youtube-thumbnail-design`으로 썸네일 브리프·디자인·시각 QA를 수행한다. 사용자 제공 이미지·자산을 먼저 사용한다. 없고 AI 생성이 적절할 때만 `get-ai-image`를 사용한다. 이미지 출처가 달라도 아래 완료 계약은 같다.
 
 - 의미가 다른 제목·썸네일 약속 최대 3개
 - 120px 모바일 축소 가독성
@@ -242,7 +242,7 @@ frontmatter:
 - `baoyu-youtube-transcript` — 경쟁·참고 영상의 자막·챕터·SRT·표지·캐시 수집 기본 경로
 - `get-youtube-scripts` — `*-orig` 선택·단일 트랙·429 회피가 필요한 captions-only fallback
 - `youtube-thumbnail-design` — 썸네일 브리프·디자인·120px 시각 QA
-- `get-ai-image` — `belt`가 없을 때 썸네일 이미지 생성 backend
+- `get-ai-image` — 사용자 제공 이미지·자산이 없고 AI 생성이 적절할 때만 사용하는 썸네일 이미지 생성 경로
 - `extract-core` — 주간 인박스·저널 CORE 후보 추출
 - `writing-social-content` — 영상에서 검증된 인사이트의 텍스트 채널 독립 작성
 - `publish-sns` — 지원되는 외부 채널 발행
