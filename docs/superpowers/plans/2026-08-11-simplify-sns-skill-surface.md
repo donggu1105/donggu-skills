@@ -137,6 +137,72 @@ In `tests/test_native_plugin_packages.py`, change the hard-coded SNS version ass
         self.assertNotIn("card-news", uploader_text)
 ```
 
+Add this real execution contract so the relocated uploader's ordered-file behavior is locked before it moves:
+
+```python
+    def test_sns_publish_image_uploader_preserves_order_and_public_urls(self):
+        import contextlib
+        import datetime
+        import io
+        import os
+        import runpy
+
+        uploader = ROOT / "donggu-sns" / "skills" / "publish-sns" / "upload_images.py"
+
+        class FixedDateTime(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 11, 12, 34, 56)
+
+        requests = []
+
+        def fake_urlopen(request, timeout):
+            requests.append((request, timeout))
+            return object()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = root / "first.png"
+            second = root / "second.jpg"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+            stdout = io.StringIO()
+            argv = [
+                str(uploader),
+                "instagram",
+                "launch",
+                "sns-media",
+                str(first),
+                str(second),
+            ]
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "SUPABASE_URL": "https://example.supabase.co",
+                    "SUPABASE_SERVICE_KEY": "secret",
+                },
+            ), mock.patch("sys.argv", argv), mock.patch(
+                "datetime.datetime", FixedDateTime
+            ), mock.patch(
+                "urllib.request.urlopen", side_effect=fake_urlopen
+            ), contextlib.redirect_stdout(stdout):
+                runpy.run_path(str(uploader), run_name="__main__")
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(2, payload["count"])
+        self.assertEqual(
+            [
+                "https://example.supabase.co/storage/v1/object/public/"
+                "sns-media/instagram/2026/08-11/launch-123456/01.png",
+                "https://example.supabase.co/storage/v1/object/public/"
+                "sns-media/instagram/2026/08-11/launch-123456/02.jpg",
+            ],
+            payload["image_urls"],
+        )
+        self.assertEqual([30, 30], [timeout for _, timeout in requests])
+        self.assertEqual([b"first", b"second"], [request.data for request, _ in requests])
+```
+
 - [ ] **Step 2: Run the focused tests and verify RED**
 
 Run:
@@ -147,10 +213,11 @@ python3 -m unittest \
   tests.test_native_plugin_packages.NativePluginPackageTests.test_codex_marketplace_exposes_only_sns_from_existing_domain_path \
   tests.test_native_plugin_packages.NativePluginPackageTests.test_sns_codex_manifest_reuses_all_skills_and_matches_release_versions \
   tests.test_native_plugin_packages.NativePluginPackageTests.test_sns_live_surface_excludes_removed_asset_skills \
+  tests.test_native_plugin_packages.NativePluginPackageTests.test_sns_publish_image_uploader_preserves_order_and_public_urls \
   -v
 ```
 
-Expected: FAIL because the package is still `2.7.7`, the three retired directories still exist, the README still reports seven skills, and `publish-sns/upload_images.py` does not exist.
+Expected: FAIL because the package is still `2.7.7`, the three retired directories still exist, the README still reports seven skills, and `publish-sns/upload_images.py` does not exist. The uploader execution test must fail at the missing new path rather than at an assertion typo.
 
 - [ ] **Step 3: Preserve the generic uploader and remove the three skill directories**
 
