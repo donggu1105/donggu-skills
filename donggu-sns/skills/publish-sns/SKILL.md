@@ -36,25 +36,76 @@ Content *formats* are NOT defined here. Text drafts are owned by `writing-social
                            stop the canonical body at the next level-2 heading.
                            NEVER take "everything after frontmatter"; strategy/notes/checklist
                            sections must not leak into a post.
-  3. PREVIEW + APPROVAL GATE (mandatory): show the exact title/body/images/tags and operation.
-     Re-preview after any change. In the current Camille Discord deployment, generic `clarify`
-     components are diverted to n8n Interactions and do not return to Hermes, so use a later-turn
-     text approval or the purpose-built `pub1` button. Questions, deferral, and negation are not
-     approvals. Maily real-send requires one more explicit later-turn confirmation immediately
-     before dispatch.
-  4. Use the native adapter only: `donggu_publishing_preview` → show preview → later-turn
-     `donggu_publishing_approve` → `donggu_publishing_dispatch`. For a real Maily send, insert
-     `donggu_publishing_confirm_maily` in a separate later turn before dispatch. Do not call the
-     local API, webhook, ledger, or CLI mutation path directly.
-  5. The adapter routes Tistory/Maily publish and Tistory update/delete to the loopback FastAPI
-     publisher (`127.0.0.1:8000`) with `X-API-Token`; Threads/LinkedIn/Instagram continue through
-     fixed n8n webhooks. It maps approved `dry_run` to FastAPI `options.dry_run`. Each receipt is
-     one-shot and every external operation is attempted once; there is no Redis/arq job and no
-     automatic retry. A transport interruption or missing public identifier becomes
-     `uncertain`/`reconciliation_required`: inspect the public platform and ledger before any new
-     preview. **`dry_run=true` 성공 응답은 절대 `published_posts`에 INSERT하지 않는다.**
-     It ends as `completed_draft`. A real success is recorded in `published_posts`; ledger failure
-     after external success also requires reconciliation.
+  3. PREVIEW + APPROVAL GATE (mandatory): show title + body (or structure + first paragraphs
+     + char count). Prefer `clarify` single-select buttons only when the host can return the
+     selection before the native receipt expires and the Discord application does **not** route
+     interactions to a separate HTTP endpoint. In the current Camille deployment, the same
+     Discord application has an n8n Interactions Endpoint URL, so generic Hermes `clarify`
+     components are diverted away from the gateway and fail with "application did not respond".
+     Use exact later-turn text approval or the purpose-built `pub1` publishing buttons here;
+     do not present generic `clarify` buttons. Put selectable labels only in `choices`, never in
+     the question text. **Do not open a 15-minute native receipt and then block on a 60-minute
+     button wait.** If the button transport cannot satisfy the receipt TTL, explain the
+     limitation once and use exact later-turn text approval instead; never loop by silently
+     minting replacement receipts. Proceed ONLY on an explicit later-turn approval whose verb
+     matches the receipt operation: publish=`발행해`/`올려줘`, update=`블로그 업데이트 적용해줘`,
+     delete=`삭제해줘`. A generic `승인합니다` or a cross-operation verb never authorizes mutation.
+     The approval verb must be a completed affirmative imperative at the end of the message.
+     Questions, deliberation,
+     deferral, and negation such as `발행해 볼까?`, `나중에 발행해`, or `발행해 두지 마`
+     are never approvals.
+     State whether the post will include images. Threads may publish text-only only after explicit confirmation.
+     Instagram requires a finalized caption. If 1–10 finalized image files are absent, STOP;
+     obtain user-provided assets first or `get-ai-image` when appropriate, then rebuild and re-preview.
+     Instagram must never publish text-only. Never silently drop images a showcase/proof post needs.
+     maily = irreversible email send → confirm once more right before firing.
+     After the final Maily click, treat only a same-origin public `/slug/posts/<id>` page whose
+     visible `og:title`/`h1` matches the payload title, or an exact visible completion marker on
+     a safe same-origin page, as success. Login/error/arbitrary redirects remain reconciliation.
+  4. Use the native adapter (required): call `donggu_publishing_preview`, show its exact
+     preview, wait for approval in a later user turn, call `donggu_publishing_approve`, then
+     call `donggu_publishing_dispatch`. Maily real-send requires another later user turn and
+     `donggu_publishing_confirm_maily` before dispatch. **Mutations run only through Hermes,**
+     whose host-provided session/turn IDs and the actual latest persisted `SessionDB` user message enforce those
+     later turns. The adapter examines only that latest user row: blank text, structured/non-string
+     content, or an invalid message ID fails closed and must never fall back to an older approval.
+     It re-reads that exact latest row under a `SessionDB` write transaction and executes the
+     durable receipt+authorization claim before releasing the transcript writer lock; a changed
+     message ID or text blocks the claim before mutation, and a later user row linearizes only
+     after the authorization claim.
+     Each persisted approval/confirmation row is consumed by one receipt only through a durable private filesystem claim shared across runtime instances; a single `승인` or final-confirmation message never authorizes multiple receipts, even across concurrent workers or process-local runtime objects. The approval/confirmation tools take only `receipt_id`; never synthesize an
+     approval string. Claude Code may create and show a stateless preview, but Hermes must
+     create a new native preview before receipt status, approval, confirmation, or dispatch;
+     direct webhook, ledger, or CLI mutation is forbidden.
+  5. The adapter checks `published_posts` immediately before a real publish and blocks when an
+     active post or a legacy unresolved reconciliation row already exists. Tistory/Maily are sent
+     once to the loopback FastAPI publisher with `X-API-Token` and the receipt ID as
+     `X-Idempotency-Key`; Threads/LinkedIn/Instagram keep their fixed n8n webhooks. Only
+     **verified real publishes** are recorded in `published_posts`.
+     **`dry_run=true` 성공 응답은 절대 `published_posts`에 INSERT하지 않는다.** It ends as
+     `completed_draft` and therefore never creates the DB-triggered publication-complete event.
+     `reconciliation_required` means the external mutation occurred or may have occurred, but
+     public read-back or ledger completion is incomplete. This state and any URL/post_id/error are
+     preserved on the signed receipt only; it must not create a `published_posts` row or
+     `content.published` event. Never mint a replacement publish receipt or retry automatically.
+     For browser publishers, set the irreversible-mutation boundary immediately before the final
+     save/publish/update/delete click. Any click, wait, read-back, browser/context close, or outer
+     Playwright-manager exception after that boundary must preserve `external_mutation_possible`
+     and end in reconciliation, never an ordinary retryable failure. There is no Redis/arq job,
+     job polling, or automatic retry in the Tistory/Maily path; inspect the public platform and
+     ledger before creating any fresh preview after an uncertain result.
+     Tistory update installs a blocking browser route before the final click and permits exactly
+     one HTTPS `POST /manage/post.json` whose payload ID equals the approved post; mismatches are
+     aborted before network transmission. The production adapter release must bind one exact
+     blog/post capability in code (currently `donggu1105/306`); never widen it through environment
+     configuration. A different ledger target requires a separately reviewed release.
+     Public read-back compares an ordered semantic body event
+     stream (text boundaries, block structure, links including query/fragment, duplicate image
+     placements), serves the preflight-validated pinned image bytes through the browser route
+     without browser DNS/network lookup, aborts unapproved same-host image requests, requires
+     successful browser decode/load, and materializes the cover upload from those same strict
+     preflight bytes without a second GET before binding the requested cover.
+     Inspect the existing post first and resolve it through the ledger/update path.
   6. Report per-channel success/failure + URLs. Update note frontmatter `status: published`
      only when at least one real publish succeeded and its ledger write completed. A dry-run-only
      result leaves the note status unchanged.
@@ -117,11 +168,17 @@ python3 <skill>/prepare_blog_images.py "<note.md>" --out /tmp/<slug>.pub.md
 #   → /tmp/<slug>.pub.md.cover 에 hero(첫 이미지) URL = 대표이미지 소스.
 ```
 
-Then extract title (first line) + body **from the converted file** and use them in the native adapter preview. The script is idempotent (upsert) — re-running reuses the same URLs. Storage path: `sns-media/blog/<YYYY>/<MM-DD>/<slug>/<file>` (public). If it exits non-zero (`unresolved` image), STOP — fix the missing vault embed before preview.
+Then extract title (first line) + body **from the converted file** and use them in the native adapter preview. The script is idempotent (upsert) — re-running reuses the same URLs. Storage path: `sns-media/blog/<YYYY>/<MM-DD>/<slug>/<file>` (public). If it exits non-zero (`unresolved` image), STOP — a wikilink points at a file not in the vault; fix the embed before preview, never ship a broken `![[...]]`.
 
 **Mandatory tistory image gate:** before native preview, count the `##` sections and build an explicit image-slot plan. Generate/source missing images, insert each one after the matching section’s opening paragraph, then run conversion. Verify (a) `/tmp/<slug>.pub.md.cover` exists and is non-empty, (b) every image URL is publicly reachable, (c) the converted body satisfies the section-coverage rule above, (d) the images are visually distinct and actually match their assigned section, and (e) the hero is passed as `cover_image`. Report the total image count and section placements in the preview. If any check fails, STOP. The runtime counts inline Markdown images and reports their H2 placements, but independently verify the converted Markdown as the source of truth. Outside renderer-recognized fenced code, only inline Markdown image syntax is allowed; raw HTML tags and reference-style images are fail-closed. The fence exception is deliberately the safe subset of Python-Markdown `fenced_code`: column-zero backtick/tilde markers, an optional single language token, and an exact same-length closing marker. Indented pseudo-fences, free-form info strings, tabs/form-feeds, unequal markers, and unclosed fences never suppress raw-resource validation.
 
-**tistory 대표이미지(썸네일/OG)**: 본문의 외부 `<img>`만으로는 대표이미지가 잡히지 않는다. Native preview payload에 `.cover` 파일의 hero URL을 `cover_image`로 넣어 발행기가 별도 업로드하게 한다. Maily에는 `cover_image`를 보내지 않는다.
+Public image URLs must also reject browser-parser ambiguity before probing: literal/encoded
+backslashes, literal/percent-encoded dot segments, and control/whitespace characters are invalid.
+The editor route must abort both the exact approved URL and every image request to an approved
+hostname so Chromium normalization or DNS rebinding cannot turn an approved probe into a second
+browser lookup.
+
+**tistory 대표이미지(썸네일/OG)**: tistory는 본문의 외부 `<img>` 핫링크로는 대표이미지를 못 잡는다 — 발행기가 **별도로 hero를 티스토리에 업로드**해야 og:image가 잡힌다. Native preview payload에 `.cover` 파일의 hero URL을 `cover_image`로 넣으면 발행기가 발행모달의 '대표이미지 추가'에 업로드한다. 빠뜨리면 본문 이미지는 보여도 썸네일/공유 카드가 비는 placeholder가 된다. (maily는 cover 개념 없음 — 보내지 말 것.)
 
 ### Images (threads · instagram — finalized files)
 
@@ -131,14 +188,15 @@ Then extract title (first line) + body **from the converted file** and use them 
 
 ## Transport reference
 
-Diagnostic only; agents call the native adapter, not these endpoints directly.
+Diagnostic contract only. The runtime owns endpoints, headers, redirects, and ledger writes;
+agents must never call mutation endpoints directly or print token values.
 
-| Local FastAPI (`127.0.0.1:8000`, `X-API-Token`) | Body |
-|---|---|
-| `POST /publish-sync/tistory` | `{title, content, tags, category?, cover_image?, options?}` |
-| `POST /update-sync/tistory` | `{post_id, title, content, tags, category?, cover_image?, options?}` |
-| `POST /unpublish-sync/tistory` | `{post_id}` |
-| `POST /publish-sync/maily` | `{title, content, subtitle?, tags?, options?}` |
+| Local FastAPI (`http://127.0.0.1:8000`, `X-API-Token`) | Body | Response |
+|---|---|---|
+| `POST /publish-sync/tistory` | `{title, content, tags, category?, cover_image?, options?}` | `{success, url, post_id, error}` |
+| `POST /update-sync/tistory` | `{post_id, title, content, tags, category?, cover_image?}` | `{success, url, post_id, error}` |
+| `POST /unpublish-sync/tistory` | `{post_id}` | `{success, error}` |
+| `POST /publish-sync/maily` | `{title, content, subtitle?, tags?, options?}` | `{success, url, error}` |
 
 | Other SNS webhook (`https://n8n.donggu.site/webhook/…`, `X-SNS-Token`) | Body |
 |---|---|
@@ -147,17 +205,21 @@ Diagnostic only; agents call the native adapter, not these endpoints directly.
 | `sns-pub-instagram` | `{image_urls, caption}` |
 | `sns-del-threads` | `{post_id}` |
 
-Threads·LinkedIn·Instagram publishing and Threads deletion keep their fixed n8n webhooks with
-`X-SNS-Token`. Maily emails cannot be recalled; LinkedIn deletion is manual.
+Delete exists only for tistory·threads. Maily emails cannot be recalled; LinkedIn deletion is manual.
 
 **tistory edit-in-place**: the adapter resolves `post_id` from the ledger and calls the local
-`/update-sync/tistory` endpoint. The same URL is preserved; never infer the target from a redirect
-or latest-post list. Run `prepare_blog_images.py`, then adapter preview → approve → dispatch.
+`/update-sync/tistory` endpoint — **same URL preserved**, no delete+repost. The known ledger post ID
+is authoritative throughout submit and read-back; never infer an update target from a redirect or
+the latest-post list. Run `prepare_blog_images.py`, then adapter preview → approve → dispatch.
+Never SELECT a post ID and POST manually.
 
-**tistory `session_expired` recovery**: verify no URL/post ID or successful ledger result, then run
-`api/scripts/recapture_tistory.py` inside the `api` container and ask the user to approve Kakao 2FA.
-After `manage/posts` is reachable, create a fresh preview and get a new approval; never replay the
-failed receipt.
+**tistory `session_expired` recovery**: treat this as a confirmed pre-publication failure only after
+the dispatch result reports `success:false, error:"session_expired"`. Before any fresh attempt,
+verify there is no returned URL/post ID, active ledger row, or successful Tistory result. Run
+`api/scripts/recapture_tistory.py` inside the `api` container, ask the user to approve Kakao 2FA,
+and require persistent Kakao cookies plus `manage/posts` reachability. Then create a fresh native
+preview from the exact same payload, obtain a new later-turn approval, and dispatch once. Never
+replay the failed receipt or call FastAPI/webhooks directly.
 
 ## Ledger (Supabase `fvfayignxybdyyravorg` · table `published_posts`)
 
