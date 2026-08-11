@@ -143,6 +143,13 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             with self.subTest(contract=contract):
                 self.assertIn(contract, personas)
                 self.assertIn(contract, writing)
+        claim_only_cross_persona = (
+            "중심 주장을 소유하는 주 관점에서 주 페르소나 하나를 먼저 고른다"
+        )
+        for surface_name, surface in (("personas", personas), ("writing", writing)):
+            with self.subTest(surface=surface_name):
+                self.assertNotIn("주장과 독자를 소유", surface)
+                self.assertIn(claim_only_cross_persona, surface)
         self.assertIn(
             "둘 다 없으면 `FDE`와 `1인 빌더` 중 하나를 한 번만 묻는다",
             personas,
