@@ -41,6 +41,8 @@ class FakeApiHandler(BaseHTTPRequestHandler):
     drop_local_maily_response = False
     truncate_local_maily_response = False
     invalid_local_maily_response = False
+    malformed_local_maily_status = False
+    oversized_local_maily_header = False
     forced_update_response: object = None
     active_posts_enabled = False
     duplicate_active_posts = False
@@ -146,6 +148,18 @@ class FakeApiHandler(BaseHTTPRequestHandler):
             self._send(200, {"success": True})
             return
         if parsed.path == "/publish-sync/maily":
+            if type(self).malformed_local_maily_status:
+                self.connection.sendall(b"NOT-HTTP\r\n\r\n")
+                self.close_connection = True
+                return
+            if type(self).oversized_local_maily_header:
+                self.connection.sendall(
+                    b"HTTP/1.1 200 OK\r\nX-Oversized: "
+                    + (b"x" * 65_537)
+                    + b"\r\nContent-Length: 2\r\n\r\n{}"
+                )
+                self.close_connection = True
+                return
             if type(self).drop_local_maily_response:
                 self.close_connection = True
                 return
@@ -271,6 +285,8 @@ class PublishingRuntimeTests(unittest.TestCase):
         FakeApiHandler.drop_local_maily_response = False
         FakeApiHandler.truncate_local_maily_response = False
         FakeApiHandler.invalid_local_maily_response = False
+        FakeApiHandler.malformed_local_maily_status = False
+        FakeApiHandler.oversized_local_maily_header = False
         ProxyCaptureHandler.requests = []
         FakeApiHandler.forced_update_response = None
         FakeApiHandler.active_posts_enabled = False
@@ -2079,6 +2095,62 @@ class PublishingRuntimeTests(unittest.TestCase):
             if item[0] == "POST" and item[1] == "/publish-sync/maily"
         ]
         self.assertEqual(1, len(publisher_requests))
+
+    def _assert_maily_protocol_error_requires_reconciliation(self, *, flag, topic):
+        runtime = self.direct_runtime()
+        plan = runtime.preview(
+            channel="maily",
+            operation="publish",
+            payload={
+                "title": "Draft",
+                "subtitle": "Subtitle",
+                "content": "Body",
+                "dry_run": True,
+            },
+            topic=topic,
+            note_path=f"Maily/{topic}.md",
+            session_id=self.SESSION_ID,
+            turn_id=self.PREVIEW_TURN,
+            user_message_id=self.PREVIEW_MESSAGE_ID,
+        )
+        runtime.approve(
+            plan["receipt_id"],
+            approval_text="발행해줘",
+            session_id=self.SESSION_ID,
+            turn_id=self.APPROVAL_TURN,
+            user_message_id=self.APPROVAL_MESSAGE_ID,
+        )
+        setattr(FakeApiHandler, flag, True)
+
+        result = runtime.dispatch(plan["receipt_id"], session_id=self.SESSION_ID)
+
+        self.assertEqual("reconciliation_required", result["status"])
+        self.assertEqual(
+            "reconciliation_required",
+            runtime.receipt_status(plan["receipt_id"])["state"],
+        )
+        publisher_requests = [
+            item for item in FakeApiHandler.requests
+            if item[0] == "POST" and item[1] == "/publish-sync/maily"
+        ]
+        self.assertEqual(1, len(publisher_requests))
+        ledger_inserts = [
+            item for item in FakeApiHandler.requests
+            if item[0] == "POST" and item[1] == "/rest/v1/published_posts"
+        ]
+        self.assertEqual([], ledger_inserts)
+
+    def test_maily_draft_bad_status_line_requires_reconciliation(self):
+        self._assert_maily_protocol_error_requires_reconciliation(
+            flag="malformed_local_maily_status",
+            topic="bad-status-draft",
+        )
+
+    def test_maily_draft_oversized_header_requires_reconciliation(self):
+        self._assert_maily_protocol_error_requires_reconciliation(
+            flag="oversized_local_maily_header",
+            topic="oversized-header-draft",
+        )
 
     def test_production_runtime_cannot_fall_back_to_publisher_webhooks(self):
         with self.assertRaises(self.module.ValidationError):

@@ -12,7 +12,7 @@ from contextlib import contextmanager
 import fcntl
 import hashlib
 import hmac
-from http.client import IncompleteRead
+from http.client import HTTPException, IncompleteRead
 import ipaddress
 import json
 import os
@@ -510,6 +510,8 @@ def _request_json(
         raise TransportError(f"HTTP {exc.code}", uncertain=exc.code >= 500) from None
     except IncompleteRead:
         raise TransportError("remote response was truncated", uncertain=True) from None
+    except HTTPException:
+        raise TransportError("remote response was malformed", uncertain=True) from None
     except (URLError, OSError, TimeoutError):
         raise TransportError("network request failed", uncertain=True) from None
     try:
