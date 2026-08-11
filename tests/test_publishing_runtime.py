@@ -39,6 +39,8 @@ class FakeApiHandler(BaseHTTPRequestHandler):
     publisher_uncertain_delete = False
     drop_webhook_connection = False
     drop_local_maily_response = False
+    truncate_local_maily_response = False
+    invalid_local_maily_response = False
     forced_update_response: object = None
     active_posts_enabled = False
     duplicate_active_posts = False
@@ -147,6 +149,24 @@ class FakeApiHandler(BaseHTTPRequestHandler):
             if type(self).drop_local_maily_response:
                 self.close_connection = True
                 return
+            if type(self).truncate_local_maily_response:
+                partial = b'{"success":true'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(partial) + 100))
+                self.end_headers()
+                self.wfile.write(partial)
+                self.wfile.flush()
+                self.close_connection = True
+                return
+            if type(self).invalid_local_maily_response:
+                invalid = b"not-json"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(invalid)))
+                self.end_headers()
+                self.wfile.write(invalid)
+                return
             self._send(200, {
                 "success": True,
                 "url": "https://maily.so/example/posts/post123",
@@ -249,6 +269,8 @@ class PublishingRuntimeTests(unittest.TestCase):
         FakeApiHandler.publisher_uncertain_delete = False
         FakeApiHandler.drop_webhook_connection = False
         FakeApiHandler.drop_local_maily_response = False
+        FakeApiHandler.truncate_local_maily_response = False
+        FakeApiHandler.invalid_local_maily_response = False
         ProxyCaptureHandler.requests = []
         FakeApiHandler.forced_update_response = None
         FakeApiHandler.active_posts_enabled = False
@@ -1980,6 +2002,83 @@ class PublishingRuntimeTests(unittest.TestCase):
         ]
         self.assertEqual([], ledger_inserts)
 
+    def test_maily_draft_truncated_2xx_requires_reconciliation(self):
+        runtime = self.direct_runtime()
+        plan = runtime.preview(
+            channel="maily",
+            operation="publish",
+            payload={
+                "title": "Draft",
+                "subtitle": "Subtitle",
+                "content": "Body",
+                "dry_run": True,
+            },
+            topic="truncated-draft",
+            note_path="Maily/truncated-draft.md",
+            session_id=self.SESSION_ID,
+            turn_id=self.PREVIEW_TURN,
+            user_message_id=self.PREVIEW_MESSAGE_ID,
+        )
+        runtime.approve(
+            plan["receipt_id"],
+            approval_text="발행해줘",
+            session_id=self.SESSION_ID,
+            turn_id=self.APPROVAL_TURN,
+            user_message_id=self.APPROVAL_MESSAGE_ID,
+        )
+        FakeApiHandler.truncate_local_maily_response = True
+
+        result = runtime.dispatch(plan["receipt_id"], session_id=self.SESSION_ID)
+
+        self.assertEqual("reconciliation_required", result["status"])
+        self.assertEqual(
+            "reconciliation_required",
+            runtime.receipt_status(plan["receipt_id"])["state"],
+        )
+        publisher_requests = [
+            item for item in FakeApiHandler.requests
+            if item[0] == "POST" and item[1] == "/publish-sync/maily"
+        ]
+        self.assertEqual(1, len(publisher_requests))
+
+    def test_maily_draft_invalid_2xx_json_requires_reconciliation(self):
+        runtime = self.direct_runtime()
+        plan = runtime.preview(
+            channel="maily",
+            operation="publish",
+            payload={
+                "title": "Draft",
+                "subtitle": "Subtitle",
+                "content": "Body",
+                "dry_run": True,
+            },
+            topic="invalid-json-draft",
+            note_path="Maily/invalid-json-draft.md",
+            session_id=self.SESSION_ID,
+            turn_id=self.PREVIEW_TURN,
+            user_message_id=self.PREVIEW_MESSAGE_ID,
+        )
+        runtime.approve(
+            plan["receipt_id"],
+            approval_text="발행해줘",
+            session_id=self.SESSION_ID,
+            turn_id=self.APPROVAL_TURN,
+            user_message_id=self.APPROVAL_MESSAGE_ID,
+        )
+        FakeApiHandler.invalid_local_maily_response = True
+
+        result = runtime.dispatch(plan["receipt_id"], session_id=self.SESSION_ID)
+
+        self.assertEqual("reconciliation_required", result["status"])
+        self.assertEqual(
+            "reconciliation_required",
+            runtime.receipt_status(plan["receipt_id"])["state"],
+        )
+        publisher_requests = [
+            item for item in FakeApiHandler.requests
+            if item[0] == "POST" and item[1] == "/publish-sync/maily"
+        ]
+        self.assertEqual(1, len(publisher_requests))
 
     def test_production_runtime_cannot_fall_back_to_publisher_webhooks(self):
         with self.assertRaises(self.module.ValidationError):
