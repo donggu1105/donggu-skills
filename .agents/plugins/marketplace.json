@@ -1,0 +1,21 @@
+{
+  "name": "donggu-skills",
+  "interface": {
+    "displayName": "Donggu Skills"
+  },
+  "plugins": [
+    {
+      "name": "donggu-sns",
+      "source": {
+        "source": "local",
+        "path": "./donggu-sns"
+      },
+      "version": "2.7.7",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

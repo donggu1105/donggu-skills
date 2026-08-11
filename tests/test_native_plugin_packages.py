@@ -111,8 +111,54 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-sns", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("2.7.6", claude["version"])
+        self.assertEqual("2.7.7", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
+
+    def test_codex_marketplace_exposes_only_sns_from_existing_domain_path(self):
+        marketplace = json.loads(
+            (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual("donggu-skills", marketplace["name"])
+        self.assertEqual("Donggu Skills", marketplace["interface"]["displayName"])
+        self.assertEqual(["donggu-sns"], [item["name"] for item in marketplace["plugins"]])
+        entry = marketplace["plugins"][0]
+        self.assertEqual({"source": "local", "path": "./donggu-sns"}, entry["source"])
+        self.assertEqual("2.7.7", entry["version"])
+        self.assertEqual(
+            {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+            entry["policy"],
+        )
+        self.assertEqual("Productivity", entry["category"])
+
+    def test_sns_codex_manifest_reuses_all_skills_and_matches_release_versions(self):
+        package = ROOT / "donggu-sns"
+        codex = json.loads(
+            (package / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        claude = json.loads(
+            (package / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        marketplace = json.loads(
+            (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual("donggu-sns", codex["name"])
+        self.assertEqual("./skills/", codex["skills"])
+        self.assertEqual("2.7.7", codex["version"])
+        self.assertEqual(codex["version"], claude["version"])
+        self.assertEqual(codex["version"], manifest_scalar(package / "plugin.yaml", "version"))
+        self.assertEqual(codex["version"], marketplace["plugins"][0]["version"])
+        self.assertEqual(
+            [
+                "get-ai-image",
+                "get-stock-image",
+                "make-insta-card-news",
+                "make-shorts",
+                "publish-sns",
+                "writing-social-content",
+                "youtube",
+            ],
+            sorted(path.parent.name for path in (package / "skills").glob("*/SKILL.md")),
+        )
 
     def test_sns_registers_exact_native_tool_surface(self):
         package = load_package(ROOT / "donggu-sns", "donggu_sns_plugin_test")

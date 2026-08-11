@@ -1,0 +1,38 @@
+{
+  "name": "donggu-sns",
+  "version": "2.7.7",
+  "description": "SNS and YouTube editorial operations with FDE or solo-builder persona routing, artifact creation, and gated publishing.",
+  "author": {
+    "name": "강동현 (donggu)",
+    "url": "https://github.com/donggu1105"
+  },
+  "repository": "https://github.com/donggu1105/donggu-skills",
+  "license": "MIT",
+  "keywords": [
+    "sns",
+    "linkedin",
+    "threads",
+    "instagram",
+    "maily",
+    "blog",
+    "youtube",
+    "fde",
+    "solo-builder",
+    "content-writing",
+    "gated-publishing"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Donggu SNS",
+    "shortDescription": "FDE·1인 빌더 관점의 SNS·YouTube 제작과 승인형 발행",
+    "longDescription": "FDE와 1인 빌더 중 하나의 관점을 선택해 Blog, LinkedIn, Threads, Maily 글과 YouTube 기획을 만들고 이미지·숏폼 산출물과 승인형 발행 워크플로를 제공합니다.",
+    "developerName": "강동현 (donggu)",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write", "Shell"],
+    "defaultPrompt": [
+      "FDE 페르소나로 이 내용을 LinkedIn 글로 작성해줘.",
+      "1인 빌더 페르소나로 이 소재를 Threads 글로 작성해줘.",
+      "이 소재를 YouTube Longform과 Shorts Pack으로 기획해줘."
+    ]
+  }
+}
