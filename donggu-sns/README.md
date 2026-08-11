@@ -40,6 +40,7 @@ publish-sns              = 발행     — 승인 뒤 외부 채널 반영
 writing-social-content/
 ├── SKILL.md
 └── references/
+    ├── personas.md
     ├── common-voice.md
     ├── blog.md
     ├── examples-blog.md
@@ -54,6 +55,8 @@ writing-social-content/
 ```text
 사용자 source·URL·브리프
         ↓
+FDE | 1인 빌더 페르소나 + 글별 오디언스 잠금
+        ↓
 common-voice + 요청 채널 규칙
         ↓
 근거 장부 + 채널별 논지 잠금
@@ -63,6 +66,10 @@ common-voice + 요청 채널 규칙
 채널별 독립 초안
 ```
 
+- 모든 지원 채널은 `FDE`와 `1인 빌더` 페르소나를 모두 사용할 수 있다.
+- 핵심 오디언스는 페르소나와 별도로 글마다 정하며 채널에 고정하지 않는다.
+- `DA`는 위시켓 내부 역할이며 공개 페르소나 선택지가 아니다.
+- 페르소나 선택은 source가 뒷받침하지 않는 사실을 추가할 권한을 주지 않는다.
 - 공통 보이스와 요청받은 채널 규칙만 먼저 읽는다.
 - 현재 논지를 잠근 뒤 요청 채널의 기존 발행 글 발췌만 문체 예시로 읽는다.
 - 발췌의 사실·사례·결론은 재사용하지 않는다.
