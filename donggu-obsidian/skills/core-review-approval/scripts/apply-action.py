@@ -167,7 +167,18 @@ class PathRef:
         except (OSError, ValidationError):
             if fd >= 0:
                 os.close(fd)
-            os.close(self.root_fd)
+            parent_fd = getattr(self, "parent_fd", -1)
+            if isinstance(parent_fd, int) and parent_fd >= 0:
+                try:
+                    os.close(parent_fd)
+                except OSError:
+                    pass
+                self.parent_fd = -1
+            try:
+                os.close(self.root_fd)
+            except OSError:
+                pass
+            self.root_fd = -1
             raise ValidationError()
 
     @staticmethod

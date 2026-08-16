@@ -437,6 +437,20 @@ class CoreActionRuntime:
     def _ack_helper_flags(receipt: Dict[str, Any]) -> tuple[str, ...]:
         return ("--ack-candidate", str(receipt["candidate_code"]))
 
+    def _ack_prepare_helper_flags(self, receipt: Dict[str, Any]) -> tuple[str, ...]:
+        return self._ack_helper_flags(receipt)
+
+    @contextmanager
+    def _vault_writer_lock(self, vault_root: Path):
+        """Hook for native actions that can fence their Vault namespace."""
+        yield
+
+    def _ack_journal_evidence(self, journal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        return None
+
+    def _finalize_ack_after_completion(self, receipt: Dict[str, Any]) -> None:
+        return None
+
     @classmethod
     def from_package(cls) -> "CoreActionRuntime":
         package = Path(__file__).resolve().parents[1]
@@ -618,6 +632,18 @@ class CoreActionRuntime:
     def _journal_matches(cls, receipt: Dict[str, Any], journal: Dict[str, Any]) -> bool:
         return journal.get("state") == "committed" and cls._transaction_matches(receipt, journal)
 
+    def _validate_readback_context(self, receipt: Dict[str, Any], journal: Dict[str, Any]) -> None:
+        """Hook for fixed native actions with additional committed identity."""
+        return None
+
+    def _validate_readback_context_after_hashes(self, receipt: Dict[str, Any]) -> None:
+        """Hook for a final pre-commit read-back identity check."""
+        return None
+
+    def _validate_ack_context_before_completion(self, receipt: Dict[str, Any]) -> None:
+        """Hook for fixed native actions with live identity after helper ack."""
+        return None
+
     def _committed_result(
         self,
         receipt: Dict[str, Any],
@@ -781,7 +807,7 @@ class CoreActionRuntime:
                         and helper_result.get("paths") == receipt.get("paths")
                         and hashes == receipt.get("hashes")
                     )
-                except CoreHelperError:
+                except CoreRuntimeError:
                     valid = False
                 if valid:
                     return self._committed_result(
@@ -890,6 +916,11 @@ class CoreActionRuntime:
         if not self._journal_matches(receipt, journal):
             self._mark_ambiguous(receipt, "journal_binding_mismatch")
             raise CoreReceiptError("committed journal does not match receipt")
+        try:
+            self._validate_readback_context(receipt, journal)
+        except CoreRuntimeError:
+            self._mark_ambiguous(receipt, "readback_context_mismatch")
+            raise
         root, identity = _checked_vault_root(Path(receipt["vault_root"]))
         if identity != (receipt.get("vault_device"), receipt.get("vault_inode")):
             self._mark_ambiguous(receipt, "vault_identity_changed")
@@ -907,6 +938,11 @@ class CoreActionRuntime:
             raise
         finally:
             os.close(root_fd)
+        try:
+            self._validate_readback_context_after_hashes(receipt)
+        except CoreRuntimeError:
+            self._mark_ambiguous(receipt, "readback_context_changed")
+            raise
         expected = receipt.get("hashes")
         if not isinstance(expected, dict) or any(
             actual.get(rel) != values.get("after")
@@ -928,13 +964,42 @@ class CoreActionRuntime:
         }
         with self.store._lock(receipt_id):
             current = self.store.load(receipt_id, require_state="reconciliation_required")
-            self.store.transition(
-                current,
-                "reconciliation_required",
-                readback_verified=True,
-                readback_sha256=_sha256(hashes),
-                readback_result=result,
-            )
+            with self._vault_writer_lock(Path(current["vault_root"])):
+                try:
+                    self._validate_readback_context_after_hashes(current)
+                except CoreRuntimeError:
+                    ambiguous = {
+                        "status": "ambiguous",
+                        "operation_completed": False,
+                        "receipt_id": receipt_id,
+                        "reason": "readback_context_changed_before_commit",
+                    }
+                    self.store.transition(current, "ambiguous", result=ambiguous)
+                    raise
+                transitioned = self.store.transition(
+                    current,
+                    "reconciliation_required",
+                    readback_verified=True,
+                    readback_sha256=_sha256(hashes),
+                    readback_result=result,
+                )
+                try:
+                    # A receipt write is not a filesystem transaction. Re-fence
+                    # the live evidence while the native writer fence is still
+                    # held and converge to durable ambiguity if the tree
+                    # changed at the transition boundary.
+                    self._validate_readback_context_after_hashes(transitioned)
+                except CoreRuntimeError:
+                    current_after = self.store.load(receipt_id)
+                    ambiguous = {
+                        "status": "ambiguous",
+                        "operation_completed": False,
+                        "receipt_id": receipt_id,
+                        "reason": "readback_context_changed_after_receipt_write",
+                    }
+                    if current_after.get("state") != "ambiguous":
+                        self.store.transition(current_after, "ambiguous", result=ambiguous)
+                    raise
         return result
 
     def revoke(self, receipt_id: str) -> Dict[str, Any]:
@@ -965,15 +1030,67 @@ class CoreActionRuntime:
         return value
 
     def _complete_ack(self, receipt: Dict[str, Any], completion_nonce: str) -> Dict[str, Any]:
-        result = {
-            "status": "completed",
-            "operation_completed": True,
-            "receipt_id": receipt["receipt_id"],
-            "candidate_code": receipt.get("candidate_code"),
-            "hashes": receipt.get("hashes"),
-            "completion_nonce": completion_nonce,
-        }
-        self.store.transition(receipt, "completed", result=result, envelope=None)
+        with self._vault_writer_lock(Path(receipt["vault_root"])):
+            try:
+                self._validate_ack_context_before_completion(receipt)
+            except CoreRuntimeError:
+                result = {
+                    "status": "ambiguous",
+                    "operation_completed": False,
+                    "receipt_id": receipt["receipt_id"],
+                    "completion_nonce": completion_nonce,
+                    "reason": "ack_context_changed",
+                }
+                self.store.transition(receipt, "ambiguous", result=result)
+                return result
+            result = {
+                "status": "completed",
+                "operation_completed": True,
+                "receipt_id": receipt["receipt_id"],
+                "candidate_code": receipt.get("candidate_code"),
+                "hashes": receipt.get("hashes"),
+                "completion_nonce": completion_nonce,
+            }
+            self.store.transition(receipt, "completed", result=result, envelope=None)
+            try:
+                current_after = self.store.load(receipt["receipt_id"], require_state="completed")
+                self._validate_ack_context_before_completion(current_after)
+            except CoreRuntimeError:
+                current_after = self.store.load(receipt["receipt_id"])
+                ambiguous = {
+                    "status": "ambiguous",
+                    "operation_completed": False,
+                    "receipt_id": receipt["receipt_id"],
+                    "completion_nonce": completion_nonce,
+                    "reason": "ack_context_changed_after_receipt_write",
+                }
+                if current_after.get("state") != "ambiguous":
+                    self.store.transition(current_after, "ambiguous", result=ambiguous)
+                return ambiguous
+            return result
+
+    def _finish_ack(self, receipt: Dict[str, Any], completion_nonce: str) -> Dict[str, Any]:
+        result = self._complete_ack(receipt, completion_nonce)
+        if result.get("status") != "completed":
+            return result
+        try:
+            current = self.store.load(receipt["receipt_id"], require_state="completed")
+            self._finalize_ack_after_completion(current)
+            with self._vault_writer_lock(Path(current["vault_root"])):
+                current_after_cleanup = self.store.load(receipt["receipt_id"], require_state="completed")
+                self._validate_ack_context_before_completion(current_after_cleanup)
+        except CoreRuntimeError:
+            current = self.store.load(receipt["receipt_id"])
+            ambiguous = {
+                "status": "ambiguous",
+                "operation_completed": False,
+                "receipt_id": receipt["receipt_id"],
+                "completion_nonce": completion_nonce,
+                "reason": "ack_cleanup_or_context_changed",
+            }
+            if current.get("state") != "ambiguous":
+                self.store.transition(current, "ambiguous", result=ambiguous)
+            return ambiguous
         return result
 
     def ack(self, receipt_id: str, *, completion_nonce: str) -> Dict[str, Any]:
@@ -983,6 +1100,21 @@ class CoreActionRuntime:
             if receipt.get("state") == "completed":
                 if receipt.get("completion_nonce") != nonce:
                     raise CoreReceiptError("completion nonce does not match receipt")
+                try:
+                    self._finalize_ack_after_completion(receipt)
+                    with self._vault_writer_lock(Path(receipt["vault_root"])):
+                        current_after_cleanup = self.store.load(receipt_id, require_state="completed")
+                        self._validate_ack_context_before_completion(current_after_cleanup)
+                except CoreRuntimeError:
+                    ambiguous = {
+                        "status": "ambiguous",
+                        "operation_completed": False,
+                        "receipt_id": receipt_id,
+                        "completion_nonce": nonce,
+                        "reason": "ack_cleanup_or_context_changed",
+                    }
+                    self.store.transition(receipt, "ambiguous", result=ambiguous)
+                    return ambiguous
                 return self._stored_result(receipt)
             if receipt.get("state") not in {"reconciliation_required", "acknowledging"} or receipt.get("readback_verified") is not True:
                 raise CoreReceiptError("ack requires verified local reconciliation")
@@ -999,8 +1131,12 @@ class CoreActionRuntime:
                     }
                     self.store.transition(receipt, "ambiguous", result=result)
                     raise CoreReceiptError("committed journal does not match receipt")
+                evidence = self._ack_journal_evidence(journal)
+                transition_fields: Dict[str, Any] = {}
+                if evidence is not None:
+                    transition_fields["ack_journal_evidence"] = evidence
                 receipt = self.store.transition(
-                    receipt, "acknowledging", completion_nonce=nonce,
+                    receipt, "acknowledging", completion_nonce=nonce, **transition_fields,
                 )
             else:
                 if receipt.get("completion_nonce") != nonce:
@@ -1011,7 +1147,7 @@ class CoreActionRuntime:
                     journal = {"state": "unknown", "candidate_code": None, "transaction_sha256": None}
 
             if journal.get("state") == "no_transaction":
-                return self._complete_ack(receipt, nonce)
+                return self._finish_ack(receipt, nonce)
             if not self._journal_matches(receipt, journal):
                 result = {
                     "status": "ambiguous", "operation_completed": False,
@@ -1024,7 +1160,7 @@ class CoreActionRuntime:
             try:
                 code, payload = self._run(
                     Path(receipt["vault_root"]), None,
-                    *self._ack_helper_flags(receipt),
+                    *self._ack_prepare_helper_flags(receipt),
                 )
             except CoreHelperError:
                 code, payload = -1, {}
@@ -1036,14 +1172,14 @@ class CoreActionRuntime:
                     "candidate_code": receipt.get("candidate_code"),
                 }
             ):
-                return self._complete_ack(receipt, nonce)
+                return self._finish_ack(receipt, nonce)
 
             try:
                 after = self.recovery_status(Path(receipt["vault_root"]))
             except CoreHelperError:
                 after = {"state": "unknown", "candidate_code": None, "transaction_sha256": None}
             if after.get("state") == "no_transaction":
-                return self._complete_ack(receipt, nonce)
+                return self._finish_ack(receipt, nonce)
             if self._journal_matches(receipt, after):
                 status = "cleanup_retry_required" if code == 6 else "ack_retry_required"
                 result = {

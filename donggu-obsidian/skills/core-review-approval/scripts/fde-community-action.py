@@ -7,6 +7,8 @@ write paths, moves, or deletes.
 """
 from __future__ import annotations
 
+import errno
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -15,6 +17,7 @@ from pathlib import Path, PurePosixPath
 import secrets
 import stat
 import sys
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, TextIO, Tuple
 
 
@@ -70,7 +73,10 @@ JOURNAL_KEYS = {
     "legacy_entries", "tree",
 }
 ENTRY_KEYS = {"path", "before", "after"}
-LEGACY_ENTRY_KEYS = {"path", "existed", "before", "after", "backup", "stage", "mode"}
+LEGACY_ENTRY_KEYS = {
+    "path", "existed", "before", "after", "backup", "stage", "mode",
+    "backup_identity", "before_identity", "stage_identity",
+}
 TREE_KEYS = {"stage", "target", "installed", "identity"}
 
 
@@ -255,35 +261,58 @@ def prepare(root: Path, env: Dict[str, Any]) -> Dict[str, Any]:
     originals: Dict[str, Optional[bytes]] = {}
     desired: Dict[str, bytes] = {}
     legacy_refs: Dict[str, Any] = {}
-    for rel in MANIFEST_PATHS:
-        current = _read_rel(root, rel)
-        expected = before_hashes[rel]
-        if expected is None:
-            if current is not None:
+    legacy_modes: Dict[str, int] = {}
+    legacy_identities: Dict[str, List[int]] = {}
+    try:
+        for rel in MANIFEST_PATHS:
+            current = _read_rel(root, rel)
+            expected = before_hashes[rel]
+            if expected is None:
+                if current is not None:
+                    raise ValidationError()
+            else:
+                if current is None or digest(current) != expected:
+                    raise ValidationError()
+                _text, path = _safe_rel(rel)
+                legacy_refs[rel] = _core.PathRef(root, path, True)
+                info = os.stat(
+                    legacy_refs[rel].name,
+                    dir_fd=legacy_refs[rel].parent_fd,
+                    follow_symlinks=False,
+                )
+                if not stat.S_ISREG(info.st_mode):
+                    raise ValidationError()
+                legacy_modes[rel] = stat.S_IMODE(info.st_mode)
+                legacy_identities[rel] = [int(info.st_dev), int(info.st_ino)]
+            originals[rel] = current
+            desired[rel] = str(MANIFEST[rel]).encode("utf-8")
+            if len(desired[rel]) > MAX_FILE:
                 raise ValidationError()
-        else:
-            if current is None or digest(current) != expected:
-                raise ValidationError()
-            _text, path = _safe_rel(rel)
-            legacy_refs[rel] = _core.PathRef(root, path, True)
-        originals[rel] = current
-        desired[rel] = str(MANIFEST[rel]).encode("utf-8")
-        if len(desired[rel]) > MAX_FILE:
+        if set(legacy_refs) != set(LEGACY_PATHS):
             raise ValidationError()
-    if set(legacy_refs) != set(LEGACY_PATHS):
-        raise ValidationError()
-    return {
-        "root": root,
-        "originals": originals,
-        "desired": desired,
-        "legacy_refs": legacy_refs,
-        "legacy_originals": {rel: originals[rel] for rel in LEGACY_PATHS},
-        "legacy_desired": {rel: desired[rel] for rel in LEGACY_PATHS},
-        "new_files": {rel: desired[rel] for rel in NEW_PATHS},
-    }
+        return {
+            "root": root,
+            "originals": originals,
+            "desired": desired,
+            "legacy_refs": legacy_refs,
+            "legacy_modes": legacy_modes,
+            "legacy_identities": legacy_identities,
+            "legacy_originals": {rel: originals[rel] for rel in LEGACY_PATHS},
+            "legacy_desired": {rel: desired[rel] for rel in LEGACY_PATHS},
+            "new_files": {rel: desired[rel] for rel in NEW_PATHS},
+        }
+    except Exception:
+        _close_legacy_refs(legacy_refs)
+        raise
 
 
-def result_json(status: str, originals: Dict[str, Optional[bytes]], desired: Dict[str, bytes], candidate_code: Optional[str] = None) -> str:
+def result_json(
+    status: str,
+    originals: Dict[str, Optional[bytes]],
+    desired: Dict[str, bytes],
+    candidate_code: Optional[str] = None,
+    tree_identity: Optional[List[int]] = None,
+) -> str:
     paths = sorted(desired)
     hashes: Dict[str, Dict[str, Optional[str]]] = {}
     for rel in paths:
@@ -295,6 +324,8 @@ def result_json(status: str, originals: Dict[str, Optional[bytes]], desired: Dic
     payload: Dict[str, Any] = {"status": status, "paths": paths, "hashes": hashes}
     if candidate_code is not None:
         payload.update({"candidate_code": candidate_code, "state": "committed"})
+    if tree_identity is not None:
+        payload["tree_identity"] = tree_identity
     return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
 
@@ -370,27 +401,176 @@ def _stage_tree(root: Path, files: Dict[str, bytes], token: str) -> str:
         os.close(root_fd)
 
 
-def _remove_tree_at(parent_fd: int, name: str) -> None:
+def _restore_named_capture(parent_fd: int, capture: str, source: str) -> bool:
+    try:
+        try:
+            os.stat(source, dir_fd=parent_fd, follow_symlinks=False)
+            return False
+        except FileNotFoundError:
+            pass
+        _core.atomic_exclusive_at(parent_fd, capture, source)
+        _core.fsync_fd(parent_fd)
+        return True
+    except Exception:
+        return False
+
+
+def _remove_captured_file(parent_fd: int, source: str, expected_identity: List[int]) -> None:
+    capture = _move_exclusive_for_cleanup(parent_fd, source, ".fde-community-tree-cleanup-")
+    try:
+        if _identity_at_file(parent_fd, capture) != expected_identity:
+            if not _restore_named_capture(parent_fd, capture, source):
+                raise ApplyError()
+            raise ApplyError()
+        final_capture = _move_exclusive_for_cleanup(parent_fd, capture, ".fde-community-tree-delete-")
+        if _identity_at_file(parent_fd, final_capture) != expected_identity:
+            if not _restore_named_capture(parent_fd, final_capture, capture):
+                raise ApplyError()
+            if not _restore_named_capture(parent_fd, capture, source):
+                raise ApplyError()
+            raise ApplyError()
+        _remove_owned_file_at(parent_fd, final_capture, expected_identity)
+    except Exception:
+        raise
+
+
+def _identity_at_file(parent_fd: int, name: str) -> List[int]:
+    try:
+        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError:
+        raise ApplyError()
+    if not stat.S_ISREG(info.st_mode):
+        raise ApplyError()
+    return [int(info.st_dev), int(info.st_ino)]
+
+
+def _remove_owned_file_at(parent_fd: int, name: str, expected_identity: List[int]) -> None:
+    """Remove a regular file only after an identity-bound atomic swap.
+
+    ``unlink(name)`` cannot bind the final delete to an inode.  Swapping the
+    candidate with a fresh private sentinel first makes a replacement at the
+    candidate name observable before any delete is attempted.  The shared
+    writer fence protects the private sentinel for cooperating writers; an
+    uncooperative replacement is retained and causes a retryable failure.
+    """
+    sentinel: Optional[str] = None
+    sentinel_identity: Optional[List[int]] = None
+    try:
+        sentinel = _core.write_temp(parent_fd, ".fde-community-delete-sentinel-", b"", 0o600)
+        sentinel_identity = _identity_at_file(parent_fd, sentinel)
+        assert sentinel is not None and sentinel_identity is not None
+        if _identity_at_file(parent_fd, name) != expected_identity:
+            raise ApplyError()
+        _core.atomic_swap_at(parent_fd, name, sentinel)
+        _core.fsync_fd(parent_fd)
+        captured_identity = _identity_at_file(parent_fd, sentinel)
+        if captured_identity != expected_identity:
+            # The candidate was replaced.  Restore the foreign object to the
+            # public capture name only while the other side is still our
+            # sentinel; never unlink an object whose identity is unknown.
+            if _identity_at_file(parent_fd, name) == sentinel_identity:
+                _core.atomic_swap_at(parent_fd, name, sentinel)
+                _core.fsync_fd(parent_fd)
+                if _identity_at_file(parent_fd, sentinel) == sentinel_identity:
+                    os.unlink(sentinel, dir_fd=parent_fd)
+                    sentinel = None
+            raise ApplyError()
+        os.unlink(sentinel, dir_fd=parent_fd)
+        sentinel = None
+        if _identity_at_file(parent_fd, name) != sentinel_identity:
+            raise ApplyError()
+        os.unlink(name, dir_fd=parent_fd)
+        _core.fsync_fd(parent_fd)
+    finally:
+        if sentinel is not None and sentinel_identity is not None:
+            try:
+                if _identity_at_file(parent_fd, sentinel) == sentinel_identity:
+                    os.unlink(sentinel, dir_fd=parent_fd)
+                    _core.fsync_fd(parent_fd)
+            except Exception:
+                # Preserve an uncertain sentinel for reconciliation.
+                pass
+
+
+def _remove_owned_tree_object_at(parent_fd: int, name: str, expected_identity: List[int]) -> None:
+    """Remove a directory only after an identity-bound atomic swap."""
+    sentinel: Optional[str] = None
+    sentinel_identity: Optional[List[int]] = None
+    try:
+        sentinel = _mkdir_unique(parent_fd, ".fde-community-delete-sentinel-")
+        sentinel_identity = _identity_at(parent_fd, sentinel)
+        assert sentinel is not None and sentinel_identity is not None
+        if _identity_at(parent_fd, name) != expected_identity:
+            raise ApplyError()
+        _core.atomic_swap_at(parent_fd, name, sentinel)
+        _core.fsync_fd(parent_fd)
+        captured_identity = _identity_at(parent_fd, sentinel)
+        if captured_identity != expected_identity:
+            if _identity_at(parent_fd, name) == sentinel_identity:
+                _core.atomic_swap_at(parent_fd, name, sentinel)
+                _core.fsync_fd(parent_fd)
+                if _identity_at(parent_fd, sentinel) == sentinel_identity:
+                    os.rmdir(sentinel, dir_fd=parent_fd)
+                    sentinel = None
+            raise ApplyError()
+        os.rmdir(sentinel, dir_fd=parent_fd)
+        sentinel = None
+        if _identity_at(parent_fd, name) != sentinel_identity:
+            raise ApplyError()
+        os.rmdir(name, dir_fd=parent_fd)
+        _core.fsync_fd(parent_fd)
+    finally:
+        if sentinel is not None and sentinel_identity is not None:
+            try:
+                if _identity_at(parent_fd, sentinel) == sentinel_identity:
+                    os.rmdir(sentinel, dir_fd=parent_fd)
+                    _core.fsync_fd(parent_fd)
+            except Exception:
+                pass
+
+
+def _remove_tree_at(parent_fd: int, name: str, expected_identity: Optional[List[int]] = None) -> None:
     fd = -1
     try:
         fd = os.open(name, os.O_RDONLY | _core.DIRECTORY | _core.NOFOLLOW, dir_fd=parent_fd)
-        if not stat.S_ISDIR(os.fstat(fd).st_mode):
+        info = os.fstat(fd)
+        if not stat.S_ISDIR(info.st_mode):
+            raise ApplyError()
+        identity = [int(info.st_dev), int(info.st_ino)]
+        if expected_identity is not None and identity != expected_identity:
             raise ApplyError()
         for child in os.listdir(fd):
-            kind = _child_kind(fd, child)
-            if kind == "dir":
-                _remove_tree_at(fd, child)
-            elif kind == "file":
-                os.unlink(child, dir_fd=fd)
-                _core.fsync_fd(fd)
+            try:
+                child_info = os.stat(child, dir_fd=fd, follow_symlinks=False)
+            except OSError:
+                raise ApplyError()
+            child_identity = [int(child_info.st_dev), int(child_info.st_ino)]
+            if stat.S_ISDIR(child_info.st_mode):
+                captured = _move_exclusive_for_cleanup(fd, child, ".fde-community-tree-cleanup-")
+                if _identity_at(fd, captured) != child_identity:
+                    if not _restore_named_capture(fd, captured, child):
+                        raise ApplyError()
+                    raise ApplyError()
+                _remove_tree_at(fd, captured, child_identity)
+            elif stat.S_ISREG(child_info.st_mode):
+                _remove_captured_file(fd, child, child_identity)
             else:
                 raise ApplyError()
         os.close(fd)
         fd = -1
-        os.rmdir(name, dir_fd=parent_fd)
-        _core.fsync_fd(parent_fd)
+        captured = _move_exclusive_for_cleanup(parent_fd, name, ".fde-community-tree-cleanup-")
+        if _identity_at(parent_fd, captured) != identity:
+            if not _restore_named_capture(parent_fd, captured, name):
+                raise ApplyError()
+            raise ApplyError()
+        # The directory is now private and was captured by identity. Remove
+        # it through an identity-bound swap; a replacement at the public name
+        # is retained and causes fail-closed cleanup.
+        _remove_owned_tree_object_at(parent_fd, captured, identity)
     except FileNotFoundError:
-        return
+        if expected_identity is None:
+            return
+        raise ApplyError()
     except OSError:
         raise ApplyError()
     finally:
@@ -464,24 +644,48 @@ def _tree_matches(root: Path, tree_name: str, files: Dict[str, bytes]) -> bool:
 def _legacy_stage_and_backup(plan: Dict[str, Any], token: str) -> Tuple[Dict[str, str], Dict[str, str]]:
     stages: Dict[str, str] = {}
     backups: Dict[str, str] = {}
+    plan["stage_identities"] = {}
+    plan["backup_identities"] = {}
     try:
         for rel in sorted(LEGACY_PATHS):
             ref = plan["legacy_refs"][rel]
-            stages[rel] = _core.write_temp(ref.parent_fd, ".fde-community-stage-" + token + "-", plan["legacy_desired"][rel], 0o644)
+            stages[rel] = _core.write_temp(
+                ref.parent_fd,
+                ".fde-community-stage-" + token + "-",
+                plan["legacy_desired"][rel],
+                plan["legacy_modes"][rel],
+            )
             backups[rel] = _core.write_temp(ref.parent_fd, ".fde-community-backup-" + token + "-", plan["legacy_originals"][rel], 0o600)
+            plan["stage_identities"][rel] = _artifact_identity(ref, stages[rel])
+            plan["backup_identities"][rel] = _artifact_identity(ref, backups[rel])
+            if plan["stage_identities"][rel] is None or plan["backup_identities"][rel] is None:
+                raise ApplyError()
             _core.fsync_fd(ref.parent_fd)
         return stages, backups
     except Exception:
-        for rel, names in ((rel, (stages.get(rel), backups.get(rel))) for rel in LEGACY_PATHS):
+        for rel in LEGACY_PATHS:
             ref = plan["legacy_refs"].get(rel)
             if ref is None:
                 continue
-            for name in names:
-                if name:
-                    try:
-                        os.unlink(name, dir_fd=ref.parent_fd)
-                    except OSError:
-                        pass
+            artifacts = (
+                (
+                    stages.get(rel),
+                    plan["stage_identities"].get(rel),
+                    {digest(plan["legacy_desired"][rel])},
+                ),
+                (
+                    backups.get(rel),
+                    plan["backup_identities"].get(rel),
+                    {digest(plan["legacy_originals"][rel])},
+                ),
+            )
+            for name, identity, allowed_hashes in artifacts:
+                if name is None or identity is None:
+                    continue
+                try:
+                    _cleanup_one_artifact(ref, name, [identity], allowed_hashes)
+                except Exception:
+                    pass
         raise
 
 
@@ -497,25 +701,163 @@ def _artifact_hash(ref: Any, name: str) -> Optional[str]:
     return digest(_core.read_at(ref.parent_fd, name, max_size=MAX_FILE, text=False))
 
 
+def _artifact_mode(ref: Any, name: str) -> Optional[int]:
+    try:
+        info = os.stat(name, dir_fd=ref.parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise ApplyError()
+    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_FILE:
+        raise ApplyError()
+    return stat.S_IMODE(info.st_mode)
+
+
+def _artifact_identity(ref: Any, name: str) -> Optional[List[int]]:
+    try:
+        info = os.stat(name, dir_fd=ref.parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise ApplyError()
+    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_FILE:
+        raise ApplyError()
+    return [int(info.st_dev), int(info.st_ino)]
+
+
 def _validate_legacy_artifacts(journal: Dict[str, Any], plan: Dict[str, Any], *, required: bool) -> None:
     for entry in journal["legacy_entries"]:
         ref = plan["legacy_refs"][entry["path"]]
         backup_hash = _artifact_hash(ref, entry["backup"])
         stage_hash = _artifact_hash(ref, entry["stage"])
-        if required and (backup_hash is None or stage_hash is None):
+        backup_identity = _artifact_identity(ref, entry["backup"])
+        stage_identity = _artifact_identity(ref, entry["stage"])
+        if required and (
+            backup_hash is None
+            or stage_hash is None
+            or backup_identity is None
+            or stage_identity is None
+        ):
             raise ApplyError()
         if backup_hash is not None and backup_hash != entry["before"]:
             raise ApplyError()
         if stage_hash is not None and stage_hash not in {entry["before"], entry["after"]}:
             raise ApplyError()
+        if backup_identity is not None and backup_identity != entry["backup_identity"]:
+            raise ApplyError()
+        if stage_identity is not None and stage_identity not in [entry["stage_identity"], entry["before_identity"]]:
+            raise ApplyError()
+        if stage_hash is not None and _artifact_mode(ref, entry["stage"]) != entry["mode"]:
+            raise ApplyError()
 
 
-def _artifact_cleanup_safe(ref: Any, name: str, allowed_hashes: set[str]) -> bool:
+def _legacy_modes_match(refs: Dict[str, Any], entries: List[Dict[str, Any]]) -> bool:
+    for entry in entries:
+        ref = refs[entry["path"]]
+        try:
+            info = os.stat(ref.name, dir_fd=ref.parent_fd, follow_symlinks=False)
+        except OSError:
+            return False
+        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != entry["mode"]:
+            return False
+    return True
+
+
+def _validate_visible_legacy(
+    root: Path,
+    refs: Dict[str, Any],
+    entries: List[Dict[str, Any]],
+) -> None:
+    for entry in entries:
+        ref = refs[entry["path"]]
+        current = _read_rel(root, entry["path"])
+        current_hash = digest(current) if current is not None else None
+        current_identity = _artifact_identity(ref, ref.name)
+        if current_hash not in {entry["before"], entry["after"]}:
+            raise ApplyError()
+        if current_identity is None:
+            raise ApplyError()
+        if entry["before"] != entry["after"]:
+            if current_hash == entry["before"] and current_identity != entry["before_identity"]:
+                raise ApplyError()
+            if current_hash == entry["after"] and current_identity != entry["stage_identity"]:
+                raise ApplyError()
+        elif current_identity not in [entry["before_identity"], entry["stage_identity"]]:
+            raise ApplyError()
+
+
+def _plan_legacy_modes_match(plan: Dict[str, Any]) -> bool:
+    for rel, mode in plan["legacy_modes"].items():
+        ref = plan["legacy_refs"][rel]
+        try:
+            info = os.stat(ref.name, dir_fd=ref.parent_fd, follow_symlinks=False)
+        except OSError:
+            return False
+        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != mode:
+            return False
+    return True
+
+
+def _move_exclusive_for_cleanup(parent_fd: int, source: str, prefix: str) -> str:
+    for _ in range(100):
+        destination = prefix + secrets.token_hex(8)
+        try:
+            _core.atomic_exclusive_at(parent_fd, source, destination)
+            _core.fsync_fd(parent_fd)
+            return destination
+        except OSError as exc:
+            if exc.errno == errno.EEXIST:
+                continue
+            raise
+    raise ApplyError()
+
+
+def _restore_moved_artifact(ref: Any, capture: str, source: str) -> bool:
     try:
-        actual = _artifact_hash(ref, name)
+        if _artifact_identity(ref, source) is not None:
+            return False
+        _core.atomic_exclusive_at(ref.parent_fd, capture, source)
+        _core.fsync_fd(ref.parent_fd)
+        return True
     except Exception:
         return False
-    return actual is None or actual in allowed_hashes
+
+
+def _cleanup_one_artifact(ref: Any, name: str, expected_identities: List[List[int]], allowed_hashes: set[str]) -> bool:
+    try:
+        current_identity = _artifact_identity(ref, name)
+    except Exception:
+        return False
+    if current_identity is None:
+        return True
+    if current_identity not in expected_identities:
+        return False
+    capture: Optional[str] = None
+    try:
+        capture = _move_exclusive_for_cleanup(ref.parent_fd, name, ".fde-community-cleanup-file-")
+        if _artifact_identity(ref, capture) not in expected_identities:
+            _restore_moved_artifact(ref, capture, name)
+            return False
+        if _artifact_hash(ref, capture) not in allowed_hashes:
+            _restore_moved_artifact(ref, capture, name)
+            return False
+        tombstone = _move_exclusive_for_cleanup(ref.parent_fd, capture, ".fde-community-delete-file-")
+        if _artifact_identity(ref, tombstone) not in expected_identities or _artifact_hash(ref, tombstone) not in allowed_hashes:
+            _restore_moved_artifact(ref, tombstone, capture)
+            return False
+        # Capture once more immediately before deletion. The externally
+        # visible tombstone name is never deleted after a check; if it was
+        # replaced between validation and this boundary, the foreign inode is
+        # restored and cleanup remains retryable.
+        final_capture = _move_exclusive_for_cleanup(ref.parent_fd, tombstone, ".fde-community-final-delete-")
+        final_identity = _artifact_identity(ref, final_capture)
+        if final_identity not in expected_identities:
+            _restore_moved_artifact(ref, final_capture, tombstone)
+            return False
+        _remove_owned_file_at(ref.parent_fd, final_capture, final_identity)
+        return True
+    except Exception:
+        return False
 
 
 def _tree_owned_subset(root: Path, tree_name: str, files: Dict[str, bytes]) -> bool:
@@ -546,32 +888,48 @@ def _tree_owned_subset(root: Path, tree_name: str, files: Dict[str, bytes]) -> b
 
 def _journal_legacy_refs(root: Path, journal: Dict[str, Any]) -> Dict[str, Any]:
     refs: Dict[str, Any] = {}
-    for entry in journal["legacy_entries"]:
-        _text, path = _safe_rel(entry["path"])
-        refs[entry["path"]] = _core.PathRef(root, path, True)
-    return refs
+    try:
+        for entry in journal["legacy_entries"]:
+            _text, path = _safe_rel(entry["path"])
+            refs[entry["path"]] = _core.PathRef(root, path, True)
+        return refs
+    except Exception:
+        _close_legacy_refs(refs)
+        raise
+
+
+def _close_legacy_refs(refs: Dict[str, Any]) -> None:
+    closed: set[int] = set()
+    for ref in refs.values():
+        for attribute in ("parent_fd", "root_fd"):
+            descriptor = getattr(ref, attribute, -1)
+            if isinstance(descriptor, int) and descriptor >= 0 and descriptor not in closed:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+                closed.add(descriptor)
+            try:
+                setattr(ref, attribute, -1)
+            except Exception:
+                pass
 
 
 def _cleanup_journal_artifacts(root: Path, journal: Dict[str, Any]) -> bool:
     refs = _journal_legacy_refs(root, journal)
-    ok = True
-    for entry in journal["legacy_entries"]:
-        ref = refs[entry["path"]]
-        for name, allowed in (
-            (entry["stage"], {entry["before"], entry["after"]}),
-            (entry["backup"], {entry["before"]}),
-        ):
-            if not _artifact_cleanup_safe(ref, name, allowed):
-                ok = False
-                continue
-            try:
-                os.unlink(name, dir_fd=ref.parent_fd)
-                _core.fsync_fd(ref.parent_fd)
-            except FileNotFoundError:
-                pass
-            except OSError:
-                ok = False
-    return ok
+    try:
+        ok = True
+        for entry in journal["legacy_entries"]:
+            ref = refs[entry["path"]]
+            for name, identities, allowed in (
+                (entry["stage"], [entry["stage_identity"], entry["before_identity"]], {entry["before"], entry["after"]}),
+                (entry["backup"], [entry["backup_identity"]], {entry["before"]}),
+            ):
+                if not _cleanup_one_artifact(ref, name, identities, allowed):
+                    ok = False
+        return ok
+    finally:
+        _close_legacy_refs(refs)
 
 
 def _cleanup_rolled_back(root: Path, journal: Dict[str, Any]) -> bool:
@@ -580,6 +938,14 @@ def _cleanup_rolled_back(root: Path, journal: Dict[str, Any]) -> bool:
     target_state = _tree_state(root, TARGET_ROOT)
     if target_state == "dir" and _tree_identity(root, TARGET_ROOT) == journal["tree"]["identity"]:
         return False
+    refs = _journal_legacy_refs(root, journal)
+    try:
+        _validate_legacy_artifacts(journal, {"legacy_refs": refs}, required=True)
+        _validate_visible_legacy(root, refs, journal["legacy_entries"])
+    except Exception:
+        return False
+    finally:
+        _close_legacy_refs(refs)
     ok = _cleanup_journal_artifacts(root, journal)
     if _tree_state(root, tree_name) is not None:
         if (
@@ -587,16 +953,23 @@ def _cleanup_rolled_back(root: Path, journal: Dict[str, Any]) -> bool:
             or not _tree_owned_subset(root, tree_name, tree_files)
         ):
             ok = False
-        else:
-            root_fd = _core.open_root(root)
-            try:
-                _remove_tree_at(root_fd, tree_name)
-            except Exception:
-                ok = False
-            finally:
-                os.close(root_fd)
+        elif not _cleanup_owned_tree(root, tree_name, journal["tree"]["identity"], tree_files):
+            ok = False
     if not ok:
         return False
+    refs = _journal_legacy_refs(root, journal)
+    try:
+        # This is the last visible-state fence. The journal must remain
+        # recoverable if a concurrent writer replaces a legacy leaf after the
+        # earlier validation but before journal removal.
+        _validate_visible_legacy(root, refs, journal["legacy_entries"])
+        if not _legacy_modes_match(refs, journal["legacy_entries"]):
+            return False
+        _validate_visible_legacy(root, refs, journal["legacy_entries"])
+    except Exception:
+        return False
+    finally:
+        _close_legacy_refs(refs)
     try:
         _remove_journal(root)
     except Exception:
@@ -612,6 +985,32 @@ def _legacy_unchanged(plan: Dict[str, Any]) -> bool:
     return True
 
 
+def _cas_install_with_identities(
+    ref: Any,
+    original: bytes,
+    desired: bytes,
+    stage: str,
+    *,
+    expected_target_identity: List[int],
+    expected_stage_identity: List[int],
+    result_target_identity: List[int],
+    result_stage_identity: List[int],
+) -> bool:
+    try:
+        if _artifact_identity(ref, ref.name) != expected_target_identity:
+            return False
+        if _artifact_identity(ref, stage) != expected_stage_identity:
+            return False
+        if not _core.cas_install(ref, original, desired, stage):
+            return False
+        return (
+            _artifact_identity(ref, ref.name) == result_target_identity
+            and _artifact_identity(ref, stage) == result_stage_identity
+        )
+    except Exception:
+        return False
+
+
 def _swap_legacy(plan: Dict[str, Any], stages: Dict[str, str]) -> bool:
     for rel in sorted(LEGACY_PATHS):
         ref = plan["legacy_refs"][rel]
@@ -622,16 +1021,26 @@ def _swap_legacy(plan: Dict[str, Any], stages: Dict[str, str]) -> bool:
             return False
         try:
             staged = _core.read_at(ref.parent_fd, stages[rel], text=False)
-        except Exception:
-            return False
-        if digest(staged) != digest(plan["legacy_desired"][rel]):
-            return False
-        try:
-            _core.atomic_swap_at(ref.parent_fd, stages[rel], ref.name)
+            if digest(staged) != digest(plan["legacy_desired"][rel]):
+                return False
+            if not _cas_install_with_identities(
+                ref,
+                plan["legacy_originals"][rel],
+                plan["legacy_desired"][rel],
+                stages[rel],
+                expected_target_identity=plan["legacy_identities"][rel],
+                expected_stage_identity=plan["stage_identities"][rel],
+                result_target_identity=plan["stage_identities"][rel],
+                result_stage_identity=plan["legacy_identities"][rel],
+            ):
+                return False
             _core.fsync_fd(ref.parent_fd)
         except (OSError, ApplyError):
             return False
-        if _read_rel(plan["root"], rel) != plan["legacy_desired"][rel]:
+        if (
+            _read_rel(plan["root"], rel) != plan["legacy_desired"][rel]
+            or not _plan_legacy_modes_match(plan)
+        ):
             return False
     return True
 
@@ -647,14 +1056,22 @@ def _restore_legacy(plan: Dict[str, Any], stages: Dict[str, str]) -> bool:
             if current != plan["legacy_desired"][rel]:
                 ok = False
                 continue
-            if _core.digest(_core.read_at(ref.parent_fd, stages[rel], text=False)) != digest(plan["legacy_originals"][rel]):
+            if not _cas_install_with_identities(
+                ref,
+                plan["legacy_desired"][rel],
+                plan["legacy_originals"][rel],
+                stages[rel],
+                expected_target_identity=plan["stage_identities"][rel],
+                expected_stage_identity=plan["legacy_identities"][rel],
+                result_target_identity=plan["legacy_identities"][rel],
+                result_stage_identity=plan["stage_identities"][rel],
+            ):
                 ok = False
                 continue
-            _core.atomic_swap_at(ref.parent_fd, stages[rel], ref.name)
             _core.fsync_fd(ref.parent_fd)
         except Exception:
             ok = False
-    return ok and _legacy_unchanged(plan)
+    return ok and _legacy_unchanged(plan) and _plan_legacy_modes_match(plan)
 
 
 def _cleanup_legacy(plan: Dict[str, Any], stages: Dict[str, str], backups: Dict[str, str]) -> bool:
@@ -667,15 +1084,13 @@ def _cleanup_legacy(plan: Dict[str, Any], stages: Dict[str, str], backups: Dict[
             if not name:
                 continue
             allowed = {before_hash} if name == backups.get(rel) else {before_hash, after_hash}
-            if not _artifact_cleanup_safe(ref, name, allowed):
+            identities = plan["backup_identities"] if name == backups.get(rel) else plan["stage_identities"]
+            expected_identity = identities.get(rel)
+            if expected_identity is None:
                 ok = False
                 continue
-            try:
-                os.unlink(name, dir_fd=ref.parent_fd)
-                _core.fsync_fd(ref.parent_fd)
-            except FileNotFoundError:
-                pass
-            except OSError:
+            allowed_identities = [expected_identity]
+            if not _cleanup_one_artifact(ref, name, allowed_identities, allowed):
                 ok = False
     return ok
 
@@ -701,7 +1116,37 @@ def _journal_payload(
     legacy_entries = []
     for rel in sorted(LEGACY_PATHS):
         ref = plan["legacy_refs"][rel]
-        mode = stat.S_IMODE(os.stat(ref.name, dir_fd=ref.parent_fd, follow_symlinks=False).st_mode)
+        mode = plan["legacy_modes"][rel]
+        backup_identity = plan["backup_identities"][rel]
+        stage_identity = plan["stage_identities"][rel]
+        current_backup_identity = _artifact_identity(ref, backups[rel])
+        current_stage_identity = _artifact_identity(ref, stages[rel])
+        if (
+            backup_identity is None
+            or stage_identity is None
+            or current_backup_identity != backup_identity
+            or current_stage_identity not in [stage_identity, plan["legacy_identities"][rel]]
+        ):
+            raise ApplyError()
+        before_hash = digest(plan["legacy_originals"][rel])
+        after_hash = digest(plan["legacy_desired"][rel])
+        stage_hash = _artifact_hash(ref, stages[rel])
+        if stage_hash not in {before_hash, after_hash}:
+            raise ApplyError()
+        if before_hash != after_hash:
+            if stage_hash == after_hash and current_stage_identity != stage_identity:
+                raise ApplyError()
+            if stage_hash == before_hash and current_stage_identity != plan["legacy_identities"][rel]:
+                raise ApplyError()
+        current_hash = digest(_read_rel(plan["root"], rel) or b"")
+        current_identity = _artifact_identity(ref, ref.name)
+        if before_hash != after_hash:
+            if current_hash == before_hash and current_identity != plan["legacy_identities"][rel]:
+                raise ApplyError()
+            if current_hash == after_hash and current_identity != stage_identity:
+                raise ApplyError()
+        elif current_identity not in [stage_identity, plan["legacy_identities"][rel]]:
+            raise ApplyError()
         legacy_entries.append({
             "path": rel,
             "existed": True,
@@ -710,6 +1155,9 @@ def _journal_payload(
             "backup": backups[rel],
             "stage": stages[rel],
             "mode": mode,
+            "backup_identity": backup_identity,
+            "before_identity": plan["legacy_identities"][rel],
+            "stage_identity": stage_identity,
         })
     current_tree_name = TARGET_ROOT if tree_installed else tree_stage
     tree_identity = _tree_identity(plan["root"], current_tree_name)
@@ -735,38 +1183,72 @@ def _write_journal(root: Path, payload: Dict[str, Any], *, install: bool) -> Non
     if len(data) > MAX_JOURNAL:
         raise ApplyError()
     root_fd = _core.open_root(root)
-    temp = None
+    temp: Optional[str] = None
+    temp_identity: Optional[List[int]] = None
+    temp_hash: Optional[str] = None
+    temp_ref = None
+    old_ref = None
+    old_identity: Optional[List[int]] = None
+    old_hash: Optional[str] = None
     try:
-        temp = _core.write_temp(root_fd, ".fde-community-journal-", data, 0o600)
+        if not install:
+            old_ref = _core.PathRef(root, PurePosixPath(JOURNAL), True)
+            old_identity = _artifact_identity(old_ref, JOURNAL)
+            old_hash = _artifact_hash(old_ref, JOURNAL)
+            if old_identity is None or old_hash is None:
+                raise ApplyError()
+        temp_name = _core.write_temp(root_fd, ".fde-community-journal-", data, 0o600)
+        temp = temp_name
+        temp_ref = _core.PathRef(root, PurePosixPath(temp_name), True)
+        temp_identity = _artifact_identity(temp_ref, temp_name)
+        temp_hash = _artifact_hash(temp_ref, temp_name)
+        if temp_identity is None or temp_hash is None:
+            raise ApplyError()
+        assert old_identity is not None or install
+        assert old_hash is not None or install
         if install:
-            _core.atomic_exclusive_at(root_fd, temp, JOURNAL)
+            _core.atomic_exclusive_at(root_fd, temp_name, JOURNAL)
             temp = None
         else:
-            _core.atomic_swap_at(root_fd, temp, JOURNAL)
-            # After swap, the old journal resides at the temporary name.
-            os.unlink(temp, dir_fd=root_fd)
+            assert old_identity is not None and old_hash is not None
+            _core.atomic_swap_at(root_fd, temp_name, JOURNAL)
+            if not _cleanup_one_artifact(temp_ref, temp_name, [old_identity], {old_hash}):
+                temp = None
+                raise CleanupRetryError()
             temp = None
         _core.fsync_fd(root_fd)
     finally:
-        if temp is not None:
-            try:
-                os.unlink(temp, dir_fd=root_fd)
-            except OSError:
-                pass
+        if temp is not None and temp_ref is not None and temp_identity is not None and temp_hash is not None:
+            _cleanup_one_artifact(temp_ref, temp, [temp_identity], {temp_hash})
+        if temp_ref is not None:
+            _close_legacy_refs({"temp": temp_ref})
+        if old_ref is not None:
+            _close_legacy_refs({"old": old_ref})
         os.close(root_fd)
 
 
 def _remove_journal(root: Path) -> None:
     root_fd = _core.open_root(root)
+    ref = None
     try:
         try:
-            os.unlink(JOURNAL, dir_fd=root_fd)
+            os.stat(JOURNAL, dir_fd=root_fd, follow_symlinks=False)
         except FileNotFoundError:
             return
-        _core.fsync_fd(root_fd)
+        ref = _core.PathRef(root, PurePosixPath(JOURNAL), True)
+        expected_identity = _artifact_identity(ref, JOURNAL)
+        expected_hash = _artifact_hash(ref, JOURNAL)
+        if expected_identity is None or expected_hash is None:
+            raise CleanupRetryError()
+        assert expected_identity is not None and expected_hash is not None
+        if not _cleanup_one_artifact(ref, JOURNAL, [expected_identity], {expected_hash}):
+            raise CleanupRetryError()
+        _core.fsync_fd(ref.parent_fd)
     except OSError:
         raise CleanupRetryError()
     finally:
+        if ref is not None:
+            _close_legacy_refs({"journal": ref})
         os.close(root_fd)
 
 
@@ -830,8 +1312,16 @@ def _parse_journal(data: bytes) -> Dict[str, Any]:
                 ):
                     raise ApplyError()
                 artifact_names.add(name)
-            if not isinstance(entry["mode"], int) or not 0 <= entry["mode"] <= 0o7777:
+            if isinstance(entry["mode"], bool) or not isinstance(entry["mode"], int) or not 0 <= entry["mode"] <= 0o7777:
                 raise ApplyError()
+            for identity_key in ("backup_identity", "before_identity", "stage_identity"):
+                identity = entry[identity_key]
+                if (
+                    not isinstance(identity, list)
+                    or len(identity) != 2
+                    or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in identity)
+                ):
+                    raise ApplyError()
             seen.add(rel)
         if seen != set(LEGACY_PATHS):
             raise ApplyError()
@@ -858,6 +1348,7 @@ def _parse_journal(data: bytes) -> Dict[str, Any]:
 
 
 def _read_journal(root: Path) -> Optional[Dict[str, Any]]:
+    _reject_orphan_journal_temps(root)
     root_fd = _core.open_root(root)
     try:
         try:
@@ -872,14 +1363,71 @@ def _read_journal(root: Path) -> Optional[Dict[str, Any]]:
     return _parse_journal(data)
 
 
+def _reject_orphan_journal_temps(root: Path) -> None:
+    """Never treat an uncommitted journal temp as no transaction.
+
+    A process can die after the temp is durably created but before the rename
+    or the Python ``finally`` block runs.  There is no safe way to bind that
+    orphan to a transaction after the journal payload has been lost, so keep
+    it and fail closed instead of unlinking it or reporting a clean vault.
+    """
+    root_fd = _core.open_root(root)
+    try:
+        try:
+            names = os.listdir(root_fd)
+        except OSError:
+            raise ApplyError()
+        for name in names:
+            if not name.startswith(".fde-community-journal-"):
+                continue
+            try:
+                info = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+            except OSError:
+                raise ApplyError()
+            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_JOURNAL:
+                raise ApplyError()
+            raise ApplyError()
+    finally:
+        os.close(root_fd)
+
+
+@contextmanager
+def _writer_fence(root: Path):
+    """Serialize native FDE writers on the physical Vault root inode."""
+    root_fd = _core.open_root(root)
+    try:
+        try:
+            fcntl.flock(root_fd, fcntl.LOCK_EX)
+        except OSError:
+            raise ApplyError()
+        yield
+    finally:
+        try:
+            fcntl.flock(root_fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(root_fd)
+
+
 def _journal_status(root: Path) -> Dict[str, Any]:
     journal = _read_journal(root)
     if journal is None:
-        return {"state": "no_transaction", "candidate_code": None, "transaction_sha256": None}
+        return {
+            "state": "no_transaction",
+            "candidate_code": None,
+            "transaction_sha256": None,
+            "tree_identity": None,
+            "current_tree_identity": None,
+        }
+    current_tree_identity: Optional[List[int]] = None
+    if _tree_state(root, TARGET_ROOT) == "dir":
+        current_tree_identity = _tree_identity(root, TARGET_ROOT)
     return {
         "state": journal["state"],
         "candidate_code": journal["candidate_code"],
         "transaction_sha256": transaction_sha256(journal["candidate_code"], journal["entries"]),
+        "tree_identity": journal["tree"]["identity"],
+        "current_tree_identity": current_tree_identity,
     }
 
 
@@ -904,6 +1452,68 @@ def _tree_identity(root: Path, name: str) -> List[int]:
         os.close(root_fd)
 
 
+def _identity_at(parent_fd: int, name: str) -> List[int]:
+    try:
+        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError:
+        raise ApplyError()
+    if not stat.S_ISDIR(info.st_mode):
+        raise ApplyError()
+    return [int(info.st_dev), int(info.st_ino)]
+
+
+def _capture_tree_for_cleanup(parent_fd: int, source: str) -> Tuple[str, List[int]]:
+    """Move a tree into a private slot while leaving an empty placeholder."""
+    slot = _mkdir_unique(parent_fd, ".fde-community-cleanup-")
+    placeholder_identity = _identity_at(parent_fd, slot)
+    try:
+        _core.atomic_swap_at(parent_fd, source, slot)
+        _core.fsync_fd(parent_fd)
+        return slot, placeholder_identity
+    except Exception:
+        try:
+            _remove_tree_at(parent_fd, slot, placeholder_identity)
+        except Exception:
+            pass
+        raise
+
+
+def _restore_captured_tree(parent_fd: int, source: str, slot: str, placeholder_identity: List[int]) -> bool:
+    """Restore a captured tree only while the source name is still our placeholder."""
+    try:
+        if _identity_at(parent_fd, source) != placeholder_identity:
+            return False
+        _core.atomic_swap_at(parent_fd, slot, source)
+        _core.fsync_fd(parent_fd)
+        _remove_tree_at(parent_fd, slot, placeholder_identity)
+        return True
+    except Exception:
+        return False
+
+
+def _cleanup_owned_tree(root: Path, name: str, expected_identity: List[int], files: Dict[str, bytes]) -> bool:
+    root_fd = _core.open_root(root)
+    slot: Optional[str] = None
+    placeholder_identity: Optional[List[int]] = None
+    try:
+        slot, placeholder_identity = _capture_tree_for_cleanup(root_fd, name)
+        if _identity_at(root_fd, slot) != expected_identity or not _tree_owned_subset(root, slot, files):
+            _restore_captured_tree(root_fd, name, slot, placeholder_identity)
+            return False
+        _remove_tree_at(root_fd, slot, expected_identity)
+        if _identity_at(root_fd, name) != placeholder_identity:
+            return False
+        try:
+            _remove_tree_at(root_fd, name, placeholder_identity)
+        except Exception:
+            return False
+        return True
+    except Exception:
+        return False
+    finally:
+        os.close(root_fd)
+
+
 def _verify_entries(root: Path, entries: List[Dict[str, Any]], expected: str) -> bool:
     for entry in entries:
         current = _read_rel(root, entry["path"])
@@ -914,7 +1524,11 @@ def _verify_entries(root: Path, entries: List[Dict[str, Any]], expected: str) ->
     return True
 
 
-def _recover_prepared(root: Path, journal: Dict[str, Any]) -> Tuple[str, str]:
+def _recover_prepared_with_refs(
+    root: Path,
+    journal: Dict[str, Any],
+    refs: Dict[str, Any],
+) -> Tuple[str, str]:
     tree_stage = journal["tree"]["stage"]
     target_state = _tree_state(root, TARGET_ROOT)
     stage_state = _tree_state(root, tree_stage)
@@ -938,9 +1552,9 @@ def _recover_prepared(root: Path, journal: Dict[str, Any]) -> Tuple[str, str]:
     else:
         raise ApplyError()
 
-    refs = _journal_legacy_refs(root, journal)
     plan = {"legacy_refs": refs}
     _validate_legacy_artifacts(journal, plan, required=True)
+    _validate_visible_legacy(root, refs, journal["legacy_entries"])
     for entry in journal["legacy_entries"]:
         current = _read_rel(root, entry["path"])
         current_hash = digest(current) if current is not None else None
@@ -954,12 +1568,29 @@ def _recover_prepared(root: Path, journal: Dict[str, Any]) -> Tuple[str, str]:
         if current_hash == entry["after"] and stage_hash != entry["before"]:
             raise ApplyError()
 
+    if not _legacy_modes_match(refs, journal["legacy_entries"]):
+        raise ApplyError()
+
     # Restore every visible legacy leaf only after the complete transaction and
     # all required artifacts have passed validation.
     for entry in reversed(journal["legacy_entries"]):
         ref = refs[entry["path"]]
         if digest(_read_rel(root, entry["path"]) or b"") == entry["after"]:
-            _core.atomic_swap_at(ref.parent_fd, entry["stage"], ref.name)
+            before = _core.read_at(ref.parent_fd, entry["stage"], max_size=MAX_FILE, text=False)
+            if digest(before) != entry["before"]:
+                raise ApplyError()
+            desired = str(MANIFEST[entry["path"]]).encode("utf-8")
+            if not _cas_install_with_identities(
+                ref,
+                desired,
+                before,
+                entry["stage"],
+                expected_target_identity=entry["stage_identity"],
+                expected_stage_identity=entry["before_identity"],
+                result_target_identity=entry["before_identity"],
+                result_stage_identity=entry["stage_identity"],
+            ):
+                raise ApplyError()
             _core.fsync_fd(ref.parent_fd)
             if digest(_read_rel(root, entry["path"]) or b"") != entry["before"]:
                 raise ApplyError()
@@ -971,9 +1602,13 @@ def _recover_prepared(root: Path, journal: Dict[str, Any]) -> Tuple[str, str]:
             # recursively delete a live destination during recovery.
             _core.atomic_exclusive_at(root_fd, TARGET_ROOT, tree_stage)
             _core.fsync_fd(root_fd)
+            if _tree_identity(root, tree_stage) != journal["tree"]["identity"]:
+                raise ApplyError()
         finally:
             os.close(root_fd)
     if not _verify_entries(root, journal["entries"], "before"):
+        raise ApplyError()
+    if not _legacy_modes_match(refs, journal["legacy_entries"]):
         raise ApplyError()
 
     rolled_back = dict(journal)
@@ -990,6 +1625,14 @@ def _recover_prepared(root: Path, journal: Dict[str, Any]) -> Tuple[str, str]:
     return "prepared", journal["candidate_code"]
 
 
+def _recover_prepared(root: Path, journal: Dict[str, Any]) -> Tuple[str, str]:
+    refs = _journal_legacy_refs(root, journal)
+    try:
+        return _recover_prepared_with_refs(root, journal, refs)
+    finally:
+        _close_legacy_refs(refs)
+
+
 def _recover(root: Path) -> Optional[Tuple[str, str]]:
     journal = _read_journal(root)
     if journal is None:
@@ -997,8 +1640,21 @@ def _recover(root: Path) -> Optional[Tuple[str, str]]:
     if journal["state"] == "committed":
         if not _verify_entries(root, journal["entries"], "after"):
             raise ApplyError()
+        refs = _journal_legacy_refs(root, journal)
+        try:
+            _validate_legacy_artifacts(journal, {"legacy_refs": refs}, required=True)
+            _validate_visible_legacy(root, refs, journal["legacy_entries"])
+            modes_match = _legacy_modes_match(refs, journal["legacy_entries"])
+        finally:
+            _close_legacy_refs(refs)
+        if not modes_match:
+            raise ApplyError()
         tree_files = {rel: str(MANIFEST[rel]).encode("utf-8") for rel in NEW_PATHS}
-        if _tree_state(root, TARGET_ROOT) != "dir" or not _tree_matches(root, TARGET_ROOT, tree_files):
+        if (
+            _tree_state(root, TARGET_ROOT) != "dir"
+            or not _tree_matches(root, TARGET_ROOT, tree_files)
+            or _tree_identity(root, TARGET_ROOT) != journal["tree"]["identity"]
+        ):
             raise ApplyError()
         return "committed", journal["candidate_code"]
     if journal["state"] == "prepared":
@@ -1010,13 +1666,22 @@ def _recover(root: Path) -> Optional[Tuple[str, str]]:
     raise ApplyError()
 
 
-def _ack(root: Path, candidate_code: str, expected_transaction: str) -> Tuple[str, str]:
+def _ack(root: Path, candidate_code: str, expected_transaction: str, *, retain_journal: bool = False) -> Tuple[str, str]:
     journal = _read_journal(root)
     if journal is None or journal["state"] != "committed" or journal["candidate_code"] != candidate_code:
         raise ApplyError()
     if transaction_sha256(journal["candidate_code"], journal["entries"]) != expected_transaction:
         raise ApplyError()
     if not _verify_entries(root, journal["entries"], "after"):
+        raise ApplyError()
+    refs = _journal_legacy_refs(root, journal)
+    try:
+        _validate_legacy_artifacts(journal, {"legacy_refs": refs}, required=True)
+        _validate_visible_legacy(root, refs, journal["legacy_entries"])
+        modes_match = _legacy_modes_match(refs, journal["legacy_entries"])
+    finally:
+        _close_legacy_refs(refs)
+    if not modes_match:
         raise ApplyError()
     tree_files = {rel: str(MANIFEST[rel]).encode("utf-8") for rel in NEW_PATHS}
     if (
@@ -1025,25 +1690,29 @@ def _ack(root: Path, candidate_code: str, expected_transaction: str) -> Tuple[st
         or _tree_identity(root, TARGET_ROOT) != journal["tree"]["identity"]
     ):
         raise ApplyError()
-    if not _cleanup_journal_artifacts(root, journal):
-        raise CleanupRetryError()
-    _remove_journal(root)
+    if not retain_journal:
+        if not _cleanup_journal_artifacts(root, journal):
+            raise CleanupRetryError()
+        _remove_journal(root)
     return "committed", candidate_code
 
 
 def _apply(plan: Dict[str, Any], candidate_code: str) -> int:
     if _core.RENAMEATX_NP is None:
+        _close_legacy_refs(plan.get("legacy_refs", {}))
         return 3
     root = plan["root"]
     token = secrets.token_hex(12)
     stages: Dict[str, str] = {}
     backups: Dict[str, str] = {}
     tree_stage: Optional[str] = None
+    tree_stage_identity: Optional[List[int]] = None
     tree_installed = False
     journal_installed = False
     prepared: Optional[Dict[str, Any]] = None
     try:
         tree_stage = _stage_tree(root, plan["new_files"], token)
+        tree_stage_identity = _tree_identity(root, tree_stage)
         stages, backups = _legacy_stage_and_backup(plan, token)
         if not _legacy_unchanged(plan):
             raise ApplyError()
@@ -1061,7 +1730,10 @@ def _apply(plan: Dict[str, Any], candidate_code: str) -> int:
             raise ApplyError()
         installed = _journal_payload(candidate_code, token, "prepared", plan, stages, backups, tree_stage, True)
         _write_journal(root, installed, install=False)
-        if not _verify_entries(root, installed["entries"], "after"):
+        if (
+            not _verify_entries(root, installed["entries"], "after")
+            or not _legacy_modes_match(plan["legacy_refs"], installed["legacy_entries"])
+        ):
             raise ApplyError()
         committed = dict(installed)
         committed["state"] = "committed"
@@ -1082,13 +1754,20 @@ def _apply(plan: Dict[str, Any], candidate_code: str) -> int:
         restored = True
         try:
             if tree_installed:
-                if not _tree_matches(root, TARGET_ROOT, plan["new_files"]):
+                expected_tree_identity = prepared["tree"]["identity"] if prepared is not None else None
+                if (
+                    not _tree_matches(root, TARGET_ROOT, plan["new_files"])
+                    or expected_tree_identity is None
+                    or _tree_identity(root, TARGET_ROOT) != expected_tree_identity
+                ):
                     restored = False
                 else:
                     root_fd = _core.open_root(root)
                     try:
                         _core.atomic_exclusive_at(root_fd, TARGET_ROOT, tree_stage)
                         _core.fsync_fd(root_fd)
+                        if tree_stage is None or _tree_identity(root, tree_stage) != expected_tree_identity:
+                            restored = False
                     finally:
                         os.close(root_fd)
             if restored and stages:
@@ -1108,26 +1787,33 @@ def _apply(plan: Dict[str, Any], candidate_code: str) -> int:
         # On a successful committed return, artifacts remain until ack. Before
         # journal installation, all artifacts must be gone.
         if not journal_installed:
+            cleanup_ok = True
             if tree_stage is not None:
                 try:
                     root_fd = _core.open_root(root)
                     try:
-                        _remove_tree_at(root_fd, tree_stage)
+                        _remove_tree_at(root_fd, tree_stage, tree_stage_identity)
                     finally:
                         os.close(root_fd)
                 except Exception:
-                    pass
-            _cleanup_legacy(plan, stages, backups)
+                    cleanup_ok = False
+            if not _cleanup_legacy(plan, stages, backups):
+                cleanup_ok = False
+            if not cleanup_ok:
+                _close_legacy_refs(plan.get("legacy_refs", {}))
+                return 4
+        _close_legacy_refs(plan.get("legacy_refs", {}))
 
 
-def parse_args(argv: List[str]) -> Tuple[Path, bool, bool, bool, Optional[str], Optional[str]]:
+def parse_args(argv: List[str]) -> Tuple[Path, bool, bool, bool, Optional[str], Optional[str], bool]:
     args = list(argv)
     dry_run = "--dry-run" in args
     recover_only = "--recover-only" in args
     status_only = "--recovery-status" in args
+    retain_journal = "--ack-retain-journal" in args
     ack_candidate: Optional[str] = None
     ack_transaction: Optional[str] = None
-    for flag in ("--dry-run", "--recover-only", "--recovery-status"):
+    for flag in ("--dry-run", "--recover-only", "--recovery-status", "--ack-retain-journal"):
         while flag in args:
             args.remove(flag)
     if "--ack-candidate" in args:
@@ -1145,13 +1831,13 @@ def parse_args(argv: List[str]) -> Tuple[Path, bool, bool, bool, Optional[str], 
         ack_transaction = args[index + 1]
         del args[index:index + 2]
         _validate_hash(ack_transaction)
-    if (ack_candidate is None) != (ack_transaction is None):
+    if (ack_candidate is None) != (ack_transaction is None) or (retain_journal and ack_candidate is None):
         raise ValidationError()
     if sum((dry_run, recover_only, status_only, ack_candidate is not None)) > 1:
         raise ValidationError()
     if len(args) != 2 or args[0] != "--vault-root" or not args[1] or "\x00" in args[1]:
         raise ValidationError()
-    return Path(args[1]), dry_run, recover_only, status_only, ack_candidate, ack_transaction
+    return Path(args[1]), dry_run, recover_only, status_only, ack_candidate, ack_transaction, retain_journal
 
 
 def _safe_write(stream: TextIO, value: str) -> bool:
@@ -1164,16 +1850,19 @@ def _safe_write(stream: TextIO, value: str) -> bool:
 
 
 def run(argv: List[str], stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout, stderr: TextIO = sys.stderr) -> int:
+    plan: Optional[Dict[str, Any]] = None
     try:
-        root, dry_run, recover_only, status_only, ack_candidate, ack_transaction = parse_args(argv)
+        root, dry_run, recover_only, status_only, ack_candidate, ack_transaction, retain_journal = parse_args(argv)
         if status_only:
             return 0 if _safe_write(stdout, json.dumps(_journal_status(root), separators=(",", ":"), sort_keys=True)) else 70
         if ack_candidate is not None:
-            _ack(root, ack_candidate, str(ack_transaction))
+            with _writer_fence(root):
+                _ack(root, ack_candidate, str(ack_transaction), retain_journal=retain_journal)
             payload = {"status": "acknowledged", "state": "committed", "candidate_code": ack_candidate}
             return 0 if _safe_write(stdout, json.dumps(payload, separators=(",", ":"), sort_keys=True)) else 5
         if recover_only:
-            recovered = _recover(root)
+            with _writer_fence(root):
+                recovered = _recover(root)
             if recovered is None:
                 payload = {"status": "no_transaction", "state": "no_transaction", "candidate_code": None}
             elif recovered[0] == "committed":
@@ -1188,9 +1877,16 @@ def run(argv: List[str], stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout,
         plan = prepare(root, env)
         if dry_run:
             return 0 if _safe_write(stdout, result_json("planned", plan["originals"], plan["desired"])) else 70
-        code = _apply(plan, str(env["candidate_code"]))
+        with _writer_fence(root):
+            code = _apply(plan, str(env["candidate_code"]))
         if code == 0:
-            payload = result_json("applied", plan["originals"], plan["desired"], str(env["candidate_code"]))
+            payload = result_json(
+                "applied",
+                plan["originals"],
+                plan["desired"],
+                str(env["candidate_code"]),
+                _tree_identity(plan["root"], TARGET_ROOT),
+            )
             if not _safe_write(stdout, payload):
                 return 5
         elif code == 3:
@@ -1210,6 +1906,9 @@ def run(argv: List[str], stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout,
     except Exception:
         _safe_write(stderr, "unexpected failure")
         return 70
+    finally:
+        if plan is not None:
+            _close_legacy_refs(plan.get("legacy_refs", {}))
 
 
 if __name__ == "__main__":

@@ -33,8 +33,13 @@ The action guarantees:
 - current-file hash preconditions,
 - descriptor-relative path confinement and symlink rejection,
 - a dedicated receipt namespace and crash-atomic journal,
+- each legacy file's original permission mode preserved through swap and recovery,
+- tree inode identity bound through committed recovery, read-back, and acknowledgement,
+- foreign tree/artifact changes are never deleted and force fail-closed cleanup,
 - exact persisted preview and apply gates,
 - read-back before acknowledgement.
+
+The tree publish and five legacy leaf swaps are not one namespace-atomic filesystem primitive. Each rename is atomic; the durable journal makes interruption converge only to a verified before-state or committed after-state, and never authorizes deletion of a foreign state.
 
 Use `donggu_fde_community_recovery_status` first. On exact persisted `수정안 보여줘`, call `donggu_fde_community_plan`; do not construct an envelope. Show the actual fixed diff and state `현재 Vault 변경 0건`. Only a later, separate persisted message exactly equal to `적용해줘` may call `donggu_fde_community_apply`. Then call read-back and acknowledge only after all thirteen hashes match.
 
