@@ -439,7 +439,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-obsidian", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("2.1.0", claude["version"])
+        self.assertEqual("2.2.0", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_obsidian_latest_user_lookup_reads_past_first_fifty_messages(self):
@@ -524,6 +524,14 @@ class NativePluginPackageTests(unittest.TestCase):
                 "donggu_core_readback",
                 "donggu_core_revoke",
                 "donggu_core_ack",
+                "donggu_fde_community_recovery_status",
+                "donggu_fde_community_plan",
+                "donggu_fde_community_receipt_status",
+                "donggu_fde_community_apply",
+                "donggu_fde_community_recover",
+                "donggu_fde_community_readback",
+                "donggu_fde_community_revoke",
+                "donggu_fde_community_ack",
                 "donggu_life_os_status",
                 "donggu_life_os_start_daily",
                 "donggu_life_os_record",
@@ -545,13 +553,21 @@ class NativePluginPackageTests(unittest.TestCase):
         ack_parameters = by_name["donggu_core_ack"]["schema"]["parameters"]
         self.assertEqual(["receipt_id", "completion_nonce"], ack_parameters["required"])
         self.assertEqual({"receipt_id", "completion_nonce"}, set(ack_parameters["properties"]))
+        self.assertEqual(
+            ["vault_root"],
+            by_name["donggu_fde_community_plan"]["schema"]["parameters"]["required"],
+        )
+        self.assertEqual(
+            ["vault_root"],
+            by_name["donggu_fde_community_recovery_status"]["schema"]["parameters"]["required"],
+        )
         self.assertTrue(all(item["toolset"] == "donggu_obsidian" for item in ctx.tools))
         manifest_tools = re.findall(
-            r"(?m)^  - (donggu_(?:core|life_os)_[a-z_]+)$",
+            r"(?m)^  - (donggu_(?:core|fde_community|life_os)_[a-z_]+)$",
             (ROOT / "donggu-obsidian" / "plugin.yaml").read_text(encoding="utf-8"),
         )
         self.assertEqual([item["name"] for item in ctx.tools], manifest_tools)
-        self.assertEqual(12, len(manifest_tools))
+        self.assertEqual(20, len(manifest_tools))
 
     def test_registered_obsidian_apply_reads_latest_natural_text_and_reaches_real_helper_once(self):
         module_name = "donggu_obsidian_registered_apply_test"

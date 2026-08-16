@@ -8,7 +8,7 @@ Ontology-aware Obsidian operations for the `donggu-skills` marketplace and Herme
 
 | Skill | Qualified name | Responsibility |
 |---|---|---|
-| `ontology` | `donggu-obsidian:ontology` | Route Personal Branding, FDE Projects, and Life OS requests; retrieve notes; run one curation loop; prepare candidate-scoped diffs; perform bounded maintenance |
+| `ontology` | `donggu-obsidian:ontology` | Route Personal Branding, FDE Community, FDE Projects, and Life OS requests; retrieve notes; run one curation loop; prepare candidate-scoped diffs; perform bounded maintenance |
 | `life-os` | `donggu-obsidian:life-os` | Record Daily check-ins, Capture entries, attachments, and recoverable structured AI summaries through the native Life OS runtime |
 
 The ontology skill replaces separate extraction, decomposition, duplicate, and health rituals. Duplicate search is part of integration; maintenance is explicit and bounded. It never runs a daily full-Vault scan and does not send healthy-state reports.
@@ -26,8 +26,9 @@ donggu-obsidian:ontology
   |- read or prepare one candidate-specific diff
   `- apply only after a separate scoped approval
 
-native CORE tools
-  `- deterministic plan / apply / recovery / read-back / rollback
+native mutation tools
+  |- deterministic CORE plan / apply / recovery / read-back / rollback
+  `- fixed FDE Community separation plan / apply / recovery / read-back / rollback
 
 donggu-obsidian:life-os
   `- trusted-turn Daily and Capture runtime with recoverable AI summaries
@@ -155,7 +156,7 @@ Existing-note replacement is allowed only when the state archive and Vault are o
 - Show one actual diff and state zero writes before approval.
 - Accept exact `적용해줘` only in a later persisted user message bound to the current candidate.
 - Read the applied files back and preserve a rollback handle.
-- Keep Ontology Lens as the FDE project source of truth; store pointers and judgments rather than copies.
+- Keep Ontology Lens as the customer FDE project source of truth; store pointers and judgments rather than copies. Keep community operations under the separate top-level `FDE Community/` authority and preserve the existing Personal Branding/IMAX assets.
 - Stay silent on healthy checks; notify only on actionable issues or execution failure.
 
 ## Verification

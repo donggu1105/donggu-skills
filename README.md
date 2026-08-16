@@ -169,7 +169,7 @@ donggu-skills/                       ← marketplace repo
 
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
-| **donggu-obsidian** | ✅ `v2.1.0` | 2 | Ontology-aware Vault operations and recoverable Life OS AI summaries |
+| **donggu-obsidian** | ✅ `v2.2.0` | 2 | Ontology-aware Vault operations, fixed FDE Community separation, and recoverable Life OS AI summaries |
 | **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |

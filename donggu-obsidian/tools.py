@@ -17,6 +17,7 @@ from .runtime import (
     CoreActionRuntime,
     CoreApprovalError,
     CoreRuntimeError,
+    FDECommunityActionRuntime,
     LifeOSError,
     LifeOSRuntime,
     checked_life_os_message_text,
@@ -25,6 +26,8 @@ from .runtime import (
 
 _RUNTIME: Optional[CoreActionRuntime] = None
 _RUNTIME_LOCK = threading.Lock()
+_FDE_RUNTIME: Optional[FDECommunityActionRuntime] = None
+_FDE_RUNTIME_LOCK = threading.Lock()
 _LIFE_OS_RUNTIME: Optional[LifeOSRuntime] = None
 _LIFE_OS_RUNTIME_LOCK = threading.Lock()
 _TRUSTED_TURN_TTL_SECONDS = 300.0
@@ -115,6 +118,15 @@ def _runtime() -> CoreActionRuntime:
             if _RUNTIME is None:
                 _RUNTIME = CoreActionRuntime.from_package()
     return _RUNTIME
+
+
+def _fde_runtime() -> FDECommunityActionRuntime:
+    global _FDE_RUNTIME
+    if _FDE_RUNTIME is None:
+        with _FDE_RUNTIME_LOCK:
+            if _FDE_RUNTIME is None:
+                _FDE_RUNTIME = FDECommunityActionRuntime.from_package()
+    return _FDE_RUNTIME
 
 
 def _life_os_runtime() -> LifeOSRuntime:
@@ -463,6 +475,63 @@ ACK_SCHEMA = {
     },
 }
 
+FDE_RECOVERY_STATUS_SCHEMA = {
+    "name": "donggu_fde_community_recovery_status",
+    "description": "Read the dedicated FDE Community crash-atomic journal state.",
+    "parameters": {
+        "type": "object",
+        "properties": {"vault_root": {"type": "string"}},
+        "required": ["vault_root"],
+        "additionalProperties": False,
+    },
+}
+FDE_PLAN_SCHEMA = {
+    "name": "donggu_fde_community_plan",
+    "description": (
+        "Create a zero-write receipt for the package-owned FDE Community separation manifest. "
+        "No arbitrary paths or file bodies are accepted."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"vault_root": {"type": "string"}},
+        "required": ["vault_root"],
+        "additionalProperties": False,
+    },
+}
+FDE_RECEIPT_STATUS_SCHEMA = _receipt_schema(
+    "donggu_fde_community_receipt_status",
+    "Inspect one private FDE Community receipt without Vault mutation.",
+)
+FDE_APPLY_SCHEMA = _receipt_schema(
+    "donggu_fde_community_apply",
+    "Apply the fixed FDE Community receipt only when the latest persisted user text is exactly 적용해줘.",
+)
+FDE_RECOVER_SCHEMA = _receipt_schema(
+    "donggu_fde_community_recover",
+    "Recover one interrupted FDE Community transaction without forward apply.",
+)
+FDE_READBACK_SCHEMA = _receipt_schema(
+    "donggu_fde_community_readback",
+    "Verify all thirteen FDE Community receipt paths through descriptor-relative read-back.",
+)
+FDE_REVOKE_SCHEMA = _receipt_schema(
+    "donggu_fde_community_revoke",
+    "Revoke one still-planned FDE Community receipt without calling the mutation helper.",
+)
+FDE_ACK_SCHEMA = {
+    "name": "donggu_fde_community_ack",
+    "description": "Acknowledge the matching committed FDE Community journal after verified read-back.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "receipt_id": {"type": "string"},
+            "completion_nonce": {"type": "string"},
+        },
+        "required": ["receipt_id", "completion_nonce"],
+        "additionalProperties": False,
+    },
+}
+
 _LIFE_OS_DATE_PROPERTY = {
     "type": "string",
     "pattern": r"^\d{4}-\d{2}-\d{2}$",
@@ -641,6 +710,89 @@ def handle_revoke(args: dict, **_kwargs) -> str:
 def handle_ack(args: dict, **_kwargs) -> str:
     try:
         return _ok(_runtime().ack(
+            str(args.get("receipt_id") or ""),
+            completion_nonce=str(args.get("completion_nonce") or ""),
+        ))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_recovery_status(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().recovery_status(Path(str(args.get("vault_root") or ""))))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_plan(args: dict, **kwargs) -> str:
+    try:
+        session_id = _trusted_session_id(kwargs)
+        message_id, message_text = _latest_trusted_user_message(session_id)
+        runtime = _fde_runtime()
+        result = runtime.plan_fde_community(
+            Path(str(args.get("vault_root") or "")),
+            session_id=session_id,
+            plan_message_id=message_id,
+            latest_user_text=message_text,
+        )
+        try:
+            latest_message_id, latest_message_text = _latest_trusted_user_message(session_id)
+            if (latest_message_id, latest_message_text) != (message_id, message_text):
+                raise CoreApprovalError("preview request was overtaken by a newer persisted user message")
+        except CoreRuntimeError:
+            runtime.revoke(result["receipt_id"])
+            raise
+        return _ok(result)
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_receipt_status(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().receipt_status(str(args.get("receipt_id") or "")))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_apply(args: dict, **kwargs) -> str:
+    try:
+        session_id = _trusted_session_id(kwargs)
+        message_id, message_text = _latest_trusted_user_message(session_id)
+        return _ok(_fde_runtime().apply(
+            str(args.get("receipt_id") or ""),
+            latest_user_text=message_text,
+            session_id=session_id,
+            user_message_id=message_id,
+            latest_user_reader=lambda: _latest_trusted_user_message(session_id),
+        ))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_recover(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().recover(str(args.get("receipt_id") or "")))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_readback(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().readback(str(args.get("receipt_id") or "")))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_revoke(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().revoke(str(args.get("receipt_id") or "")))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_ack(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().ack(
             str(args.get("receipt_id") or ""),
             completion_nonce=str(args.get("completion_nonce") or ""),
         ))

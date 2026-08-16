@@ -16,6 +16,7 @@ LEGACY_USER_SKILLS = (
 REFERENCES = (
     "routing.md",
     "personal-branding.md",
+    "fde-community.md",
     "fde-projects.md",
     "maintenance.md",
     "mutation.md",
@@ -34,6 +35,7 @@ class OntologySkillContractTests(unittest.TestCase):
         self.assertFalse((approval / "SKILL.md").exists())
         for helper in (
             "apply-action.py",
+            "fde-community-action.py",
             "render-preview.py",
             "validate-conversation.py",
             "validate-approval.py",
@@ -69,6 +71,7 @@ class OntologySkillContractTests(unittest.TestCase):
         for phrase in (
             "AGENTS.md",
             "Personal Branding",
+            "FDE Community",
             "FDE Projects",
             "Life OS",
             "Inbox",

@@ -337,7 +337,7 @@ class LifeOSSkillContractTests(unittest.TestCase):
             plan,
         )
         root = ROOT_README.read_text(encoding="utf-8")
-        self.assertIn("| **donggu-obsidian** | ✅ `v2.1.0`", root)
+        self.assertIn("| **donggu-obsidian** | ✅ `v2.2.0`", root)
 
     def test_public_docs_explain_safe_manual_residual_recovery(self):
         plugin = PLUGIN_README.read_text(encoding="utf-8")

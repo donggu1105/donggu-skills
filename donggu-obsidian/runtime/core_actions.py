@@ -366,8 +366,13 @@ def _open_root_descriptor(root: Path) -> int:
         raise CoreReceiptError("Vault read-back is unavailable") from None
 
 
-def _descriptor_hash(root_fd: int, rel: str) -> str:
-    parts = PurePosixPath(_validated_relative_path(rel)).parts
+def _descriptor_hash(
+    root_fd: int,
+    rel: str,
+    *,
+    validator: Callable[[str], str] = _validated_relative_path,
+) -> str:
+    parts = PurePosixPath(validator(rel)).parts
     parent_fd = os.dup(root_fd)
     file_fd = -1
     try:
@@ -419,6 +424,18 @@ class CoreActionRuntime:
         self.timeout = int(timeout)
         if not self.helper_path.is_file() or not self.validator_path.is_file():
             raise CoreHelperError("CORE action helper or approval validator is not available")
+
+    @staticmethod
+    def _validate_result_hashes(result: Dict[str, Any]) -> Dict[str, Dict[str, Optional[str]]]:
+        return _validated_hashes(result)
+
+    @staticmethod
+    def _validate_receipt_path(rel: str) -> str:
+        return _validated_relative_path(rel)
+
+    @staticmethod
+    def _ack_helper_flags(receipt: Dict[str, Any]) -> tuple[str, ...]:
+        return ("--ack-candidate", str(receipt["candidate_code"]))
 
     @classmethod
     def from_package(cls) -> "CoreActionRuntime":
@@ -523,7 +540,7 @@ class CoreActionRuntime:
         code, result = self._run(root, envelope, "--dry-run")
         if code != 0 or result.get("status") != "planned":
             raise CoreHelperError(f"CORE action validation failed (exit {code})")
-        hashes = _validated_hashes(result)
+        hashes = self._validate_result_hashes(result)
         candidate_code = envelope.get("candidate_code")
         envelope_sha256 = _sha256(envelope)
         now = int(time.time())
@@ -757,7 +774,7 @@ class CoreActionRuntime:
                 return self._classify_apply_outcome(receipt, exit_code=-1)
             if code == 0 and helper_result.get("status") == "applied":
                 try:
-                    hashes = _validated_hashes(helper_result)
+                    hashes = self._validate_result_hashes(helper_result)
                     valid = (
                         helper_result.get("candidate_code") == receipt.get("candidate_code")
                         and helper_result.get("state") == "committed"
@@ -881,7 +898,7 @@ class CoreActionRuntime:
         try:
             actual = {}
             for rel in receipt.get("paths", []):
-                actual[rel] = _descriptor_hash(root_fd, rel)
+                actual[rel] = _descriptor_hash(root_fd, rel, validator=self._validate_receipt_path)
             current_identity = os.fstat(root_fd)
             if (current_identity.st_dev, current_identity.st_ino) != identity:
                 raise CoreReceiptError("Vault root identity changed during read-back")
@@ -1007,7 +1024,7 @@ class CoreActionRuntime:
             try:
                 code, payload = self._run(
                     Path(receipt["vault_root"]), None,
-                    "--ack-candidate", str(receipt["candidate_code"]),
+                    *self._ack_helper_flags(receipt),
                 )
             except CoreHelperError:
                 code, payload = -1, {}
