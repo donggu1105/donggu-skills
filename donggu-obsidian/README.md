@@ -2,13 +2,13 @@
 
 ![Skills](https://img.shields.io/badge/skills-2-green)
 
-Ontology-aware Obsidian operations for the `donggu-skills` marketplace and Hermes native plugin runtime.
+Structured Obsidian operations for the `donggu-skills` marketplace and Hermes native plugin runtime.
 
 ## User-facing skills
 
 | Skill | Qualified name | Responsibility |
 |---|---|---|
-| `ontology` | `donggu-obsidian:ontology` | Route Personal Branding, FDE Projects, and Life OS requests; retrieve notes; run one curation loop; prepare candidate-scoped diffs; perform bounded maintenance |
+| `ontology` | `donggu-obsidian:ontology` | Route Personal Branding, FDE Community, FDE Projects, and Life OS requests; retrieve notes; run one curation loop; prepare candidate-scoped diffs; perform bounded maintenance |
 | `life-os` | `donggu-obsidian:life-os` | Record Daily check-ins, Capture entries, attachments, and recoverable structured AI summaries through the native Life OS runtime |
 
 The ontology skill replaces separate extraction, decomposition, duplicate, and health rituals. Duplicate search is part of integration; maintenance is explicit and bounded. It never runs a daily full-Vault scan and does not send healthy-state reports.
@@ -26,8 +26,10 @@ donggu-obsidian:ontology
   |- read or prepare one candidate-specific diff
   `- apply only after a separate scoped approval
 
-native CORE tools
-  `- deterministic plan / apply / recovery / read-back / rollback
+native mutation tools
+  |- deterministic CORE plan / apply / recovery / read-back / rollback
+  |- fixed FDE Community separation plan / apply / recovery / read-back / rollback
+  `- bounded FDE Community daily Capture upsert (cron-authorized only)
 
 donggu-obsidian:life-os
   `- trusted-turn Daily and Capture runtime with recoverable AI summaries
@@ -155,8 +157,25 @@ Existing-note replacement is allowed only when the state archive and Vault are o
 - Show one actual diff and state zero writes before approval.
 - Accept exact `적용해줘` only in a later persisted user message bound to the current candidate.
 - Read the applied files back and preserve a rollback handle.
-- Keep Ontology Lens as the FDE project source of truth; store pointers and judgments rather than copies.
+- Keep the authoritative customer project workspace as the source of truth; store pointers and judgments rather than copies. Keep community operations under the separate top-level `FDE Community/` authority and preserve the existing Personal Branding/IMAX assets.
 - Stay silent on healthy checks; notify only on actionable issues or execution failure.
+
+## FDE Community daily Capture writer
+
+`donggu_fde_daily_capture_upsert` is the only automatic Vault write in this plugin. It is registered in its own `fde_community_capture` toolset so a chat session that has `donggu_obsidian` does not gain it.
+
+| Boundary | Enforcement |
+|---|---|
+| Caller | Cron session only (`HERMES_CRON_SESSION == "1"`); any live gateway session identity is rejected |
+| Authorization | The cron's resolved delivery target must equal the room's registered Discord channel, with no thread |
+| Path | Exactly `FDE Community/Inbox/CAPTURE - YYYY-MM-DD - {오픈카톡\|운영진방} 일일 분석.md` |
+| Rooms | `public` and `operators` write separate files; a cross-room write is refused |
+| Commit | Exclusive atomic create, or `RENAME_SWAP` compare-and-swap against the caller's `expected_before_sha256` |
+| Concurrency | A foreign edit at the commit boundary is preserved and the write fails closed |
+| Content | Eight fixed sections; phone/email/internal-ID/speaker-label/token patterns and control characters are refused before any write |
+| Scope | Create or replace only — no promotion, move, delete, or authority-file change |
+
+Set `DONGGU_FDE_COMMUNITY_VAULT_ROOT` to the Vault root. The two authorized cron jobs supply `expected_before_sha256` from their pre-run context script, so a same-day rerun with identical content is reported `unchanged` with zero writes.
 
 ## Verification
 

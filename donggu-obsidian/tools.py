@@ -17,6 +17,9 @@ from .runtime import (
     CoreActionRuntime,
     CoreApprovalError,
     CoreRuntimeError,
+    FDECommunityActionRuntime,
+    FDEDailyCaptureError,
+    FDEDailyCaptureRuntime,
     LifeOSError,
     LifeOSRuntime,
     checked_life_os_message_text,
@@ -25,6 +28,10 @@ from .runtime import (
 
 _RUNTIME: Optional[CoreActionRuntime] = None
 _RUNTIME_LOCK = threading.Lock()
+_FDE_RUNTIME: Optional[FDECommunityActionRuntime] = None
+_FDE_RUNTIME_LOCK = threading.Lock()
+_FDE_DAILY_CAPTURE_RUNTIME: Optional[FDEDailyCaptureRuntime] = None
+_FDE_DAILY_CAPTURE_RUNTIME_LOCK = threading.Lock()
 _LIFE_OS_RUNTIME: Optional[LifeOSRuntime] = None
 _LIFE_OS_RUNTIME_LOCK = threading.Lock()
 _TRUSTED_TURN_TTL_SECONDS = 300.0
@@ -115,6 +122,24 @@ def _runtime() -> CoreActionRuntime:
             if _RUNTIME is None:
                 _RUNTIME = CoreActionRuntime.from_package()
     return _RUNTIME
+
+
+def _fde_runtime() -> FDECommunityActionRuntime:
+    global _FDE_RUNTIME
+    if _FDE_RUNTIME is None:
+        with _FDE_RUNTIME_LOCK:
+            if _FDE_RUNTIME is None:
+                _FDE_RUNTIME = FDECommunityActionRuntime.from_package()
+    return _FDE_RUNTIME
+
+
+def _fde_daily_capture_runtime() -> FDEDailyCaptureRuntime:
+    global _FDE_DAILY_CAPTURE_RUNTIME
+    if _FDE_DAILY_CAPTURE_RUNTIME is None:
+        with _FDE_DAILY_CAPTURE_RUNTIME_LOCK:
+            if _FDE_DAILY_CAPTURE_RUNTIME is None:
+                _FDE_DAILY_CAPTURE_RUNTIME = FDEDailyCaptureRuntime.from_environment()
+    return _FDE_DAILY_CAPTURE_RUNTIME
 
 
 def _life_os_runtime() -> LifeOSRuntime:
@@ -463,6 +488,116 @@ ACK_SCHEMA = {
     },
 }
 
+FDE_RECOVERY_STATUS_SCHEMA = {
+    "name": "donggu_fde_community_recovery_status",
+    "description": "Read the dedicated FDE Community crash-atomic journal state.",
+    "parameters": {
+        "type": "object",
+        "properties": {"vault_root": {"type": "string"}},
+        "required": ["vault_root"],
+        "additionalProperties": False,
+    },
+}
+FDE_PLAN_SCHEMA = {
+    "name": "donggu_fde_community_plan",
+    "description": (
+        "Create a zero-write receipt for the package-owned FDE Community separation manifest. "
+        "No arbitrary paths or file bodies are accepted."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"vault_root": {"type": "string"}},
+        "required": ["vault_root"],
+        "additionalProperties": False,
+    },
+}
+FDE_RECEIPT_STATUS_SCHEMA = _receipt_schema(
+    "donggu_fde_community_receipt_status",
+    "Inspect one private FDE Community receipt without Vault mutation.",
+)
+FDE_APPLY_SCHEMA = _receipt_schema(
+    "donggu_fde_community_apply",
+    "Apply the fixed FDE Community receipt only when the latest persisted user text is exactly 적용해줘.",
+)
+FDE_RECOVER_SCHEMA = _receipt_schema(
+    "donggu_fde_community_recover",
+    "Recover one interrupted FDE Community transaction without forward apply.",
+)
+FDE_READBACK_SCHEMA = _receipt_schema(
+    "donggu_fde_community_readback",
+    "Verify all thirteen FDE Community receipt paths through descriptor-relative read-back.",
+)
+FDE_REVOKE_SCHEMA = _receipt_schema(
+    "donggu_fde_community_revoke",
+    "Revoke one still-planned FDE Community receipt without calling the mutation helper.",
+)
+FDE_ACK_SCHEMA = {
+    "name": "donggu_fde_community_ack",
+    "description": "Acknowledge the matching committed FDE Community journal after verified read-back.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "receipt_id": {"type": "string"},
+            "completion_nonce": {"type": "string"},
+        },
+        "required": ["receipt_id", "completion_nonce"],
+        "additionalProperties": False,
+    },
+}
+
+_FDE_DAILY_TEXT = {"type": "string", "minLength": 1, "maxLength": 5000}
+_FDE_DAILY_TEXT_OR_LIST = {
+    "oneOf": [
+        _FDE_DAILY_TEXT,
+        {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 40,
+            "items": _FDE_DAILY_TEXT,
+        },
+    ]
+}
+FDE_DAILY_CAPTURE_UPSERT_SCHEMA = {
+    "name": "donggu_fde_daily_capture_upsert",
+    "description": (
+        "Create or compare-and-swap one fixed FDE Community daily Inbox Capture. "
+        "Available only to the two authorized cron jobs."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "room_kind": {"type": "string", "enum": ["public", "operators"]},
+            "analysis_date": {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
+            "expected_before_sha256": {
+                "oneOf": [
+                    {"type": "string", "pattern": r"^[0-9a-f]{64}$"},
+                    {"type": "null"},
+                ]
+            },
+            "sections": {
+                "type": "object",
+                "properties": {
+                    "coverage": _FDE_DAILY_TEXT_OR_LIST,
+                    "situation": _FDE_DAILY_TEXT_OR_LIST,
+                    "problems": _FDE_DAILY_TEXT_OR_LIST,
+                    "insights": _FDE_DAILY_TEXT_OR_LIST,
+                    "participant_map": _FDE_DAILY_TEXT_OR_LIST,
+                    "actions": _FDE_DAILY_TEXT_OR_LIST,
+                    "judgment_holds": _FDE_DAILY_TEXT_OR_LIST,
+                    "wiki_candidates": _FDE_DAILY_TEXT_OR_LIST,
+                },
+                "required": [
+                    "coverage", "situation", "problems", "insights",
+                    "participant_map", "actions", "judgment_holds", "wiki_candidates",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        "required": ["room_kind", "analysis_date", "expected_before_sha256", "sections"],
+        "additionalProperties": False,
+    },
+}
+
 _LIFE_OS_DATE_PROPERTY = {
     "type": "string",
     "pattern": r"^\d{4}-\d{2}-\d{2}$",
@@ -645,6 +780,127 @@ def handle_ack(args: dict, **_kwargs) -> str:
             completion_nonce=str(args.get("completion_nonce") or ""),
         ))
     except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_recovery_status(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().recovery_status(Path(str(args.get("vault_root") or ""))))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_plan(args: dict, **kwargs) -> str:
+    try:
+        session_id = _trusted_session_id(kwargs)
+        message_id, message_text = _latest_trusted_user_message(session_id)
+        runtime = _fde_runtime()
+        result = runtime.plan_fde_community(
+            Path(str(args.get("vault_root") or "")),
+            session_id=session_id,
+            plan_message_id=message_id,
+            latest_user_text=message_text,
+        )
+        try:
+            latest_message_id, latest_message_text = _latest_trusted_user_message(session_id)
+            if (latest_message_id, latest_message_text) != (message_id, message_text):
+                raise CoreApprovalError("preview request was overtaken by a newer persisted user message")
+        except CoreRuntimeError:
+            runtime.revoke(result["receipt_id"])
+            raise
+        return _ok(result)
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_receipt_status(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().receipt_status(str(args.get("receipt_id") or "")))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_apply(args: dict, **kwargs) -> str:
+    try:
+        session_id = _trusted_session_id(kwargs)
+        message_id, message_text = _latest_trusted_user_message(session_id)
+        return _ok(_fde_runtime().apply(
+            str(args.get("receipt_id") or ""),
+            latest_user_text=message_text,
+            session_id=session_id,
+            user_message_id=message_id,
+            latest_user_reader=lambda: _latest_trusted_user_message(session_id),
+        ))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_recover(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().recover(str(args.get("receipt_id") or "")))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_readback(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().readback(str(args.get("receipt_id") or "")))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_revoke(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().revoke(str(args.get("receipt_id") or "")))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def handle_fde_ack(args: dict, **_kwargs) -> str:
+    try:
+        return _ok(_fde_runtime().ack(
+            str(args.get("receipt_id") or ""),
+            completion_nonce=str(args.get("completion_nonce") or ""),
+        ))
+    except CoreRuntimeError as exc:
+        return _error(exc)
+
+
+def _trusted_fde_daily_cron_job_id(room_kind: str) -> str:
+    try:
+        from gateway.session_context import get_session_env  # type: ignore[reportMissingImports]
+    except Exception as exc:
+        raise FDEDailyCaptureError("trusted Hermes cron context is required") from exc
+    if get_session_env("HERMES_CRON_SESSION", "") != "1":
+        raise FDEDailyCaptureError("FDE daily Capture writes are cron-only")
+    if any(get_session_env(name, "") != "" for name in _HERMES_LIVE_SESSION_IDENTITY_NAMES):
+        raise FDEDailyCaptureError("live gateway identity cannot authorize a cron Capture write")
+    expected = {
+        "public": ("discord", "1525043881484357702", "fdc11961e59f"),
+        "operators": ("discord", "1537993247849189426", "28e24dbebacd"),
+    }.get(room_kind)
+    actual = (
+        get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM", "").strip().lower(),
+        get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID", ""),
+    )
+    if expected is None or actual != expected[:2]:
+        raise FDEDailyCaptureError("FDE daily Capture cron delivery is not authorized")
+    if get_session_env("HERMES_CRON_AUTO_DELIVER_THREAD_ID", "") != "":
+        raise FDEDailyCaptureError("FDE daily Capture cron thread delivery is not authorized")
+    return expected[2]
+
+
+def handle_fde_daily_capture_upsert(args: dict, **_kwargs) -> str:
+    try:
+        room_kind = str(args.get("room_kind") or "")
+        return _ok(_fde_daily_capture_runtime().upsert(
+            room_kind=room_kind,
+            analysis_date=str(args.get("analysis_date") or ""),
+            expected_before_sha256=args.get("expected_before_sha256"),
+            sections=args.get("sections"),
+            cron_job_id=_trusted_fde_daily_cron_job_id(room_kind),
+        ))
+    except FDEDailyCaptureError as exc:
         return _error(exc)
 
 

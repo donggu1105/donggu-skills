@@ -11,7 +11,7 @@ Use one entry point for the ontology Vault. Do not route to generic PKM skills. 
 
 1. Resolve the concrete Vault root from trusted channel context or configured runtime. Never fall back to a similarly named or deprecated Vault.
 2. Read root `AGENTS.md` before interpreting the layout.
-3. Classify the request as `Personal Branding`, `FDE Projects`, or `Life OS` with [routing](references/routing.md).
+3. Classify the request as `Personal Branding`, `FDE Community`, `FDE Projects`, or `Life OS` with [routing](references/routing.md).
 4. Read the nearest area rules before note contents. For Personal Branding, `_GUIDES/RULES.md` is the operating authority; read schema or voice guides only when needed.
 5. Read only the target files and the smallest useful linked neighborhood.
 
@@ -23,6 +23,7 @@ If the root or authority cannot be verified, stop before mutation. Live Vault au
 - **Develop an Inbox capture:** load [Personal Branding](references/personal-branding.md). Selection feeds publication; it does not authorize CORE extraction.
 - **Curate an approved publication:** load [Personal Branding](references/personal-branding.md) and run **선택 → 추출 → 통합** from that publication.
 - **Work on an FDE record:** load [FDE Projects](references/fde-projects.md). Retrieval and proposals are allowed; mutation is proposal-only.
+- **Work on FDE Community operations or the separation candidate:** load [FDE Community](references/fde-community.md). Use only the fixed native separation action; other edits are proposal-only.
 - **Run a health or duplicate check:** load [maintenance](references/maintenance.md). Scope the check before reading broadly.
 - **Prepare or apply a supported CORE change:** load [mutation](references/mutation.md).
 - **Record Daily or Capture:** hand off to `donggu-obsidian:life-os` and its native tools.
@@ -44,9 +45,9 @@ Snippet and new-MOC work are proposal-only until a dedicated native authority pa
 
 ## Mutation boundary
 
-Only exact `수정안 보여줘` creates an executable preview. It keeps `현재 Vault 변경 0건`. Apply only after a later persisted user message exactly equal to `적용해줘`, and only when the current session already has a valid native receipt for a supported CORE action. Then run native apply, read-back, and acknowledgement.
+Only exact `수정안 보여줘` creates an executable preview. It keeps `현재 Vault 변경 0건`. Apply only after a later persisted user message exactly equal to `적용해줘`, and only when the current session already has a valid native receipt for a supported CORE action or the fixed FDE Community separation action. Then run native apply, read-back, and acknowledgement.
 
-FDE, Snippet, authority-file, and other unsupported edits are proposal-only: show the diff, but do not call a generic file mutation tool. See [mutation](references/mutation.md).
+Customer FDE Projects, ad-hoc FDE Community edits, Snippet, authority-file, and other unsupported edits are proposal-only: show the diff, but do not call a generic file mutation tool. See [mutation](references/mutation.md).
 
 Inbox notes are raw evidence. Never move, classify, archive, merge, or delete them based only on age, count, or an automated score.
 

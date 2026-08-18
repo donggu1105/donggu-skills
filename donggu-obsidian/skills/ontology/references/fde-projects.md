@@ -4,7 +4,7 @@ FDE Projects records customer work and reusable delivery learning without turnin
 
 ## Source of truth
 
-The Ontology Lens wiki is authoritative for project facts, current requirements, and shared implementation detail. In the Vault, propose only:
+The authoritative project wiki is the source of truth for project facts, current requirements, and shared implementation detail. In the Vault, propose only:
 
 - a 출처 포인터 (source pointer),
 - the user's judgment,
@@ -31,4 +31,4 @@ If the value is only a restatement, propose a link rather than a new note. Keep 
 
 ## Mutation support
 
-FDE mutation is **proposal-only**. The current native runtime does not authorize FDE paths. Show a candidate and actual diff, but never apply it through a generic file mutation tool. A dedicated native authority path and behavioral tests are required before FDE writes can be enabled.
+Customer-project FDE mutation remains **proposal-only**. The separate top-level `FDE Community/` operating area has one narrowly scoped native separation action; it does not authorize edits to customer projects, meeting bodies, cases, or other FDE notes. Show a candidate and actual diff for those requests, but never apply them through a generic file mutation tool.

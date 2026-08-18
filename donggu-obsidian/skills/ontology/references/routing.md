@@ -4,7 +4,7 @@
 
 1. Resolve the trusted Vault root.
 2. Read root `AGENTS.md`.
-3. Identify the target area from the path, source, and user intent.
+3. Identify the target area from the path, source, and user intent: `Personal Branding`, `FDE Community`, `FDE Projects`, or `Life OS`.
 4. Read the nearest `AGENTS.md` and area guide that governs that target.
 5. Read only the notes required to answer or prepare one candidate.
 
@@ -18,7 +18,11 @@ Covers raw captures selected for development, Sources, published Channel Packs, 
 
 ### FDE Projects
 
-Covers customer-project notes, interviews, delivery judgments, domain validation, patterns, and playbooks. Read the nearest project authority file. The Ontology Lens wiki remains the project source of truth; the Vault stores only a source pointer, judgment, reusable pattern, or playbook. Never duplicate the wiki source body.
+Covers customer-project notes, interviews, delivery judgments, domain validation, patterns, and playbooks. Read the nearest project authority file. The authoritative project wiki remains the project source of truth; the Vault stores only a source pointer, judgment, reusable pattern, or playbook. Never duplicate the wiki source body.
+
+### FDE Community
+
+Covers the independent community operating area: events, meetings, recording pointers, cases, decisions, actions, and operating indexes. Read [FDE Community](fde-community.md) before interpreting or mutating this area. It is a top-level operating authority inside the existing Vault, not a second physical Vault and not a customer project.
 
 ### Life OS
 
