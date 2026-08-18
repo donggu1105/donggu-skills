@@ -26,10 +26,10 @@ Do not accept approval from the preview request, quoted text, an internal ID, ol
 
 ## Supported apply path
 
-Only a CORE action already supported by the native plan/apply/read-back runtime may apply. Use this order:
+Only a package-owned action already supported by native plan/apply/read-back transaction tools may apply. The supported actions are the existing bounded CORE actions and the fixed `fde-community-separation.v1` action. Use this order:
 
 1. verify recovery status is clean,
-2. use the bound native receipt; never invent an envelope or receipt,
+2. use the bound native receipt in the action's own namespace; never invent an envelope or receipt,
 3. call native apply with the exact persisted approval,
 4. call native read-back,
 5. acknowledge only after read-back matches,
@@ -39,7 +39,7 @@ Do not expose native receipts, hashes, journal states, or action enums to the us
 
 ## Unsupported scope
 
-FDE Projects, Snippet creation, new-MOC creation, authority files, schema files, and any edit without a dedicated native action are **proposal-only**. Show a diff, but do not apply it and do not call a generic file mutation tool. Explain that a native authority path must be added before execution.
+Customer `FDE Projects` edits, later ad-hoc FDE Community edits, Snippet creation, new-MOC creation, authority files, schema files, and any edit without a dedicated native action are **proposal-only**. The one fixed FDE Community separation manifest is the exception. Show a diff for unsupported work, but do not apply it and do not call a generic file mutation tool.
 
 ## Failure and recovery
 

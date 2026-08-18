@@ -7,6 +7,15 @@ from pathlib import Path
 from .tools import (
     ACK_SCHEMA,
     APPLY_SCHEMA,
+    FDE_ACK_SCHEMA,
+    FDE_APPLY_SCHEMA,
+    FDE_DAILY_CAPTURE_UPSERT_SCHEMA,
+    FDE_PLAN_SCHEMA,
+    FDE_READBACK_SCHEMA,
+    FDE_RECEIPT_STATUS_SCHEMA,
+    FDE_RECOVER_SCHEMA,
+    FDE_RECOVERY_STATUS_SCHEMA,
+    FDE_REVOKE_SCHEMA,
     LIFE_OS_FINALIZE_DAILY_SCHEMA,
     LIFE_OS_RECORD_SCHEMA,
     LIFE_OS_START_DAILY_SCHEMA,
@@ -20,6 +29,15 @@ from .tools import (
     capture_trusted_discord_turn,
     handle_ack,
     handle_apply,
+    handle_fde_ack,
+    handle_fde_apply,
+    handle_fde_daily_capture_upsert,
+    handle_fde_plan,
+    handle_fde_readback,
+    handle_fde_receipt_status,
+    handle_fde_recover,
+    handle_fde_recovery_status,
+    handle_fde_revoke,
     handle_life_os_finalize_daily,
     handle_life_os_record,
     handle_life_os_start_daily,
@@ -69,6 +87,40 @@ def register(ctx) -> None:
             "Clean a matching committed journal after verified read-back.", "✅",
         ),
         (
+            "donggu_fde_community_recovery_status", FDE_RECOVERY_STATUS_SCHEMA,
+            handle_fde_recovery_status,
+            "Read the dedicated FDE Community journal state.", "🩺",
+        ),
+        (
+            "donggu_fde_community_plan", FDE_PLAN_SCHEMA, handle_fde_plan,
+            "Create a zero-write receipt for the fixed FDE Community separation manifest.", "🧪",
+        ),
+        (
+            "donggu_fde_community_receipt_status", FDE_RECEIPT_STATUS_SCHEMA,
+            handle_fde_receipt_status,
+            "Inspect one FDE Community receipt without Vault mutation.", "🧾",
+        ),
+        (
+            "donggu_fde_community_apply", FDE_APPLY_SCHEMA, handle_fde_apply,
+            "Apply the fixed manifest after exact persisted approval.", "🏛️",
+        ),
+        (
+            "donggu_fde_community_recover", FDE_RECOVER_SCHEMA, handle_fde_recover,
+            "Recover an interrupted FDE Community transaction without replay.", "🛟",
+        ),
+        (
+            "donggu_fde_community_readback", FDE_READBACK_SCHEMA, handle_fde_readback,
+            "Verify all thirteen FDE Community paths after apply.", "🔎",
+        ),
+        (
+            "donggu_fde_community_revoke", FDE_REVOKE_SCHEMA, handle_fde_revoke,
+            "Revoke one planned FDE Community receipt.", "🚫",
+        ),
+        (
+            "donggu_fde_community_ack", FDE_ACK_SCHEMA, handle_fde_ack,
+            "Clean the matching committed FDE Community journal after read-back.", "✅",
+        ),
+        (
             "donggu_life_os_status", LIFE_OS_STATUS_SCHEMA, handle_life_os_status,
             "Read the current Life OS Daily state and next prompt.", "📋",
         ),
@@ -96,6 +148,14 @@ def register(ctx) -> None:
             description=description,
             emoji=emoji,
         )
+    ctx.register_tool(
+        name="donggu_fde_daily_capture_upsert",
+        toolset="fde_community_capture",
+        schema=FDE_DAILY_CAPTURE_UPSERT_SCHEMA,
+        handler=handle_fde_daily_capture_upsert,
+        description="Create or compare-and-swap one authorized FDE Community daily Capture.",
+        emoji="🗒️",
+    )
     ctx.register_skill(
         name="ontology",
         path=Path(__file__).parent / "skills" / "ontology" / "SKILL.md",

@@ -8,6 +8,8 @@ Preserve this sequence:
 Inbox raw → user selection → completed and approved publication → reverse-decompose → CORE / Snippet / MOC
 ```
 
+Personal Branding owns public content, brand development, channel outputs, and IMAX implementation assets. Community operations belong to the separate top-level `FDE Community/` authority; keep the existing `Personal Branding/60_Projects/FDE Community/` folder for content and implementation assets without moving or deleting it.
+
 **Inbox selection is publication input only.** Reverse decomposition never starts from the raw capture, selected or not.
 
 ## Before publication

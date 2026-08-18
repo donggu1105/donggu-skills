@@ -1,7 +1,7 @@
 {
   "name": "donggu-obsidian",
-  "version": "2.1.0",
-  "description": "Ontology-aware Obsidian operations with one curation entry point, candidate-scoped mutation, and recoverable Life OS AI summaries",
+  "version": "2.3.0",
+  "description": "Ontology-aware Obsidian operations with fixed FDE Community runtimes, bounded daily Capture writing, and recoverable Life OS AI summaries",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"

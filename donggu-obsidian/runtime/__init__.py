@@ -8,6 +8,15 @@ from .core_actions import (
     CoreReceiptStore,
     CoreRuntimeError,
 )
+from .fde_community import (
+    FDECommunityActionRuntime,
+    FDECommunityValidationError,
+    build_fde_community_envelope,
+)
+from .fde_daily_capture import (
+    FDEDailyCaptureError,
+    FDEDailyCaptureRuntime,
+)
 from .life_os import (
     DailySummary,
     DailySummaryRequest,
@@ -24,6 +33,11 @@ __all__ = [
     "CoreReceiptError",
     "CoreReceiptStore",
     "CoreRuntimeError",
+    "FDECommunityActionRuntime",
+    "FDECommunityValidationError",
+    "build_fde_community_envelope",
+    "FDEDailyCaptureError",
+    "FDEDailyCaptureRuntime",
     "DailySummary",
     "DailySummaryRequest",
     "LifeOSError",
