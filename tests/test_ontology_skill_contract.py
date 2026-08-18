@@ -17,6 +17,7 @@ REFERENCES = (
     "routing.md",
     "personal-branding.md",
     "fde-projects.md",
+    "fde-community.md",
     "maintenance.md",
     "mutation.md",
 )
@@ -70,16 +71,21 @@ class OntologySkillContractTests(unittest.TestCase):
             "AGENTS.md",
             "Personal Branding",
             "FDE Projects",
+            "FDE Community",
             "Life OS",
             "Inbox",
             "발행",
             "CORE",
             "Snippet",
             "MOC",
-            "Ontology Lens",
             "출처 포인터",
         ):
             self.assertIn(phrase, corpus)
+
+        # The customer-project source of truth is named as an external
+        # authority the Vault only points at, whatever that wiki is called.
+        self.assertIn("project source of truth", corpus)
+        self.assertIn("Never duplicate the wiki source body", corpus)
 
         # Inbox selection feeds publication; CORE integration starts only after publication.
         self.assertIn("Inbox selection is publication input only", corpus)

@@ -235,18 +235,32 @@ class LifeOSPluginTests(unittest.TestCase):
     def test_life_os_tools_register_after_existing_core_surface(self):
         ctx = FakeContext()
         self.package.register(ctx)
+        names = [item["name"] for item in ctx.tools]
         self.assertEqual(
             [
                 "donggu_core_recovery_status", "donggu_core_plan",
                 "donggu_core_receipt_status", "donggu_core_apply",
                 "donggu_core_recover", "donggu_core_readback",
                 "donggu_core_revoke", "donggu_core_ack",
+            ],
+            names[:8],
+        )
+        # Life OS keeps its relative order and stays on the interactive toolset,
+        # registered after the CORE surface.
+        life_os = [name for name in names if name.startswith("donggu_life_os_")]
+        self.assertEqual(
+            [
                 "donggu_life_os_status", "donggu_life_os_start_daily",
                 "donggu_life_os_record", "donggu_life_os_finalize_daily",
             ],
-            [item["name"] for item in ctx.tools],
+            life_os,
         )
-        self.assertTrue(all(item["toolset"] == "donggu_obsidian" for item in ctx.tools))
+        self.assertGreater(names.index("donggu_life_os_status"), 7)
+        by_name = {item["name"]: item for item in ctx.tools}
+        self.assertTrue(
+            all(by_name[name]["toolset"] == "donggu_obsidian" for name in life_os)
+        )
+        self.assertEqual([item["name"] for item in ctx.tools], names)
         self.assertEqual(["pre_gateway_dispatch"], [name for name, _callback in ctx.hooks])
         manifest = (ROOT / "donggu-obsidian" / "plugin.yaml").read_text(encoding="utf-8")
         self.assertIn("provides_hooks:\n  - pre_gateway_dispatch", manifest)

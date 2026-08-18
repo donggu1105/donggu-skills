@@ -692,10 +692,18 @@ class NativePluginPackageTests(unittest.TestCase):
         package = ROOT / "donggu-obsidian"
         claude = json.loads((package / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
         hermes = package / "plugin.yaml"
+        marketplace = json.loads(
+            (ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
+        )
         self.assertEqual("donggu-obsidian", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("2.1.0", claude["version"])
+        # Assert the manifests agree rather than freezing a literal version.
+        self.assertRegex(claude["version"], r"^\d+\.\d+\.\d+$")
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
+        entry = next(
+            item for item in marketplace["plugins"] if item["name"] == claude["name"]
+        )
+        self.assertEqual(claude["version"], entry["version"])
 
     def test_obsidian_latest_user_lookup_reads_past_first_fifty_messages(self):
         module_name = "donggu_obsidian_latest_message_test"
@@ -769,6 +777,10 @@ class NativePluginPackageTests(unittest.TestCase):
         package = load_package(ROOT / "donggu-obsidian", "donggu_obsidian_plugin_test")
         ctx = FakeContext()
         package.register(ctx)
+        by_name = {item["name"]: item for item in ctx.tools}
+        names = [item["name"] for item in ctx.tools]
+
+        # The CORE surface stays exactly this, in this order, at the front.
         self.assertEqual(
             [
                 "donggu_core_recovery_status",
@@ -779,14 +791,14 @@ class NativePluginPackageTests(unittest.TestCase):
                 "donggu_core_readback",
                 "donggu_core_revoke",
                 "donggu_core_ack",
-                "donggu_life_os_status",
-                "donggu_life_os_start_daily",
-                "donggu_life_os_record",
-                "donggu_life_os_finalize_daily",
             ],
-            [item["name"] for item in ctx.tools],
+            names[:8],
         )
-        by_name = {item["name"]: item for item in ctx.tools}
+        # Every registered tool belongs to the package namespace, and no tool
+        # is registered twice.
+        self.assertTrue(all(name.startswith("donggu_") for name in names))
+        self.assertEqual(len(names), len(set(names)))
+
         self.assertEqual(
             ["vault_root", "envelope"],
             by_name["donggu_core_plan"]["schema"]["parameters"]["required"],
@@ -800,13 +812,30 @@ class NativePluginPackageTests(unittest.TestCase):
         ack_parameters = by_name["donggu_core_ack"]["schema"]["parameters"]
         self.assertEqual(["receipt_id", "completion_nonce"], ack_parameters["required"])
         self.assertEqual({"receipt_id", "completion_nonce"}, set(ack_parameters["properties"]))
-        self.assertTrue(all(item["toolset"] == "donggu_obsidian" for item in ctx.tools))
+
+        # Toolset isolation: the automatic daily-Capture writer must NOT ride
+        # along with the interactive donggu_obsidian surface, so a chat session
+        # holding that toolset cannot write to the Vault unattended.
+        capture_writers = [
+            item["name"] for item in ctx.tools
+            if item["toolset"] == "fde_community_capture"
+        ]
+        self.assertEqual(["donggu_fde_daily_capture_upsert"], capture_writers)
+        self.assertTrue(
+            all(
+                item["toolset"] == "donggu_obsidian"
+                for item in ctx.tools
+                if item["name"] not in capture_writers
+            )
+        )
+
+        # The manifest must declare exactly what register() actually registers.
         manifest_tools = re.findall(
-            r"(?m)^  - (donggu_(?:core|life_os)_[a-z_]+)$",
+            r"(?m)^  - (donggu_[a-z0-9_]+)$",
             (ROOT / "donggu-obsidian" / "plugin.yaml").read_text(encoding="utf-8"),
         )
-        self.assertEqual([item["name"] for item in ctx.tools], manifest_tools)
-        self.assertEqual(12, len(manifest_tools))
+        self.assertEqual(sorted(names), sorted(manifest_tools))
+        self.assertEqual(len(manifest_tools), len(set(manifest_tools)))
 
     def test_registered_obsidian_apply_reads_latest_natural_text_and_reaches_real_helper_once(self):
         module_name = "donggu_obsidian_registered_apply_test"
