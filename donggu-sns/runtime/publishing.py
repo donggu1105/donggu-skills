@@ -1160,11 +1160,28 @@ class ReceiptStore:
     ) -> Dict[str, Any]:
         """Close a stuck receipt so the channel can publish again.
 
-        This is a mutation of safety state, so it is one-shot and requires the
-        caller to have already validated an explicit later-turn user approval.
-        The receipt keeps the operator's evidence for audit.
+        Deliberately does NOT go through `load()`.  The HMAC signing key lives only
+        in the gateway process, so a restart invalidates every prior signature —
+        while `assert_no_reconciliation` keeps blocking from the file alone.  Going
+        through `load()` here would leave restarted receipts permanently blocking
+        yet impossible to resolve, which is exactly the state that forced hand-editing
+        the receipt JSON on 2026-08-24.
+
+        The HMAC proves *authority to execute*, and resolution is not execution — it
+        is closing a mutation that already ended.  Safety here comes from the explicit
+        later-turn user approval and the operator's verification of the external
+        state, both enforced by the caller.  File structure and routing fields are
+        still validated, so a tampered or unrelated file is rejected.
         """
-        receipt = self.load(receipt_id)
+        path = self._path(receipt_id)
+        receipt = self._read_receipt_file(path)
+        if receipt.get("receipt_id") != receipt_id:
+            raise ReceiptError("receipt binding mismatch")
+        if not all(
+            isinstance(receipt.get(field), str) and receipt.get(field)
+            for field in ("state", "channel", "topic")
+        ):
+            raise ReceiptError("invalid receipt file")
         if receipt.get("state") not in ("reconciliation_required", "dispatching"):
             raise ReceiptError("receipt is not awaiting reconciliation")
         if resolution not in _RESOLUTIONS:

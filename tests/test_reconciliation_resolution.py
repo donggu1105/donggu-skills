@@ -180,3 +180,103 @@ class ReconciliationResolutionTest(PublishingRuntimeTests):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReconciliationSurvivesRestartTest(PublishingRuntimeTests):
+    """게이트웨이 재시작 후에도 해소할 수 있어야 한다.
+
+    회귀 근거(2026-08-24): HMAC 서명 키는 `ReceiptStore` 인스턴스마다 새로
+    생성된다(`secrets.token_bytes(32)`). 그래서 게이트웨이를 재시작하면 이전
+    영수증은 `load()`의 무결성 검사를 통과하지 못한다.
+
+    문제는 차단과 해소의 비대칭이다.
+      - `assert_no_reconciliation`: 파일을 스캔한다 → 재시작해도 계속 차단
+      - `resolve_reconciliation`: `load()`로 HMAC 검증 → 재시작하면 해소 불가
+
+    결과적으로 재시작 순간 그 영수증은 '영구히 막으면서 풀 수는 없는' 상태가
+    되고, 유일한 복구 수단이 영수증 파일 손수정이 된다. 해소는 실행이 아니라
+    종결이므로 실행 권한(HMAC)을 요구하면 안 된다.
+    """
+
+    def _stuck_receipt_from_previous_process(self):
+        """이전 프로세스가 남긴 영수증을 재현한다(= HMAC 키가 다르다)."""
+        store = self.runtime.store
+        receipt = store.issue({
+            "channel": "tistory", "operation": "publish",
+            "topic": "restart-topic", "note_path": "note.md",
+            "payload": {"title": "t", "content": "c"},
+            "payload_sha256": "0" * 64, "session_sha256": "1" * 64,
+            "preview_turn_sha256": "2" * 64, "preview_message_id": 1,
+        })
+        store.transition(
+            receipt, "reconciliation_required",
+            result={"url": "https://donggu1105.tistory.com/999",
+                    "post_id": "999", "job_id": None, "error": "og_image_mismatch"},
+        )
+        # 게이트웨이 재시작 = 새 서명 키
+        store._signing_key = __import__("secrets").token_bytes(32)
+        return receipt["receipt_id"]
+
+    def test_blocking_survives_restart(self):
+        """전제 확인: 재시작해도 차단은 유지된다."""
+        self._stuck_receipt_from_previous_process()
+        with self.assertRaises(self.module.ReceiptError):
+            self.runtime.store.assert_no_reconciliation(
+                channel="tistory", topic="restart-topic",
+            )
+
+    def test_list_survives_restart(self):
+        receipt_id = self._stuck_receipt_from_previous_process()
+        ids = [i["receipt_id"] for i in self.runtime.list_reconciliations()]
+        self.assertIn(receipt_id, ids)
+
+    def test_resolve_survives_restart(self):
+        """핵심: 재시작 후에도 해소되어야 한다."""
+        receipt_id = self._stuck_receipt_from_previous_process()
+        result = self.runtime.resolve_reconciliation(
+            receipt_id,
+            resolution="external_change_recorded",
+            approval_text="재조정 해소해줘",
+            evidence="공개 페이지 200, 장부 행 존재",
+            url="https://donggu1105.tistory.com/999",
+            post_id="999",
+            session_id=self.SESSION_ID,
+            turn_id=self.APPROVAL_TURN,
+            user_message_id=self.APPROVAL_MESSAGE_ID,
+        )
+        self.assertEqual("resolved_external_change_recorded", result["state"])
+        # 해소 후 채널이 풀려야 한다.
+        self.runtime.store.assert_no_reconciliation(
+            channel="tistory", topic="restart-topic",
+        )
+
+    def test_resolve_after_restart_still_requires_approval(self):
+        """HMAC을 안 봐도 사용자 승인은 그대로 요구한다."""
+        receipt_id = self._stuck_receipt_from_previous_process()
+        with self.assertRaises(self.module.PublishingError):
+            self.runtime.resolve_reconciliation(
+                receipt_id,
+                resolution="no_external_change",
+                approval_text="발행해",       # 해소 동사가 아님
+                session_id=self.SESSION_ID,
+                turn_id=self.APPROVAL_TURN,
+                user_message_id=self.APPROVAL_MESSAGE_ID,
+            )
+
+    def test_tampered_receipt_file_is_still_rejected(self):
+        """HMAC을 안 봐도 파일 구조 검증은 유지된다."""
+        receipt_id = self._stuck_receipt_from_previous_process()
+        path = self.runtime.store.root / (receipt_id + ".json")
+        import json as _json
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        data["receipt_id"] = "tampered-id-aaaaaaaaaaaaaaaaaaaa"
+        path.write_text(_json.dumps(data), encoding="utf-8")
+        with self.assertRaises(self.module.PublishingError):
+            self.runtime.resolve_reconciliation(
+                receipt_id,
+                resolution="no_external_change",
+                approval_text="재조정 해소해줘",
+                session_id=self.SESSION_ID,
+                turn_id=self.APPROVAL_TURN,
+                user_message_id=self.APPROVAL_MESSAGE_ID,
+            )
