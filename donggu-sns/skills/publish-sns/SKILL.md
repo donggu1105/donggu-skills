@@ -214,6 +214,25 @@ browser lookup.
 
 **tistory 대표이미지(썸네일/OG)**: tistory는 본문의 외부 `<img>` 핫링크로는 대표이미지를 못 잡는다 — 발행기가 **별도로 hero를 티스토리에 업로드**해야 og:image가 잡힌다. Native preview payload에 `.cover` 파일의 hero URL을 `cover_image`로 넣으면 발행기가 발행모달의 '대표이미지 추가'에 업로드한다. 빠뜨리면 본문 이미지는 보여도 썸네일/공유 카드가 비는 placeholder가 된다. (maily는 cover 개념 없음 — 보내지 말 것.)
 
+**maily 이미지는 티스토리와 규율이 다르다** (2026-08-24 실측 + 메일리 번들 JS 확인):
+
+- 메일리 에디터는 마크다운 변환기(`Ctrl+Shift+M` → 변환하기)로 본문을 네이티브 블록으로 바꾼다.
+  `![캡션](공개URL)`은 **재업로드 없이 그대로 hotlink**되는 이미지 블록이 된다(파서가
+  `caption: p.text`, `file.url: p.href`로 매핑, URL 검증은 `^https?://` 뿐). **payload 스키마 변경도
+  발행기 코드 변경도 필요 없다** — 본문 마크다운에 URL을 넣으면 끝이다.
+- **`![alt]`의 alt는 alt 속성이 아니라 화면에 보이는 캡션이다.** `![도입 이미지](...)`로 쓰면 독자에게
+  "도입 이미지"라는 글자가 그대로 노출된다. 읽을 문장을 쓰거나, 캡션이 필요 없으면 `![](url)`로 비운다.
+  이메일은 이미지 차단이 흔한데 대체텍스트 역할을 못 하므로 **이미지 없이도 문맥이 통하게** 본문을 쓴다.
+- **`!파일명.jpg`처럼 대괄호 없는 형태는 마크다운이 아니다.** 변환기가 무시해 이미지가 통째로 사라진다.
+  2026-07-07 발행물이 이 문법 때문에 1차 0장, 재발송한 2차도 2장만 들어갔다. 발행 전에
+  `grep -n '^!\[^[]' <본문>`으로 잔여를 0으로 만든다.
+- 규격은 **가로 ~1200px · 200KB 이하**(이메일 수신함 로딩). 저장은 `Maily/_img/<슬러그>/`,
+  업로드는 `sns-media/maily/<YYYY>/<MM-DD>/<슬러그>/`. hotlink를 막는 호스트(위키미디어 등)는
+  깨지므로 발행 전 `User-Agent`만 붙여 200 + JPEG 매직바이트를 확인한다.
+- **블로그 이미지를 그대로 재사용하지 않는다.** `VOICE - Maily`가 명시적으로 금지한다 — 규칙이 보는
+  것은 출처가 아니라 역할이다. 슬롯마다 "이 이미지가 **어떤 문장**을 뒷받침하나"를 먼저 답하고,
+  답이 안 나오는 슬롯은 만들지 않는다. 분위기용 실물사진보다 개념 다이어그램(`get-ai-image`)이 우선.
+
 ### Images (threads · instagram — finalized files)
 
 - **Threads text-only gate**: Threads may publish text-only only after explicit confirmation. If images are wanted, use finalized local files referenced by `## 발행` `![[embeds]]`; obtain user-provided assets first or `get-ai-image` when appropriate before rebuilding the preview.
@@ -268,6 +287,12 @@ Delete flow: adapter preview resolves the latest active ledger row → show topi
 - No text-channel note found and you're about to ask the user for a filename → STOP, offer to create the draft via `writing-social-content` instead. For missing images, use supplied assets first or `get-ai-image` when appropriate.
 - post_id from conversation memory → STOP, SELECT from the ledger.
 - maily without a subtitle line, or real-send without the second confirmation → STOP.
+- maily 본문에 `!파일명.jpg`처럼 대괄호 없는 이미지 표기가 남아 있음 → STOP, 마크다운이 아니라
+  변환기가 무시하고 이미지가 통째로 사라진다. `![캡션](공개URL)`로 고친 뒤 재프리뷰.
+- maily `![alt]`에 "도입 이미지" 같은 기계적 문자열을 씀 → STOP, alt가 아니라 화면에 보이는
+  캡션이다. 읽을 문장으로 바꾸거나 `![](url)`로 비운다.
+- maily에 블로그 이미지를 그대로 재사용하려 함 → STOP, `VOICE - Maily`가 금지한다. 슬롯마다
+  "어떤 문장을 뒷받침하나"를 먼저 답하고, 답이 없으면 그 슬롯은 만들지 않는다.
 - About to send a Threads post text-only without explicit confirmation → STOP, confirm that no images are intended.
 - About to send an Instagram post without 1–10 finalized `image_urls` → STOP, obtain finalized images, then rebuild and re-preview.
 - About to POST tistory/maily content that still contains `![[…]]` wikilinks → STOP, you skipped `prepare_blog_images.py`; the images will break in the published post.
