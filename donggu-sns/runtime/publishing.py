@@ -193,6 +193,20 @@ _OPERATION_APPROVAL_RE = {
         re.IGNORECASE,
     ),
 }
+
+# 재조정(reconciliation) 해소 전용 승인 문구. 발행/수정/삭제 동사와 겹치지 않아야
+# 한 번의 승인이 두 종류의 행위를 동시에 허가하지 않는다.
+_RESOLVE_APPROVAL_RE = re.compile(
+    r"(?:재조정|리컨실|reconciliation)\s*(?:을|를)?\s*"
+    r"(?:해소|정리|종결|해제)"
+    r"(?:해\s*(?:줘|주세요)|합니다|할게|함)?",
+    re.IGNORECASE,
+)
+
+# 해소 방식. 외부 상태를 실제로 확인한 사람이 고른다.
+_RESOLUTION_NO_CHANGE = "no_external_change"
+_RESOLUTION_RECORDED = "external_change_recorded"
+_RESOLUTIONS = (_RESOLUTION_NO_CHANGE, _RESOLUTION_RECORDED)
 _OPERATION_INTENT_RE = {
     "publish": re.compile(r"올려|발행|게시(?!물)", re.IGNORECASE),
     "update": re.compile(r"업데이트|수정", re.IGNORECASE),
@@ -1099,6 +1113,79 @@ class ReceiptStore:
                     "unresolved mutation blocks a new mutation receipt"
                 )
 
+    def list_reconciliations(self) -> list:
+        """Return the receipts that currently block new mutations.
+
+        Read-only and approval-free: an operator must be able to see what is stuck
+        before deciding how to resolve it.  Only non-secret routing fields are
+        exposed — never the HMAC or the raw payload.
+        """
+        blocking = []
+        for path in sorted(self.root.glob("*.json")):
+            try:
+                receipt = self._read_receipt_file(path)
+            except ReceiptError:
+                continue
+            if receipt.get("receipt_id") != path.stem:
+                continue
+            state = receipt.get("state")
+            if state not in ("reconciliation_required", "dispatching"):
+                continue
+            result = receipt.get("result")
+            result = result if isinstance(result, dict) else {}
+            blocking.append({
+                "receipt_id": str(receipt.get("receipt_id") or ""),
+                "state": str(state),
+                "channel": str(receipt.get("channel") or ""),
+                "operation": str(receipt.get("operation") or ""),
+                "topic": str(receipt.get("topic") or ""),
+                "note_path": str(receipt.get("note_path") or ""),
+                "url": result.get("url"),
+                "post_id": result.get("post_id"),
+                "job_id": result.get("job_id"),
+                "error": result.get("error"),
+                "issued_at": receipt.get("issued_at"),
+            })
+        return blocking
+
+    def resolve_reconciliation(
+        self,
+        receipt_id: str,
+        *,
+        resolution: str,
+        evidence: str = "",
+        ledger: Any = None,
+        approval_digest: str,
+        approval_message_id: int,
+    ) -> Dict[str, Any]:
+        """Close a stuck receipt so the channel can publish again.
+
+        This is a mutation of safety state, so it is one-shot and requires the
+        caller to have already validated an explicit later-turn user approval.
+        The receipt keeps the operator's evidence for audit.
+        """
+        receipt = self.load(receipt_id)
+        if receipt.get("state") not in ("reconciliation_required", "dispatching"):
+            raise ReceiptError("receipt is not awaiting reconciliation")
+        if resolution not in _RESOLUTIONS:
+            raise ReceiptError("unknown reconciliation resolution")
+
+        terminal = (
+            "resolved_no_external_change"
+            if resolution == _RESOLUTION_NO_CHANGE
+            else "resolved_external_change_recorded"
+        )
+        receipt["state"] = terminal
+        receipt["resolution"] = resolution
+        receipt["resolved_at"] = int(time.time())
+        receipt["resolution_evidence"] = str(evidence or "")[:_MAX_TEXT]
+        receipt["resolution_approval_sha256"] = approval_digest
+        receipt["resolution_message_id"] = approval_message_id
+        if ledger is not None:
+            receipt["resolution_ledger"] = ledger
+        self._write(receipt)
+        return receipt
+
     def claim(
         self,
         receipt_id: str,
@@ -1116,7 +1203,7 @@ class ReceiptStore:
 
     def status(self, receipt_id: str) -> Dict[str, Any]:
         receipt = self.load(receipt_id)
-        return {
+        status = {
             "receipt_id": receipt_id,
             "state": receipt.get("state"),
             "channel": receipt.get("channel"),
@@ -1124,6 +1211,15 @@ class ReceiptStore:
             "expires_at": receipt.get("expires_at"),
             "result": receipt.get("result"),
         }
+        # 해소된 영수증은 무엇을 근거로 종결했는지 함께 보여준다. 이 기록이
+        # 없으면 나중에 "왜 풀렸는지" 확인할 방법이 파일을 직접 여는 것뿐이다.
+        if receipt.get("resolution"):
+            status["resolution"] = receipt.get("resolution")
+            status["resolved_at"] = receipt.get("resolved_at")
+            status["resolution_evidence"] = receipt.get("resolution_evidence")
+            if receipt.get("resolution_ledger") is not None:
+                status["resolution_ledger"] = receipt.get("resolution_ledger")
+        return status
 
 
 class PublishingRuntime:
@@ -1267,6 +1363,95 @@ class PublishingRuntime:
 
     def receipt_status(self, receipt_id: str) -> Dict[str, Any]:
         return self.store.status(receipt_id)
+
+    def list_reconciliations(self) -> list:
+        """List receipts blocking new mutations. Read-only, no approval needed."""
+        return self.store.list_reconciliations()
+
+    def resolve_reconciliation(
+        self,
+        receipt_id: str,
+        *,
+        resolution: str,
+        approval_text: str,
+        session_id: str,
+        turn_id: str,
+        user_message_id: Any,
+        evidence: str = "",
+        url: str = "",
+        post_id: str = "",
+    ) -> Dict[str, Any]:
+        """Close a stuck reconciliation receipt after explicit user approval.
+
+        Without this path the only way to unblock a channel is hand-editing the
+        receipt JSON, which bypasses every safety check.  A reconciliation means
+        the external outcome is *unknown*, so the operator must state which
+        outcome they verified:
+
+          - `no_external_change`: nothing was published. The channel unblocks and
+            the same payload can be re-published.
+          - `external_change_recorded`: the mutation did happen. The caller must
+            supply the real `url` and `post_id` so the ledger keeps a record
+            instead of silently losing the post.
+        """
+        if resolution not in _RESOLUTIONS:
+            raise ValidationError("unknown reconciliation resolution")
+        # 해소는 발행/수정/삭제와 다른 행위이므로 전용 문구만 승인으로 인정한다.
+        # `_APPROVAL_RE`는 발행 계열 동사 목록이라 여기서는 쓰지 않는다.
+        if (
+            not isinstance(approval_text, str)
+            or not approval_text.strip()
+            or len(approval_text) > _MAX_TEXT
+        ):
+            raise ApprovalError(
+                "the current user message does not authorize a reconciliation resolution"
+            )
+        text = approval_text
+        if _DENIAL_RE.search(text) or _NONFINAL_INTENT_RE.search(text):
+            raise ApprovalError(
+                "the current user message does not authorize a reconciliation resolution"
+            )
+        if _RESOLVE_APPROVAL_RE.search(text) is None:
+            raise ApprovalError(
+                "the approval message does not authorize a reconciliation resolution"
+            )
+        if any(
+            pattern.search(text) is not None
+            for pattern in _OPERATION_INTENT_RE.values()
+        ):
+            raise ApprovalError(
+                "the approval message mixes reconciliation resolution with a publishing operation"
+            )
+        approval_message_id = _message_id(
+            user_message_id, "trusted approval user message id",
+        )
+        _nonempty(session_id, "trusted session id")
+        _nonempty(turn_id, "trusted turn id")
+
+        ledger = None
+        if resolution == _RESOLUTION_RECORDED:
+            # 외부 변경이 있었다면 흔적을 남기지 않고 종결하지 않는다.
+            ledger = {
+                "url": _validate_url(url, "url"),
+                "post_id": _nonempty(post_id, "post_id"),
+            }
+
+        receipt = self.store.resolve_reconciliation(
+            receipt_id,
+            resolution=resolution,
+            evidence=evidence,
+            ledger=ledger,
+            approval_digest=hashlib.sha256(text.strip().encode("utf-8")).hexdigest(),
+            approval_message_id=approval_message_id,
+        )
+        return {
+            "receipt_id": receipt.get("receipt_id"),
+            "state": receipt.get("state"),
+            "resolution": receipt.get("resolution"),
+            "channel": receipt.get("channel"),
+            "topic": receipt.get("topic"),
+            "ledger": receipt.get("resolution_ledger"),
+        }
 
     @staticmethod
     def _verify_binding(receipt: Dict[str, Any]) -> None:

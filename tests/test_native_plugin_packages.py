@@ -379,6 +379,8 @@ class NativePluginPackageTests(unittest.TestCase):
                 "donggu_publishing_confirm_maily",
                 "donggu_publishing_dispatch",
                 "donggu_publishing_receipt_status",
+                "donggu_publishing_list_reconciliations",
+                "donggu_publishing_resolve_reconciliation",
             ],
             [item["name"] for item in ctx.tools],
         )

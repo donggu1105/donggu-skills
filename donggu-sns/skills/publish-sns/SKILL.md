@@ -121,17 +121,40 @@ harness-specific scripts.
   Maily real-send only: later-turn `donggu_publishing_confirm_maily` →
   `donggu_publishing_dispatch`; inspect uncertainty with
   `donggu_publishing_receipt_status`.
+
+### Reconciliation 해소 (채널이 막혔을 때)
+
+`reconciliation_required`는 같은 채널+토픽의 다음 발행을 영구 차단한다. 영수증 파일을
+손으로 고치지 말고 아래 경로를 쓴다.
+
+1. `donggu_publishing_list_reconciliations` — 무엇이 막고 있는지 조회한다(승인 불필요).
+2. **외부 상태를 직접 확인한다.** 반환된 URL/post_id로 공개 페이지 HTTP 상태를 찍고,
+   장부(`published_posts`)에 행이 있는지 본다. 이 확인 없이 해소하지 않는다.
+3. 확인 결과를 사용자에게 보고하고 `재조정 해소해줘` 승인을 받는다.
+4. `donggu_publishing_resolve_reconciliation`:
+   - `no_external_change` — 발행 흔적이 전혀 없을 때만. 채널이 풀리고 같은 payload를
+     다시 발행할 수 있다.
+   - `external_change_recorded` — 실제로 발행됐을 때. `url`·`post_id`를 반드시 함께
+     넘겨 장부에 남긴다. 빠뜨리면 거부된다.
+   `evidence`에 확인 근거(찍어본 URL·HTTP 코드·장부 조회 결과)를 남긴다.
+
+발행 전 단계에서 실패한 경우(이미지 preflight 등)는 애초에 `failed`로 끝나야 하며
+reconciliation이 아니다. 그런데도 reconciliation이 걸렸다면 발행기 분류 버그다.
 - Claude bridge: pipe one bounded JSON request to
   `python3 <donggu-sns-package-root>/runtime/publishing_cli.py`. Only stateless `preview` is
   accepted. `status`, `approve`, `confirm_maily`, and `dispatch` fail closed because Claude does
   not provide the trusted in-process Hermes runtime or host turn IDs.
-- Dispatch receipts expire after 15 minutes and are one-shot. The HMAC key exists only in the
-  Hermes gateway process; a gateway restart invalidates unfinished receipts, so re-preview.
-  A failed, uncertain, or reconciliation-required receipt must not be replayed.
+- 프리뷰(`planned`)는 만료되지 않는다 — 읽는 동안 승인 권한이 타지 않는다. 실행 창은
+  **승인 시점부터** 15분이며 일회용이다. HMAC 키는 Hermes 게이트웨이 프로세스에만 있어
+  게이트웨이를 재시작하면 미완료 영수증이 무효화되므로 프리뷰를 다시 만든다.
+  실패·불확실·재조정 상태의 영수증은 재사용하지 않는다.
 - Remote image URLs must stay on the channel allowlist and resolve only to public **unicast**
   addresses. Reject literal or DNS-resolved private, loopback, link-local, unspecified, reserved,
-  multicast, and known IPv4-embedded IPv6 transition forms (including IPv4-mapped, NAT64,
-  6to4, and Teredo) before any network fetch; re-check every redirect.
+  and multicast addresses before any network fetch; re-check every redirect.
+  IPv4-embedded IPv6(NAT64·6to4·Teredo·IPv4-mapped)는 **감싸인 IPv4를 꺼내 판정한다** —
+  DNS64가 켜진 네트워크는 정상 공인 호스트에도 NAT64 주소를 IPv4와 함께 반환하므로,
+  일괄 거부하면 정상 이미지가 막힌다. 감싸인 주소가 사설/내부망이면 그대로 거부하고,
+  공인이면 통과시키되 실제 연결은 pinned IPv4로만 한다.
 - If the adapter is unavailable or its credentials/origin validation fails, **fail closed**.
   Direct webhook and direct ledger mutation are forbidden. The references below are diagnostic
   contract documentation only, not a fallback execution path.

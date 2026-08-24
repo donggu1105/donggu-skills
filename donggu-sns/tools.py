@@ -201,6 +201,48 @@ STATUS_SCHEMA = {
     },
 }
 
+RECONCILIATION_LIST_SCHEMA = {
+    "name": "donggu_publishing_list_reconciliations",
+    "description": (
+        "List publishing receipts stuck in reconciliation that block new publishes. "
+        "Read-only; needs no approval. Use this to see what is blocking a channel."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    },
+}
+
+RECONCILIATION_RESOLVE_SCHEMA = {
+    "name": "donggu_publishing_resolve_reconciliation",
+    "description": (
+        "Close a stuck reconciliation receipt after verifying the real external state, "
+        "so the channel can publish again. Requires an explicit later-turn user approval "
+        "such as '재조정 해소해줘'. Choose no_external_change only after confirming nothing "
+        "was published; choose external_change_recorded with the real url and post_id when "
+        "the mutation did happen."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "receipt_id": {"type": "string"},
+            "resolution": {
+                "type": "string",
+                "enum": ["no_external_change", "external_change_recorded"],
+            },
+            "evidence": {
+                "type": "string",
+                "description": "How the external state was verified (URLs checked, HTTP codes, ledger rows).",
+            },
+            "url": {"type": "string", "description": "Required for external_change_recorded."},
+            "post_id": {"type": "string", "description": "Required for external_change_recorded."},
+        },
+        "required": ["receipt_id", "resolution"],
+        "additionalProperties": False,
+    },
+}
+
 
 def check_requirements() -> bool:
     return all(os.getenv(name, "").strip() for name in (
@@ -289,5 +331,30 @@ def handle_dispatch(args: dict, **kwargs) -> str:
 def handle_status(args: dict, **_kw) -> str:
     try:
         return _ok(_runtime().receipt_status(str(args.get("receipt_id") or "")))
+    except PublishingError as exc:
+        return _error(exc)
+
+
+def handle_list_reconciliations(_args: dict, **_kw) -> str:
+    try:
+        blocking = _runtime().list_reconciliations()
+        return _ok({"reconciliations": blocking, "count": len(blocking)})
+    except PublishingError as exc:
+        return _error(exc)
+
+
+def handle_resolve_reconciliation(args: dict, **kwargs) -> str:
+    try:
+        session_id, turn_id = _trusted_context(kwargs)
+        message_id, message_text = _latest_trusted_user_message(session_id)
+        return _ok(_runtime().resolve_reconciliation(
+            str(args.get("receipt_id") or ""),
+            resolution=str(args.get("resolution") or ""),
+            approval_text=message_text,
+            session_id=session_id, turn_id=turn_id, user_message_id=message_id,
+            evidence=str(args.get("evidence") or ""),
+            url=str(args.get("url") or ""),
+            post_id=str(args.get("post_id") or ""),
+        ))
     except PublishingError as exc:
         return _error(exc)
