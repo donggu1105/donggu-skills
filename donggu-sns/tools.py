@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from typing import Any, Dict, Optional
 
@@ -11,6 +12,29 @@ from .runtime import PublishingError, PublishingRuntime
 
 _RUNTIME: Optional[PublishingRuntime] = None
 _RUNTIME_LOCK = threading.Lock()
+
+_TRIGGERING_HEADER_RE = re.compile(
+    r"^\[Triggering message id:\s*`[^`\r\n]+`[^\r\n]*\]\s*\r?\n\r?\n"
+)
+_SENDER_PREFIX_RE = re.compile(r"^\[[^\]\r\n]{1,200}\][ \t]*")
+
+
+def _normalize_trusted_user_message(content: str) -> str:
+    """Strip platform metadata before applying publishing approval grammar.
+
+    Discord persists a trusted user row as a triggering-message header followed
+    by a display-name prefix. Those are transport metadata, not user intent.
+    Only strip the sender prefix when the trusted header was present; a plain
+    user message beginning with brackets must remain unchanged. A structured
+    (non-string) row carries no approval grammar and must fail closed.
+    """
+    if not isinstance(content, str):
+        return ""
+    text = content.strip()
+    if _TRIGGERING_HEADER_RE.match(text):
+        text = _TRIGGERING_HEADER_RE.sub("", text, count=1)
+        text = _SENDER_PREFIX_RE.sub("", text, count=1)
+    return text.strip()
 
 
 def _runtime() -> PublishingRuntime:
@@ -37,15 +61,16 @@ def _latest_trusted_user_message(session_id: str) -> tuple[int, str]:
             continue
         message_id = message.get("id")
         content = message.get("content")
+        normalized = _normalize_trusted_user_message(content)
         if (
             not isinstance(message_id, int)
             or isinstance(message_id, bool)
             or message_id <= 0
             or not isinstance(content, str)
-            or not content.strip()
+            or not normalized
         ):
             raise PublishingError("latest trusted Hermes user message is invalid")
-        return message_id, content.strip()
+        return message_id, normalized
     raise PublishingError("trusted Hermes user message is unavailable")
 
 
@@ -70,19 +95,20 @@ def _authoritative_latest_message_executor(
                         )
                     message_id = row["id"]
                     content = db._decode_content(row["content"])
+                    normalized = _normalize_trusted_user_message(content)
                     if (
                         not isinstance(message_id, int)
                         or isinstance(message_id, bool)
                         or message_id <= 0
                         or not isinstance(content, str)
-                        or not content.strip()
+                        or not normalized
                     ):
                         raise PublishingError(
                             "latest trusted Hermes user message is invalid"
                         )
                     if (
                         message_id != expected_message_id
-                        or content.strip() != expected_text
+                        or normalized != expected_text
                     ):
                         raise PublishingError(
                             "trusted Hermes user message changed before authorization claim"
@@ -104,13 +130,25 @@ def _authoritative_latest_message_executor(
 
 PREVIEW_SCHEMA = {
     "name": "donggu_publishing_preview",
-    "description": "Validate and show the exact SNS payload without mutation. Show it to the user before approval.",
+    "description": (
+        "Validate and show the exact SNS payload without mutation. Show it to the user "
+        "before approval. For any long body, pass `content_file` (absolute path to the "
+        "prepared .pub.md) instead of `content` so the exact disk bytes are published; "
+        "retyping a long body into `content` risks silent character corruption. Add "
+        "`content_sha256` to make the runtime verify those bytes."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
             "channel": {"type": "string", "enum": ["tistory", "maily", "threads", "linkedin", "instagram"]},
             "operation": {"type": "string", "enum": ["publish", "update", "delete"]},
-            "payload": {"type": "object"},
+            "payload": {
+                "type": "object",
+                "description": (
+                    "Channel payload. Use `content_file` (absolute path) plus optional "
+                    "`content_sha256` in place of `content` to load the body from disk."
+                ),
+            },
             "topic": {"type": "string"},
             "note_path": {"type": "string"},
         },

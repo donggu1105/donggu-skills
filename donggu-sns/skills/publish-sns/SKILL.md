@@ -163,10 +163,18 @@ Blog bodies carry images as Obsidian wikilink embeds (`![[geudwi-hero.jpg]]`) �
 
 ```
 python3 <skill>/prepare_blog_images.py "<note.md>" --out /tmp/<slug>.pub.md
-#   ![[local.jpg]] 추출 → sns-media 버킷에 upsert 업로드 → ![](공개URL) 치환
-#   → /tmp/<slug>.pub.md 가 발행용 본문. 키는 n8n .env 자동 로드.
+#   ![[local.jpg]] 추출 → **확장자 ↔ 실제 매직바이트 검증** → sns-media 버킷에 upsert 업로드
+#   → ![](공개URL) 치환 → /tmp/<slug>.pub.md 가 발행용 본문. 키는 n8n .env 자동 로드.
 #   → /tmp/<slug>.pub.md.cover 에 hero(첫 이미지) URL = 대표이미지 소스.
+#   종료코드: 0=성공 · 2=이미지 파일 못 찾음 · 3=확장자와 실제 바이트 불일치(업로드 0건)
 ```
+
+**exit 3 = 확장자 위장.** AI 이미지 생성기가 PNG를 뽑아놓고 파일명만 `.jpg`로 저장하는 일이 잦다.
+스토리지는 Content-Type을 **확장자**에서 만들기 때문에 `.jpg` 이름의 PNG도 `200 image/jpeg`로
+보이고, 발행기 preflight의 magic 검사는 **승인이 이미 소모된 dispatch 시점에야** 실패한다.
+스크립트가 파일명·실제 포맷·수정 명령을 함께 출력하므로 그대로 재인코딩한다
+(`sips -s format jpeg -s formatOptions 92 <f> --out <f>` — 파일명을 유지하면 노트 임베드는 그대로).
+재인코딩 뒤에는 이미지가 깨지지 않았는지 `vision_analyze`로 눈으로 확인한다.
 
 Then extract title (first line) + body **from the converted file** and use them in the native adapter preview. The script is idempotent (upsert) — re-running reuses the same URLs. Storage path: `sns-media/blog/<YYYY>/<MM-DD>/<slug>/<file>` (public). If it exits non-zero (`unresolved` image), STOP — a wikilink points at a file not in the vault; fix the embed before preview, never ship a broken `![[...]]`.
 

@@ -2162,5 +2162,153 @@ class PublishingRuntimeTests(unittest.TestCase):
             )
 
 
+class PreviewLifetimeTest(PublishingRuntimeTests):
+    """프리뷰는 만료되지 않고, 실행 권한만 짧게 산다.
+
+    회귀 근거(2026-08-24): 프리뷰 생성 시점부터 15분 TTL이 돌아 사용자가 본문을
+    읽거나 운영자가 원인을 고치는 동안 만료됐다. 같은 발행 건에서 3회 만료됐고,
+    매번 사용자에게 `발행해`를 다시 요구했다. `planned`는 외부 변경 0건인
+    읽기 전용 상태이므로 만료시킬 이유가 없다.
+    """
+
+    def test_planned_preview_does_not_expire(self):
+        runtime = self.module.PublishingRuntime(
+            receipt_root=Path(self.tmp.name) / "jit-planned",
+            webhook_base_url=f"{self.base}/webhook",
+            webhook_token="webhook-secret",
+            ledger=self.runtime.ledger,
+            receipt_ttl_seconds=900,
+            allow_test_origins=True,
+        )
+        with mock.patch.object(self.module.time, "time", return_value=100.0):
+            plan = runtime.preview(
+                channel="threads", operation="publish", payload={"content": "hello"},
+                topic="long-read", note_path="note.md",
+                session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN,
+                user_message_id=self.PREVIEW_MESSAGE_ID,
+            )
+
+        # 사용자가 두 시간 뒤에 승인해도 프리뷰는 살아 있어야 한다.
+        with mock.patch.object(self.module.time, "time", return_value=100.0 + 7200):
+            approved = runtime.approve(
+                plan["receipt_id"], approval_text="발행해",
+                session_id=self.SESSION_ID, turn_id=self.APPROVAL_TURN,
+                user_message_id=self.APPROVAL_MESSAGE_ID,
+            )
+        self.assertEqual("approved", approved["status"])
+
+    def test_execution_window_starts_at_approval(self):
+        """승인 시점에 실행 시계가 시작된다 — 프리뷰 생성 시점이 아니라."""
+        runtime = self.module.PublishingRuntime(
+            receipt_root=Path(self.tmp.name) / "jit-window",
+            webhook_base_url=f"{self.base}/webhook",
+            webhook_token="webhook-secret",
+            ledger=self.runtime.ledger,
+            receipt_ttl_seconds=900,
+            allow_test_origins=True,
+        )
+        with mock.patch.object(self.module.time, "time", return_value=100.0):
+            plan = runtime.preview(
+                channel="threads", operation="publish", payload={"content": "hello"},
+                topic="window", note_path="note.md",
+                session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN,
+                user_message_id=self.PREVIEW_MESSAGE_ID,
+            )
+        approve_at = 100.0 + 7200
+        with mock.patch.object(self.module.time, "time", return_value=approve_at):
+            approved = runtime.approve(
+                plan["receipt_id"], approval_text="발행해",
+                session_id=self.SESSION_ID, turn_id=self.APPROVAL_TURN,
+                user_message_id=self.APPROVAL_MESSAGE_ID,
+            )
+        self.assertGreaterEqual(
+            int(approved["expires_at"]), int(approve_at),
+            "승인 시점 기준으로 실행 창이 다시 열려야 한다",
+        )
+
+    def test_approved_receipt_still_expires_before_dispatch(self):
+        """승인 이후 창은 여전히 짧아야 한다 — 오래된 승인의 무기한 실행 금지."""
+        runtime = self.module.PublishingRuntime(
+            receipt_root=Path(self.tmp.name) / "jit-approved-expiry",
+            webhook_base_url=f"{self.base}/webhook",
+            webhook_token="webhook-secret",
+            ledger=self.runtime.ledger,
+            receipt_ttl_seconds=1,
+            allow_test_origins=True,
+        )
+        with mock.patch.object(self.module.time, "time", return_value=100.0):
+            plan = runtime.preview(
+                channel="threads", operation="publish", payload={"content": "hello"},
+                topic="approved-expiry", note_path="note.md",
+                session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN,
+                user_message_id=self.PREVIEW_MESSAGE_ID,
+            )
+            runtime.approve(
+                plan["receipt_id"], approval_text="발행해",
+                session_id=self.SESSION_ID, turn_id=self.APPROVAL_TURN,
+                user_message_id=self.APPROVAL_MESSAGE_ID,
+            )
+        with mock.patch.object(self.module.time, "time", return_value=102.0):
+            with self.assertRaises(self.module.ReceiptError):
+                runtime.dispatch(plan["receipt_id"], session_id=self.SESSION_ID)
+        self.assertEqual([], FakeApiHandler.requests)
+
+
+class ImageAddressPolicyTest(PublishingRuntimeTests):
+    """DNS64 환경에서 정상 공개 이미지를 막지 않으면서 내부망은 계속 막는다.
+
+    회귀 근거(2026-08-24): DNS64가 켜진 네트워크는 Supabase 호스트에 대해 정상
+    IPv4와 NAT64 주소(`64:ff9b::<IPv4>`)를 함께 반환한다. NAT64는 새 목적지가
+    아니라 같은 IPv4의 IPv6 표현이므로, 감싸인 IPv4를 꺼내 판정해야 한다.
+    발행기(tistory.py, cardnews.py)와 같은 정책을 어댑터에도 적용한다.
+    """
+
+    ALLOWED = {"img.test"}
+
+    def _validate(self, answers):
+        with mock.patch.object(self.module.socket, "getaddrinfo", return_value=answers):
+            return self.module._validate_image_url(
+                "https://img.test/a.png",
+                allowed_hosts=self.ALLOWED,
+                resolve_dns=True,
+            )
+
+    def test_mixed_nat64_and_public_ipv4_is_allowed(self):
+        answers = [
+            (10, 1, 6, "", ("64:ff9b::6812:260a", 443, 0, 0)),
+            (2, 1, 6, "", ("104.18.38.10", 443)),
+        ]
+        self.assertEqual("https://img.test/a.png", self._validate(answers))
+
+    def test_nat64_only_public_ipv4_is_allowed(self):
+        """NAT64만 와도 감싸인 IPv4가 공인이면 통과한다."""
+        answers = [(10, 1, 6, "", ("64:ff9b::6812:260a", 443, 0, 0))]
+        self.assertEqual("https://img.test/a.png", self._validate(answers))
+
+    def test_nat64_wrapping_loopback_is_rejected(self):
+        answers = [(10, 1, 6, "", ("64:ff9b::7f00:1", 443, 0, 0))]
+        with self.assertRaises(self.module.ValidationError):
+            self._validate(answers)
+
+    def test_nat64_wrapping_private_is_rejected(self):
+        # 64:ff9b::c0a8:1 == 192.168.0.1
+        answers = [(10, 1, 6, "", ("64:ff9b::c0a8:1", 443, 0, 0))]
+        with self.assertRaises(self.module.ValidationError):
+            self._validate(answers)
+
+    def test_private_alongside_public_is_still_rejected(self):
+        """DNS rebinding 방어는 그대로 유지된다."""
+        answers = [
+            (2, 1, 6, "", ("104.18.38.10", 443)),
+            (2, 1, 6, "", ("127.0.0.1", 443)),
+        ]
+        with self.assertRaises(self.module.ValidationError):
+            self._validate(answers)
+
+    def test_plain_public_ipv6_is_allowed(self):
+        answers = [(10, 1, 6, "", ("2606:4700::6812:260a", 443, 0, 0))]
+        self.assertEqual("https://img.test/a.png", self._validate(answers))
+
+
 if __name__ == "__main__":
     unittest.main()

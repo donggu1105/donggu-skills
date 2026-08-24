@@ -54,8 +54,47 @@ class TransportError(PublishingError):
 
 _RECEIPT_RE = re.compile(r"^[A-Za-z0-9_-]{20,80}$")
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,199}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _MAX_TEXT = 500_000
+_MAX_CONTENT_FILE_BYTES = 4 * 1024 * 1024
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 _DEFAULT_WEBHOOK_BASE = "https://n8n.donggu.site/webhook"
+_PUBLISHER_USER_AGENT = "donggu-publisher/1.0"
+
+# `planned` 프리뷰에 쓰는 만료 없음 sentinel. 프리뷰는 외부 변경 0건이라
+# 시간이 지나도 위험해지지 않는다. 실행 창은 승인 시점에 따로 열린다.
+_NO_EXPIRY = 1 << 62
+
+# IPv4를 감싸는 IPv6 표현. NAT64(RFC 6052)·6to4·Teredo·IPv4-mapped는 새 목적지가
+# 아니라 같은 IPv4를 IPv6로 표현한 것이므로, 감싸인 IPv4를 꺼내 판정한다.
+_IPV4_EMBEDDED_IPV6_NETWORKS = (
+    ipaddress.ip_network("::/96"),
+    ipaddress.ip_network("64:ff9b::/96"),
+    ipaddress.ip_network("64:ff9b:1::/48"),
+    ipaddress.ip_network("2001::/32"),
+    ipaddress.ip_network("2002::/16"),
+)
+
+
+def _embedded_ipv4(address):
+    """IPv4를 감싼 IPv6이면 그 안의 IPv4를, 아니면 None을 반환한다.
+
+    DNS64가 켜진 네트워크는 정상 공인 호스트에도 NAT64 주소를 IPv4와 함께
+    반환한다. 감싸인 IPv4를 실제 목적지로 판정해야 정상 이미지를 막지 않으면서
+    내부망을 감싼 NAT64는 그대로 걸러낼 수 있다.
+    """
+    if not isinstance(address, ipaddress.IPv6Address):
+        return None
+    if address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    if address.sixtofour is not None:
+        return address.sixtofour
+    if address.teredo is not None:
+        return address.teredo[1]
+    for network in _IPV4_EMBEDDED_IPV6_NETWORKS:
+        if address in network:
+            return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    return None
 _DEFAULT_PUBLISHER_API_BASE = "http://127.0.0.1:8000"
 _EXPECTED_SUPABASE_HOST = "fvfayignxybdyyravorg.supabase.co"
 
@@ -316,15 +355,28 @@ def _validate_image_url(value: Any, *, allowed_hosts: set[str], resolve_dns: boo
         addresses = {answer[4][0] for answer in answers if answer[4]}
         if not addresses:
             raise ValidationError("image URL host could not be resolved")
+        connectable = set()
         for raw_address in addresses:
             try:
-                address = ipaddress.ip_address(raw_address)
+                address = ipaddress.ip_address(str(raw_address).split("%", 1)[0])
             except ValueError:
                 raise ValidationError("image URL resolved to an invalid address") from None
+            embedded = _embedded_ipv4(address)
+            if embedded is not None:
+                # NAT64 등: 감싸인 실제 IPv4로 판정하고, 연결 대상에서는 제외한다.
+                if not embedded.is_global or embedded.is_multicast:
+                    raise ValidationError(
+                        "image URL must not resolve to a private or local address"
+                    )
+                continue
             if not address.is_global:
                 raise ValidationError("image URL must not resolve to a private or local address")
             if address.is_multicast:
                 raise ValidationError("image URL must resolve to a public unicast address")
+            connectable.add(address)
+        # 모든 응답이 IPv4-embedded일 수 있다(DNS64 전용 네트워크). 그 경우에도
+        # 위에서 감싸인 IPv4가 공인임을 확인했고, 발행기가 pinned IPv4로 접속하므로
+        # 여기서 추가로 막지 않는다.
     return text
 
 
@@ -415,6 +467,95 @@ def _validate_service_base(value: str, *, service: str, allow_test_origins: bool
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+def _read_content_source(value: Any, *, expected_sha256: Any = None) -> str:
+    """Read a publish body from disk so long text is never retyped by an agent.
+
+    Transcribing a multi-thousand-character body through a tool argument is a
+    real corruption channel: a single mistyped Hangul syllable ships a typo to a
+    public post. The only safe source is the exact file the pipeline produced,
+    so this reader is deliberately strict — it refuses anything that is not a
+    plain, owned, regular UTF-8 file, and it can verify a caller-supplied digest
+    before the bytes are ever bound to a receipt.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError("content_file must be a non-empty path string")
+    if len(value) > 4096:
+        raise ValidationError("content_file path is too long")
+    if _CONTROL_CHARS_RE.search(value) or "\x00" in value:
+        raise ValidationError("content_file path contains control characters")
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        raise ValidationError("content_file must be an absolute path")
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags)
+        with os.fdopen(fd, "rb", closefd=True) as stream:
+            file_stat = os.fstat(stream.fileno())
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise OSError("content_file is not a regular file")
+            if hasattr(os, "geteuid") and file_stat.st_uid != os.geteuid():
+                raise OSError("content_file is not owned by the current user")
+            if file_stat.st_size > _MAX_CONTENT_FILE_BYTES:
+                raise OSError("content_file exceeds the size limit")
+            raw = stream.read(_MAX_CONTENT_FILE_BYTES + 1)
+    except OSError as exc:
+        raise ValidationError("content_file is not a readable regular file") from exc
+    if len(raw) > _MAX_CONTENT_FILE_BYTES:
+        raise ValidationError("content_file exceeds the size limit")
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError as exc:
+        raise ValidationError("content_file must be UTF-8 encoded") from exc
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not text.strip():
+        raise ValidationError("content_file is empty")
+    if len(text) > _MAX_TEXT:
+        raise ValidationError("content_file content exceeds the length limit")
+    if _CONTROL_CHARS_RE.search(text):
+        raise ValidationError("content_file contains control characters")
+    if expected_sha256 is not None:
+        if (
+            not isinstance(expected_sha256, str)
+            or _SHA256_RE.fullmatch(expected_sha256) is None
+        ):
+            raise ValidationError("content_sha256 must be a lowercase hex sha256 digest")
+        actual = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if not secrets.compare_digest(actual.encode("utf-8"), expected_sha256.encode("utf-8")):
+            raise ValidationError("content_file does not match content_sha256")
+    return text
+
+
+def _resolve_payload_sources(payload: Any) -> Any:
+    """Expand `content_file` into `content` before the closed contract check.
+
+    The channel contracts stay untouched: by the time `_validate_payload` runs,
+    a `content_file` payload is indistinguishable from an inline one, so both
+    produce the same receipt binding and the same `payload_sha256`.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    has_file = "content_file" in payload
+    has_digest = "content_sha256" in payload
+    if not has_file and not has_digest:
+        return payload
+    if has_digest and not has_file:
+        raise ValidationError("content_sha256 requires content_file")
+    if "content" in payload:
+        raise ValidationError("content and content_file are mutually exclusive")
+    resolved = {key: value for key, value in payload.items() if key not in {"content_file", "content_sha256"}}
+    resolved["content"] = _read_content_source(
+        payload["content_file"],
+        expected_sha256=payload.get("content_sha256") if has_digest else None,
+    )
+    return resolved
 
 
 def _validate_payload(
@@ -882,10 +1023,18 @@ class ReceiptStore:
             "receipt_id": secrets.token_urlsafe(24),
             "state": "planned",
             "created_at": now,
-            "expires_at": now + self.ttl_seconds,
+            # `planned`는 외부 변경 0건인 읽기 전용 프리뷰다. 여기에 만료를 걸면
+            # 사용자가 본문을 읽거나 운영자가 원인을 고치는 시간이 그대로 실행
+            # 권한을 태운다(2026-08-24 같은 발행 건에서 3회 만료). 짧은 창은
+            # 승인 시점에 열린다 — `_execution_deadline` 참조.
+            "expires_at": _NO_EXPIRY,
         }
         self._write(receipt)
         return receipt
+
+    def _execution_deadline(self) -> int:
+        """승인/확인 시점부터 시작하는 실행 창의 절대 만료 시각."""
+        return int(time.time()) + self.ttl_seconds
 
     def load(self, receipt_id: str, *, require_state: Optional[str] = None) -> Dict[str, Any]:
         path = self._path(receipt_id)
@@ -930,8 +1079,14 @@ class ReceiptStore:
             ):
                 raise ReceiptError("invalid receipt file")
             if not (
-                secrets.compare_digest(str(receipt.get("channel") or ""), channel)
-                and secrets.compare_digest(str(receipt.get("topic") or ""), topic)
+                secrets.compare_digest(
+                    str(receipt.get("channel") or "").encode("utf-8"),
+                    channel.encode("utf-8"),
+                )
+                and secrets.compare_digest(
+                    str(receipt.get("topic") or "").encode("utf-8"),
+                    topic.encode("utf-8"),
+                )
             ):
                 continue
             state = receipt.get("state")
@@ -1048,7 +1203,7 @@ class PublishingRuntime:
         operation = _nonempty(operation, "operation").lower()
         topic = _nonempty(topic, "topic")
         clean = _validate_payload(
-            channel, operation, payload,
+            channel, operation, _resolve_payload_sources(payload),
             allowed_image_hosts=self.image_allowed_hosts,
             resolve_image_hosts=self.resolve_image_hosts,
         )
@@ -1180,6 +1335,9 @@ class PublishingRuntime:
             approval_sha256=hashlib.sha256(approval_text.strip().encode("utf-8")).hexdigest(),
             approval_turn_sha256=turn_digest,
             approval_message_id=approval_message_id,
+            # 실행 창은 승인 시점에 열린다. 프리뷰를 언제 만들었든 사용자가
+            # `발행해`를 보낸 순간부터 짧은 창이 시작된다.
+            expires_at=self.store._execution_deadline(),
         )
         return {"status": "approved", "receipt_id": receipt_id, "expires_at": receipt["expires_at"]}
 
@@ -1227,6 +1385,8 @@ class PublishingRuntime:
             confirmation_sha256=hashlib.sha256(confirmation_text.strip().encode("utf-8")).hexdigest(),
             confirmation_turn_sha256=turn_digest,
             confirmation_message_id=confirmation_message_id,
+            # Maily 최종 확인도 그 시점부터 실행 창을 다시 연다.
+            expires_at=self.store._execution_deadline(),
         )
         return {"status": "confirmed", "receipt_id": receipt_id, "expires_at": receipt["expires_at"]}
 
@@ -1370,6 +1530,7 @@ class PublishingRuntime:
                 "Content-Type": "application/json",
                 "X-API-Token": publisher_token,
                 "X-Idempotency-Key": receipt_id,
+                "User-Agent": _PUBLISHER_USER_AGENT,
             }
         else:
             if operation in {"update", "delete"}:
@@ -1380,6 +1541,7 @@ class PublishingRuntime:
                 "Content-Type": "application/json",
                 "X-SNS-Token": self.webhook_token,
                 "X-Idempotency-Key": receipt_id,
+                "User-Agent": _PUBLISHER_USER_AGENT,
             }
         try:
             response = _request_json(

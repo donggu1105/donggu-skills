@@ -28,6 +28,7 @@ ComfyUI는 workflows/<model>.json 템플릿을 써서 그래프를 구성(모델
 """
 import argparse
 import base64
+import io
 import json
 import os
 import sys
@@ -72,6 +73,29 @@ def load_env():
 def _save(data: bytes, out: str):
     with open(out, "wb") as f:
         f.write(data)
+
+
+def _save_in_requested_format(data: bytes, out: str, media_type=None):
+    """Keep file contents consistent with the caller's requested extension.
+
+    OpenRouter Image API providers may return JPEG/WebP even when the output path
+    ends in .png. Convert only on a known mismatch; otherwise preserve bytes.
+    """
+    ext = os.path.splitext(out)[1].lower()
+    expected = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".webp": "image/webp"}.get(ext)
+    if not expected or not media_type or media_type == expected:
+        _save(data, out)
+        return
+    try:
+        from PIL import Image
+        image = Image.open(io.BytesIO(data))
+        fmt = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".webp": "WEBP"}[ext]
+        if fmt == "JPEG" and image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+        image.save(out, format=fmt, optimize=True)
+    except Exception as e:
+        raise RuntimeError(f"image_format_conversion_failed({media_type}->{ext}): {e}")
 
 
 def _get(url, timeout=120):
@@ -281,28 +305,66 @@ def _extract_openrouter_image(j):
     return None
 
 
-def gen_openrouter(prompt, out, model, w, h, seed):
+def _reference_data_uri(path):
+    if not path or not os.path.isfile(path):
+        raise RuntimeError(f"reference_image_missing: {path}")
+    ext = os.path.splitext(path)[1].lower()
+    mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".webp": "image/webp"}.get(ext, "image/png")
+    return f"data:{mime};base64,{base64.b64encode(open(path, 'rb').read()).decode()}"
+
+
+def gen_openrouter(prompt, out, model, w, h, seed, reference=None):
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError("openrouter_key_missing")
     slug = _openrouter_model(model)
     ar = _nearest_ratio(w, h)
-    hint = (f"\n\n(Aspect ratio {ar}, wide landscape composition for a {w}x{h} blog hero image.)"
-            if w >= h else f"\n\n(Aspect ratio {ar}, portrait composition.)")
+    headers = {"Authorization": f"Bearer {key}",
+               "HTTP-Referer": "https://github.com/donggu1105/donggu-skills",
+               "X-Title": "donggu-sns get-ai-image"}
+
+    if reference:
+        # Current OpenRouter Image API: reference-guided image-to-image generation.
+        # Keep the chat-completions path below for backward-compatible text-to-image.
+        body = {"model": slug, "prompt": prompt, "n": 1,
+                "aspect_ratio": ar, "resolution": "1K",
+                "input_references": [{"type": "image_url",
+                                      "image_url": {"url": _reference_data_uri(reference)}}]}
+        if seed is not None:
+            body["seed"] = seed
+        raw = _post_json("https://openrouter.ai/api/v1/images", body,
+                         headers=headers, timeout=300)
+        j = json.loads(raw)
+        item = (j.get("data") or [{}])[0]
+        b64 = item.get("b64_json")
+        if not b64:
+            err = j.get("error") or {}
+            raise RuntimeError(f"openrouter_no_reference_image: {err or str(j)[:200]}")
+        _save_in_requested_format(base64.b64decode(b64), out, item.get("media_type"))
+        return {"backend": "openrouter", "model": slug, "aspect_ratio": ar,
+                "api": "images", "reference": reference,
+                "media_type": item.get("media_type")}
+
+    if w == h:
+        hint = f"\n\n(Aspect ratio {ar}, centered square composition for a {w}x{h} image.)"
+    elif w > h:
+        hint = f"\n\n(Aspect ratio {ar}, wide landscape composition for a {w}x{h} image.)"
+    else:
+        hint = f"\n\n(Aspect ratio {ar}, portrait composition for a {w}x{h} image.)"
     body = {"model": slug,
             "messages": [{"role": "user", "content": prompt + hint}],
             "modalities": ["image", "text"]}
     raw = _post_json("https://openrouter.ai/api/v1/chat/completions", body,
-                     headers={"Authorization": f"Bearer {key}",
-                              "HTTP-Referer": "https://github.com/donggu1105/donggu-skills",
-                              "X-Title": "donggu-sns get-ai-image"}, timeout=180)
+                     headers=headers, timeout=180)
     j = json.loads(raw)
     uri = _extract_openrouter_image(j)
     if not uri:
         err = j.get("error") or {}
         raise RuntimeError(f"openrouter_no_image: {err or str(j)[:200]}")
     _save(_decode_data_uri(uri), out)
-    return {"backend": "openrouter", "model": slug, "aspect_ratio": ar}
+    return {"backend": "openrouter", "model": slug, "aspect_ratio": ar,
+            "api": "chat_completions"}
 
 
 BACKENDS = {"openrouter": gen_openrouter, "comfyui": gen_comfyui,
@@ -327,6 +389,8 @@ def main():
     ap.add_argument("--model", default="flux-schnell")
     ap.add_argument("--size", default="1200x630")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--reference", default=None,
+                    help="참조 이미지 경로(OpenRouter Image API image-to-image)")
     ap.add_argument("--fallback", default="pollinations",
                     help="선택 백엔드 실패 시 폴백(none이면 폴백 안 함)")
     a = ap.parse_args()
@@ -351,7 +415,13 @@ def main():
     last_err = None
     for b in order:
         try:
-            meta = BACKENDS[b](a.prompt, a.out, a.model, w, h, a.seed)
+            if a.reference and b != "openrouter":
+                raise RuntimeError("reference_images_supported_only_by_openrouter")
+            if b == "openrouter":
+                meta = gen_openrouter(a.prompt, a.out, a.model, w, h, a.seed,
+                                      reference=a.reference)
+            else:
+                meta = BACKENDS[b](a.prompt, a.out, a.model, w, h, a.seed)
             sz = os.path.getsize(a.out) if os.path.isfile(a.out) else 0
             if sz < 1000:
                 raise RuntimeError(f"image_too_small({sz}b)")

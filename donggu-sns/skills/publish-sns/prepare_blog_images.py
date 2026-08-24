@@ -17,7 +17,8 @@ Supabase storage(public 버킷)에 업로드(upsert) → 본문 치환 → 치�
       [--out <file>]   # 생략 시 stdout
 키(.env 자동탐색): SUPABASE_SERVICE_KEY, SUPABASE_URL
   탐색: $SNS_ENV → ~/workspace/projects/n8n/.env → ~/.env
-종료코드: 0=치환 완료(또는 임베드 없음), 2=해결 못한 이미지 있음(업로드 안 함, 그대로 둠)
+종료코드: 0=치환 완료(또는 임베드 없음), 2=해결 못한 이미지 있음(업로드 안 함, 그대로 둠),
+         3=확장자와 실제 바이트 불일치(업로드 안 함 — 재인코딩 후 재실행)
 출력(stderr): 업로드/치환 로그 JSON 한 줄씩.
 """
 import argparse
@@ -31,6 +32,51 @@ import urllib.request
 
 EMBED_RE = re.compile(r"!\[\[([^\]|]+?\.(?:jpg|jpeg|png|webp|gif))(?:\|[^\]]*)?\]\]", re.IGNORECASE)
 DEFAULT_URL = "https://fvfayignxybdyyravorg.supabase.co"
+
+# 매직넘버 → 그 바이트를 담을 수 있는 확장자.
+# 스토리지는 Content-Type을 **확장자**에서 만들기 때문에 `.jpg` 이름의 PNG도
+# `200 image/jpeg`로 보인다. 발행기 preflight의 magic 검사는 승인이 이미 소모된
+# dispatch 시점에야 실패하므로, 업로드 전에 여기서 막는다.
+_SIGNATURES = [
+    (b"\xff\xd8\xff", "JPEG", {".jpg", ".jpeg"}),
+    (b"\x89PNG\r\n\x1a\n", "PNG", {".png"}),
+    (b"GIF87a", "GIF", {".gif"}),
+    (b"GIF89a", "GIF", {".gif"}),
+    (b"RIFF", "WEBP", {".webp"}),
+]
+
+
+def sniff_format(head: bytes):
+    """실제 바이트에서 포맷명을 판정한다. 모르면 None."""
+    for magic, name, _exts in _SIGNATURES:
+        if head.startswith(magic):
+            if name == "WEBP" and head[8:12] != b"WEBP":
+                continue
+            return name
+    return None
+
+
+def _allowed_exts(fmt):
+    for _magic, name, exts in _SIGNATURES:
+        if name == fmt:
+            return exts
+    return set()
+
+
+def verify_bytes_match_extension(paths):
+    """확장자와 실제 바이트가 일치하는지 검사. 불일치 목록을 반환한다."""
+    problems = []
+    for path in paths:
+        with open(path, "rb") as fh:
+            head = fh.read(16)
+        fmt = sniff_format(head)
+        ext = os.path.splitext(path)[1].lower()
+        base = os.path.basename(path)
+        if fmt is None:
+            problems.append((base, None, ext, head[:8]))
+        elif ext not in _allowed_exts(fmt):
+            problems.append((base, fmt, ext, head[:8]))
+    return problems
 
 
 def log(obj):
@@ -141,6 +187,32 @@ def main():
             log({"unresolved": m})
         log({"error": f"{len(missing)}개 이미지 못 찾음 — 업로드/치환 중단", "note": note})
         sys.exit(2)
+
+    # 업로드 전 게이트: 확장자와 실제 바이트가 다르면 여기서 멈춘다.
+    # 이걸 통과시키면 발행기 preflight가 dispatch 시점에 image_validation_failed로
+    # 죽이는데, 그때는 사용자 승인이 이미 소모된 뒤다.
+    problems = verify_bytes_match_extension(list(resolved.values()))
+    if problems:
+        for base, fmt, ext, head in problems:
+            log({
+                "extension_mismatch": base,
+                "real_format": fmt or "unrecognized",
+                "extension": ext,
+                "magic": head.hex(),
+                "fix": (
+                    f"sips -s format jpeg -s formatOptions 92 '{base}' --out '{base}'"
+                    if ext in {".jpg", ".jpeg"} else
+                    f"확장자를 실제 포맷({fmt})에 맞추거나 해당 포맷으로 재인코딩"
+                ),
+            })
+        log({
+            "error": (
+                f"{len(problems)}개 이미지의 확장자와 실제 바이트가 다름 — 업로드 중단. "
+                "이대로 발행하면 발행기 preflight가 승인 소모 후 거부한다."
+            ),
+            "note": note,
+        })
+        sys.exit(3)
 
     out = content
     cover_url = None
