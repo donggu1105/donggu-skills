@@ -63,9 +63,10 @@ Content *formats* are NOT defined here. Text drafts are owned by `writing-social
      visible `og:title`/`h1` matches the payload title, or an exact visible completion marker on
      a safe same-origin page, as success. Login/error/arbitrary redirects remain reconciliation.
   4. Use the native adapter (required): call `donggu_publishing_preview`, show its exact
-     preview, wait for approval in a later user turn, call `donggu_publishing_approve`, then
-     call `donggu_publishing_dispatch`. Maily real-send requires another later user turn and
-     `donggu_publishing_confirm_maily` before dispatch. **Mutations run only through Hermes,**
+     preview, wait for approval in a later user turn, then call
+     `donggu_publishing_execute` — it binds the approval and dispatches in one atomic
+     call. Maily real-send requires another later user turn and
+     `donggu_publishing_confirm_maily` before execute. **Mutations run only through Hermes,**
      whose host-provided session/turn IDs and the actual latest persisted `SessionDB` user message enforce those
      later turns. The adapter examines only that latest user row: blank text, structured/non-string
      content, or an invalid message ID fails closed and must never fall back to an older approval.
@@ -117,10 +118,12 @@ The Claude and Hermes packages share one validation/runtime core, but only Herme
 trusted user-turn metadata. Do not reimplement webhook routing or ledger writes in
 harness-specific scripts.
 
-- Hermes tools: `donggu_publishing_preview` → later-turn `donggu_publishing_approve` →
-  Maily real-send only: later-turn `donggu_publishing_confirm_maily` →
-  `donggu_publishing_dispatch`; inspect uncertainty with
-  `donggu_publishing_receipt_status`.
+- Hermes tools: `donggu_publishing_preview` → later-turn **`donggu_publishing_execute`**
+  (승인 결속과 실행을 한 번에 — 이걸 쓴다).
+  Maily 실발송만: preview → later-turn `donggu_publishing_confirm_maily` → `execute`.
+  불확실 상태는 `donggu_publishing_receipt_status`로 조회한다.
+  `donggu_publishing_approve` + `donggu_publishing_dispatch` 2단계 경로는 남아 있지만,
+  두 호출 사이에 실행 창이 만료되는 사고가 있었으므로 새 코드에서는 쓰지 않는다.
 
 ### Reconciliation 해소 (채널이 막혔을 때)
 

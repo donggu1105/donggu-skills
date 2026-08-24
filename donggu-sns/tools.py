@@ -201,6 +201,22 @@ STATUS_SCHEMA = {
     },
 }
 
+EXECUTE_SCHEMA = {
+    "name": "donggu_publishing_execute",
+    "description": (
+        "Bind the user's later-turn approval and dispatch the receipt in one atomic call. "
+        "Preferred over calling approve then dispatch separately — nothing between those two "
+        "steps is a user decision point, and the gap lets the execution window expire. "
+        "Maily real sends still require donggu_publishing_confirm_maily first."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"receipt_id": {"type": "string"}},
+        "required": ["receipt_id"],
+        "additionalProperties": False,
+    },
+}
+
 RECONCILIATION_LIST_SCHEMA = {
     "name": "donggu_publishing_list_reconciliations",
     "description": (
@@ -323,6 +339,21 @@ def handle_dispatch(args: dict, **kwargs) -> str:
         session_id, _turn_id = _trusted_context(kwargs)
         return _ok(_runtime().dispatch(
             str(args.get("receipt_id") or ""), session_id=session_id,
+        ))
+    except PublishingError as exc:
+        return _error(exc)
+
+
+def handle_execute(args: dict, **kwargs) -> str:
+    try:
+        session_id, turn_id = _trusted_context(kwargs)
+        message_id, message_text = _latest_trusted_user_message(session_id)
+        return _ok(_runtime().execute(
+            str(args.get("receipt_id") or ""), approval_text=message_text,
+            session_id=session_id, turn_id=turn_id, user_message_id=message_id,
+            authoritative_claim_executor=_authoritative_latest_message_executor(
+                session_id, message_id, message_text,
+            ),
         ))
     except PublishingError as exc:
         return _error(exc)

@@ -1575,6 +1575,36 @@ class PublishingRuntime:
         )
         return {"status": "confirmed", "receipt_id": receipt_id, "expires_at": receipt["expires_at"]}
 
+    def execute(
+        self, receipt_id: str, *, approval_text: str, session_id: str, turn_id: str,
+        user_message_id: int,
+        authoritative_message_validator: Optional[Callable[[], None]] = None,
+        authoritative_claim_executor: Optional[
+            Callable[[Callable[[], Dict[str, Any]]], Dict[str, Any]]
+        ] = None,
+    ) -> Dict[str, Any]:
+        """Bind the approval and dispatch in one atomic call.
+
+        `approve` followed by a separate `dispatch` leaves a gap where the caller can
+        stall or interleave other work after the user's approval has already been
+        consumed — in practice the execution window expired between the two calls
+        (2026-08-24).  Nothing about that gap is a user decision point, so collapse it.
+
+        Every guarantee of the two-step path is preserved: later-turn approval, verb
+        matching the receipt operation, one-shot consumption, and Maily's separate
+        irreversible-send confirmation (which still fails closed here).
+        """
+        self.approve(
+            receipt_id,
+            approval_text=approval_text,
+            session_id=session_id,
+            turn_id=turn_id,
+            user_message_id=user_message_id,
+            authoritative_message_validator=authoritative_message_validator,
+            authoritative_claim_executor=authoritative_claim_executor,
+        )
+        return self.dispatch(receipt_id, session_id=session_id)
+
     def dispatch(self, receipt_id: str, *, session_id: str) -> Dict[str, Any]:
         observed = self.store.load(receipt_id)
         self._verify_binding(observed)
