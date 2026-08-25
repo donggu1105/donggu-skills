@@ -770,21 +770,21 @@ class ApplyActionTests(unittest.TestCase):
 
     def test_recovery_is_runtime_owned_and_not_exposed_as_a_user_skill(self):
         self.assertFalse((HERE.parent / "SKILL.md").exists())
+        self.assertFalse((HERE.parents[1] / "ontology").exists())
 
         runtime = (HERE.parents[2] / "runtime" / "core_actions.py").read_text(
             encoding="utf-8"
         )
         helper = SCRIPT.read_text(encoding="utf-8")
-        mutation = (
-            HERE.parents[1] / "ontology" / "references" / "mutation.md"
-        ).read_text(encoding="utf-8")
+        readme = (HERE.parents[2] / "README.md").read_text(encoding="utf-8")
 
         for contract in ("recovery_status", "recover", "readback", "ack"):
             self.assertIn(contract, runtime)
         self.assertIn("--recovery-status", helper)
         self.assertIn("--ack-candidate", helper)
-        self.assertIn("native plan/apply/read-back transaction tools", mutation)
-        self.assertNotIn("receipt_id", mutation)
+        self.assertIn("receipt, hash, journal, recovery", readme)
+        self.assertIn("not user-facing prompt skills", readme)
+        self.assertNotIn("receipt_id", readme)
 
     def test_apply_fails_closed_without_renameatx_np(self):
         module = self.load_module()

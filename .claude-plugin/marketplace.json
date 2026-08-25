@@ -12,8 +12,8 @@
     {
       "name": "donggu-obsidian",
       "source": "./donggu-obsidian",
-      "description": "Ontology-aware Obsidian operations with fixed FDE Community runtimes, bounded daily Capture writing, and recoverable Life OS AI summaries.",
-      "version": "2.3.0",
+      "description": "Hermes-native Vault transactions, bounded FDE Community daily Capture writing, and recoverable Life OS AI summaries.",
+      "version": "2.4.0",
       "strict": false
     },
     {

@@ -90,10 +90,7 @@ class LifeOSPluginTests(unittest.TestCase):
 
         self.package.register(context)
 
-        self.assertEqual(
-            ["ontology", "life-os"],
-            [item["name"] for item in context.skills],
-        )
+        self.assertEqual(["life-os"], [item["name"] for item in context.skills])
         registration = next(
             item for item in context.skills if item["name"] == "life-os"
         )

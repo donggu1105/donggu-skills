@@ -47,7 +47,10 @@ _HERMES_LIVE_SESSION_IDENTITY_NAMES = (
     "HERMES_SESSION_KEY", "HERMES_UI_SESSION_ID",
     "HERMES_SESSION_MESSAGE_ID", "HERMES_SESSION_PROFILE",
 )
-_HERMES_CRON_SESSION_ID = re.compile(r"cron_[0-9a-f]{12}_[0-9]{8}_[0-9]{6}\Z")
+_HERMES_CRON_SESSION_ID = re.compile(r"cron_([0-9a-f]{12})_[0-9]{8}_[0-9]{6}\Z")
+# Both FDE daily analyzers deliver into the single merged community operations
+# channel. Room separation is enforced by the cron job identity below.
+_FDE_DAILY_CAPTURE_CHANNEL_ID = "1537993247849189426"
 _LIFE_OS_ATTACHMENT_PROMPT_LINK = re.compile(
     r"\[\[Life OS/Attachments/A\d{3,} - [^\]\r\n]+\]\]"
 )
@@ -875,19 +878,27 @@ def _trusted_fde_daily_cron_job_id(room_kind: str) -> str:
         raise FDEDailyCaptureError("FDE daily Capture writes are cron-only")
     if any(get_session_env(name, "") != "" for name in _HERMES_LIVE_SESSION_IDENTITY_NAMES):
         raise FDEDailyCaptureError("live gateway identity cannot authorize a cron Capture write")
-    expected = {
-        "public": ("discord", "1525043881484357702", "fdc11961e59f"),
-        "operators": ("discord", "1537993247849189426", "28e24dbebacd"),
+    # Both analyzers deliver into the merged operator channel, so the trusted
+    # cron session job ID — not the destination — separates the room lanes.
+    expected_job_id = {
+        "public": "fdc11961e59f",
+        "operators": "28e24dbebacd",
     }.get(room_kind)
-    actual = (
-        get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM", "").strip().lower(),
-        get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID", ""),
-    )
-    if expected is None or actual != expected[:2]:
+    if expected_job_id is None:
+        raise FDEDailyCaptureError("room_kind is not supported")
+    session_id = get_session_env("HERMES_SESSION_ID", "")
+    session_match = _HERMES_CRON_SESSION_ID.fullmatch(session_id)
+    if session_match is None:
+        raise FDEDailyCaptureError("FDE daily Capture cron session identity is not authorized")
+    if session_match.group(1) != expected_job_id:
+        raise FDEDailyCaptureError("FDE daily Capture cron job is not authorized for this room")
+    if get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM", "").strip().lower() != "discord":
+        raise FDEDailyCaptureError("FDE daily Capture cron delivery is not authorized")
+    if get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID", "") != _FDE_DAILY_CAPTURE_CHANNEL_ID:
         raise FDEDailyCaptureError("FDE daily Capture cron delivery is not authorized")
     if get_session_env("HERMES_CRON_AUTO_DELIVER_THREAD_ID", "") != "":
         raise FDEDailyCaptureError("FDE daily Capture cron thread delivery is not authorized")
-    return expected[2]
+    return expected_job_id
 
 
 def handle_fde_daily_capture_upsert(args: dict, **_kwargs) -> str:

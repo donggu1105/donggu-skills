@@ -1,3 +1,4 @@
+import json
 import re
 import unittest
 from pathlib import Path
@@ -6,163 +7,50 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 PLUGIN = ROOT / "donggu-obsidian"
 SKILLS = PLUGIN / "skills"
-ONTOLOGY = SKILLS / "ontology"
-LEGACY_USER_SKILLS = (
-    "extract-core",
-    "decompose-canon",
-    "finding-duplicate-notes",
-    "checking-vault-health",
-)
-REFERENCES = (
-    "routing.md",
-    "personal-branding.md",
-    "fde-projects.md",
-    "fde-community.md",
-    "maintenance.md",
-    "mutation.md",
-)
+RETIRED_NAME = "ontology"
 
 
-class OntologySkillContractTests(unittest.TestCase):
-    def test_one_user_facing_ontology_skill_replaces_legacy_surface(self):
-        self.assertTrue((ONTOLOGY / "SKILL.md").is_file())
-        for name in LEGACY_USER_SKILLS:
-            self.assertFalse((SKILLS / name / "SKILL.md").exists(), name)
+class RetiredOntologySurfaceContractTests(unittest.TestCase):
+    def test_ontology_prompt_skill_is_absent_from_package(self):
+        self.assertFalse((SKILLS / RETIRED_NAME).exists())
+        self.assertFalse((SKILLS / RETIRED_NAME / "SKILL.md").exists())
 
-        # The proven transaction helpers remain available to the native runtime,
-        # but the protocol is no longer exposed as a user-facing prompt skill.
-        approval = SKILLS / "core-review-approval"
-        self.assertFalse((approval / "SKILL.md").exists())
-        for helper in (
-            "apply-action.py",
-            "render-preview.py",
-            "validate-conversation.py",
-            "validate-approval.py",
-        ):
-            self.assertTrue((approval / "scripts" / helper).is_file(), helper)
-
-    def test_frontmatter_is_minimal_and_progressive_references_exist(self):
-        text = (ONTOLOGY / "SKILL.md").read_text(encoding="utf-8")
-        self.assertTrue(text.startswith("---\n"))
-        frontmatter = text.split("---", 2)[1]
-        keys = [
-            line.split(":", 1)[0]
-            for line in frontmatter.splitlines()
-            if ":" in line
-        ]
-        self.assertEqual(["name", "description"], keys)
-        self.assertRegex(frontmatter, r"(?m)^name: ontology$")
-        self.assertRegex(frontmatter, r"(?m)^description: Use when ")
-        self.assertLess(len(text), 6500)
-
-        for filename in REFERENCES:
-            path = ONTOLOGY / "references" / filename
-            self.assertTrue(path.is_file(), filename)
-            self.assertIn(f"references/{filename}", text)
-
-    def test_contract_follows_real_vault_boundaries_and_pipeline(self):
-        corpus = "\n".join(
-            (ONTOLOGY / relative).read_text(encoding="utf-8")
-            for relative in ("SKILL.md",) + tuple(
-                f"references/{filename}" for filename in REFERENCES
-            )
-        )
-        for phrase in (
-            "AGENTS.md",
-            "Personal Branding",
-            "FDE Projects",
-            "FDE Community",
-            "Life OS",
-            "Inbox",
-            "발행",
-            "CORE",
-            "Snippet",
-            "MOC",
-            "출처 포인터",
-        ):
-            self.assertIn(phrase, corpus)
-
-        # The customer-project source of truth is named as an external
-        # authority the Vault only points at, whatever that wiki is called.
-        self.assertIn("project source of truth", corpus)
-        self.assertIn("Never duplicate the wiki source body", corpus)
-
-        # Inbox selection feeds publication; CORE integration starts only after publication.
-        self.assertIn("Inbox selection is publication input only", corpus)
-        self.assertIn("completed and approved publication only", corpus)
-        self.assertRegex(corpus, r"선택.+추출.+통합")
-        self.assertIn("기존 CORE", corpus)
-        self.assertIn("새 CORE", corpus)
-        self.assertIn("후보 하나", corpus)
-
-    def test_mutation_and_maintenance_are_quiet_and_candidate_scoped(self):
-        mutation = (ONTOLOGY / "references" / "mutation.md").read_text(
-            encoding="utf-8"
-        )
-        for phrase in (
-            "실제 diff",
-            "변경 0건",
-            "exact `수정안 보여줘`",
-            "별도 메시지",
-            "later persisted user message",
-            "적용해줘",
-            "proposal-only",
-            "read-back",
-            "rollback",
-        ):
-            self.assertIn(phrase, mutation)
-        self.assertNotIn("button", mutation.lower())
-        self.assertNotIn("filesystem patch", mutation.lower())
-
-        maintenance = (ONTOLOGY / "references" / "maintenance.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("매일 전체 Vault를 스캔하지 않는다", maintenance)
-        self.assertIn("정상 결과는 알리지 않는다", maintenance)
-        self.assertIn("발행 이벤트", maintenance)
-        self.assertIn("최대 3개", maintenance)
-
-    def test_prompt_surface_does_not_leak_legacy_machine_protocol(self):
-        corpus = "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in [ONTOLOGY / "SKILL.md", *(ONTOLOGY / "references").glob("*.md")]
-        )
-        for forbidden in (
-            "CR-YYYYMMDD",
-            "10점",
-            "05:40",
-            "PARA",
-            "LYT",
-            "status_cleanup",
-            "skill_drift",
-            "Documents/obsidian",
-        ):
-            self.assertNotIn(forbidden, corpus)
-
-    def test_public_operator_docs_use_exact_text_gates(self):
-        root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        plugin_readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
-        combined = root_readme + "\n" + plugin_readme
-
-        self.assertIn('exact trigger: "수정안 보여줘"', root_readme)
-        self.assertIn("exact `적용해줘` only in a later persisted user message", plugin_readme)
-        self.assertNotIn("selected captures and approved posts", combined)
-        self.assertNotIn("scoped button", combined)
-        self.assertNotIn("수정안만 보여줘", combined)
-
-    def test_plugin_registers_ontology_as_a_native_skill(self):
+    def test_plugin_registers_only_life_os_as_a_user_facing_skill(self):
         init_text = (PLUGIN / "__init__.py").read_text(encoding="utf-8")
-        self.assertRegex(
-            init_text,
-            r'ctx\.register_skill\(\s*name="ontology"',
+        registered = re.findall(r'ctx\.register_skill\(\s*name="([^"]+)"', init_text)
+        self.assertEqual(["life-os"], registered)
+        self.assertNotIn('"skills" / "ontology"', init_text)
+
+    def test_public_docs_and_manifests_do_not_advertise_ontology(self):
+        surfaces = [
+            ROOT / "README.md",
+            PLUGIN / "README.md",
+            PLUGIN / "plugin.yaml",
+            PLUGIN / ".claude-plugin" / "plugin.json",
+            ROOT / ".claude-plugin" / "marketplace.json",
+        ]
+        for path in surfaces:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=path):
+                self.assertNotIn("donggu-obsidian:ontology", text)
+                self.assertNotRegex(text, r"(?i)\bontology skill\b")
+
+    def test_package_keeps_life_os_and_native_tool_runtime(self):
+        self.assertTrue((SKILLS / "life-os" / "SKILL.md").is_file())
+        init_text = (PLUGIN / "__init__.py").read_text(encoding="utf-8")
+        for tool in (
+            "donggu_core_plan",
+            "donggu_fde_daily_capture_upsert",
+            "donggu_life_os_start_daily",
+        ):
+            self.assertIn(tool, init_text)
+
+        claude = json.loads(
+            (PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
-        self.assertIn('"skills" / "ontology" / "SKILL.md"', init_text)
-
+        self.assertEqual("2.4.0", claude["version"])
         manifest = (PLUGIN / "plugin.yaml").read_text(encoding="utf-8")
-        self.assertIn("Ontology-aware Obsidian operations", manifest)
-
-        readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
-        self.assertIn("`donggu-obsidian:ontology`", readme)
+        self.assertRegex(manifest, r'(?m)^version: "2\.4\.0"$')
 
 
 if __name__ == "__main__":

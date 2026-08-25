@@ -1,7 +1,7 @@
 manifest_version: 1
 name: donggu-obsidian
-version: "2.3.0"
-description: "Ontology-aware Obsidian operations with candidate-scoped mutation, fixed FDE Community runtimes, bounded cron-authorized daily Capture writing, and recoverable structured Life OS Daily summaries."
+version: "2.4.0"
+description: "Hermes-native Vault transactions, bounded FDE Community daily Capture writing, and recoverable structured Life OS Daily summaries."
 author: "강동현 (donggu)"
 kind: standalone
 provides_tools:

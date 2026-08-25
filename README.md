@@ -5,11 +5,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin%20Marketplace-8B5CF6)](https://claude.com/claude-code)
 [![Plugins](https://img.shields.io/badge/plugins-5-blue)](#-plugins)
-[![Skills](https://img.shields.io/badge/skills-13-green)](#-plugins)
+[![Skills](https://img.shields.io/badge/skills-9-green)](#-plugins)
 
 Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되어 `donggu-<domain>:<skill>` 형식으로 호출.
 
-> **Why this exists**: 실제 운영 경계를 이해하는 domain-native skill과 runtime을 한 저장소에서 관리한다. Obsidian은 범용 PKM 의례가 아니라 ontology Vault의 Personal Branding, FDE Projects, Life OS 책임을 구분한다.
+> **Why this exists**: 실제 운영 경계를 이해하는 domain-native skill과 runtime을 한 저장소에서 관리한다. Vault 구조와 라우팅은 각 Vault의 권위 파일이 소유하고, 이 저장소는 필요한 네이티브 runtime만 제공한다.
 
 ---
 
@@ -27,16 +27,15 @@ Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되
 
 ## 🧩 Plugins
 
-### 📚 `donggu-obsidian` — Ontology-aware Vault operations
+### 📚 `donggu-obsidian` — Native Vault runtime
 
-사용자-facing 진입점은 두 개입니다. `ontology`가 읽기·큐레이션·제한 점검·후보별 diff를 통합하고, `life-os`는 Daily와 Capture의 native 기록만 담당합니다.
+사용자-facing 진입점은 `life-os` 하나입니다. Vault 구조·라우팅 프롬프트는 각 Vault의 `AGENTS.md`·`RULES.md`·`HOME.md`·`INDEX`가 직접 소유합니다.
 
 | Skill | 호출 | 용도 |
 |---|---|---|
-| `ontology` | `donggu-obsidian:ontology` | Personal Branding / FDE Projects / Life OS 라우팅, `선택 → 추출 → 통합`, 후보별 preview와 승인 적용 |
 | `life-os` | `/donggu-obsidian:life-os` | Daily 대화 체크인, Capture, 첨부 기록, 구조화된 AI 정리 |
 
-CORE 적용의 hash·journal·rollback은 plugin native runtime이 소유하며 별도 prompt skill로 노출하지 않습니다. 전체 Vault daily scan과 정상 상태 알림도 기본 운영에서 제외합니다.
+CORE·FDE Community transaction의 hash·journal·rollback과 FDE Community 일일 Capture writer는 plugin native runtime이 소유하며 prompt skill로 노출하지 않습니다.
 
 ---
 
@@ -83,14 +82,10 @@ claude plugin install donggu-obsidian@donggu-skills
 ### 3️⃣ 첫 호출
 
 ```
-/donggu-obsidian:ontology
 /donggu-obsidian:life-os
 ```
 
-또는 자연어 트리거:
-- "이 글에서 다시 쓸 CORE가 있는지 보여줘"
-- "FDE 프로젝트 노트 중복을 범위 안에서 점검해줘"
-- 실행 가능한 preview의 exact trigger: "수정안 보여줘"
+Vault의 일반 읽기·검색·정리는 해당 Vault의 권위 파일과 필요한 범용 Obsidian 스킬을 직접 사용합니다.
 
 ### Codex — 현재 `donggu-sns` 지원
 
@@ -139,14 +134,11 @@ donggu-skills/                       ← marketplace repo
 │   ├── .claude-plugin/
 │   │   └── plugin.json              ← plugin 메타
 │   ├── skills/
-│   │   ├── ontology/
-│   │   │   ├── SKILL.md
-│   │   │   └── references/
 │   │   ├── core-review-approval/    ← internal helper scripts, no SKILL.md
 │   │   └── life-os/
 │   │       ├── SKILL.md
 │   │       └── scripts/life-os.py
-│   ├── runtime/                     ← CORE transaction + Life OS runtime
+│   ├── runtime/                     ← native transaction + Capture + Life OS runtime
 │   └── README.md
 ├── donggu-docs/                     ← plugin (namespace: donggu-docs:)
 │   ├── .claude-plugin/
@@ -189,7 +181,7 @@ donggu-skills/                       ← marketplace repo
 
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
-| **donggu-obsidian** | ✅ `v2.1.0` | 2 | Ontology-aware Vault operations and recoverable Life OS AI summaries |
+| **donggu-obsidian** | ✅ `v2.4.0` | 1 | Hermes-native Vault transactions, bounded FDE Capture, and Life OS summaries |
 | **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |

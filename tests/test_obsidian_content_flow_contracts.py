@@ -11,7 +11,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_PATHS = {
     "writing": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "SKILL.md",
     "publishing": REPO_ROOT / "donggu-sns" / "skills" / "publish-sns" / "SKILL.md",
-    "ontology": REPO_ROOT / "donggu-obsidian" / "skills" / "ontology" / "SKILL.md",
 }
 
 WRITING_REFERENCE_PATHS = {
@@ -396,39 +395,6 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             publishing,
         )
 
-    def test_ontology_separates_inbox_selection_from_post_publish_curation(self):
-        ontology_root = REPO_ROOT / "donggu-obsidian" / "skills" / "ontology"
-        corpus = self.skills["ontology"] + "\n" + "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in sorted((ontology_root / "references").glob("*.md"))
-        )
-        self.assertIn("Inbox selection is publication input only", corpus)
-        self.assertIn("completed and approved publication only", corpus)
-        self.assertIn("선택 → 추출 → 통합", corpus)
-        self.assertIn("기존 CORE", corpus)
-        self.assertIn("새 CORE", corpus)
-        self.assertIn("CORE / Snippet / MOC", corpus)
-        self.assertIn("age, note count", corpus.lower())
-
-    def test_ontology_preview_is_separate_scoped_and_quiet(self):
-        ontology_root = REPO_ROOT / "donggu-obsidian" / "skills" / "ontology"
-        mutation = (ontology_root / "references" / "mutation.md").read_text(
-            encoding="utf-8"
-        )
-        maintenance = (ontology_root / "references" / "maintenance.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("현재 Vault 변경 0건", mutation)
-        self.assertIn("exact `수정안 보여줘`", mutation)
-        self.assertIn("별도 메시지", mutation)
-        self.assertIn("later persisted user message", mutation)
-        self.assertIn("적용해줘", mutation)
-        self.assertIn("proposal-only", mutation)
-        self.assertNotIn("button", mutation.lower())
-        self.assertNotIn("filesystem patch", mutation.lower())
-        self.assertIn("read-back", mutation)
-        self.assertIn("매일 전체 Vault를 스캔하지 않는다", maintenance)
-        self.assertIn("정상 결과는 알리지 않는다", maintenance)
 
     def test_changed_plugin_versions_match_marketplace(self):
         marketplace = json.loads(

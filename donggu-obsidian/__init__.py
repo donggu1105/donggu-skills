@@ -157,11 +157,6 @@ def register(ctx) -> None:
         emoji="🗒️",
     )
     ctx.register_skill(
-        name="ontology",
-        path=Path(__file__).parent / "skills" / "ontology" / "SKILL.md",
-        description="Read, curate, maintain, and safely change the ontology Vault.",
-    )
-    ctx.register_skill(
         name="life-os",
         path=Path(__file__).parent / "skills" / "life-os" / "SKILL.md",
         description="Record and resume Life OS Daily check-ins and captures.",
