@@ -185,6 +185,48 @@ class LifeOSPluginTests(unittest.TestCase):
     def gateway(session_key="agent:main:discord:456:789"):
         return types.SimpleNamespace(_session_key_for_source=lambda _source: session_key)
 
+    def test_fde_daily_capture_host_gate_binds_each_room_to_its_job_on_merged_channel(self):
+        merged_channel = "1537993247849189426"
+        allowed = {
+            "public": "fdc11961e59f",
+            "operators": "28e24dbebacd",
+        }
+
+        for room_kind, job_id in allowed.items():
+            with self.subTest(room_kind=room_kind):
+                context = self.cron_context(
+                    chat_id=merged_channel,
+                    session_id=f"cron_{job_id}_20260825_070000",
+                )
+                with mock.patch.dict(sys.modules, {
+                    "gateway.session_context": types.SimpleNamespace(
+                        get_session_env=context,
+                    ),
+                }):
+                    self.assertEqual(
+                        job_id,
+                        self.tools._trusted_fde_daily_cron_job_id(room_kind),
+                    )
+
+        denied = (
+            ("public", "28e24dbebacd", merged_channel),
+            ("operators", "fdc11961e59f", merged_channel),
+            ("public", "fdc11961e59f", "1525043881484357702"),
+        )
+        for room_kind, job_id, chat_id in denied:
+            with self.subTest(room_kind=room_kind, job_id=job_id, chat_id=chat_id):
+                context = self.cron_context(
+                    chat_id=chat_id,
+                    session_id=f"cron_{job_id}_20260825_070000",
+                )
+                with mock.patch.dict(sys.modules, {
+                    "gateway.session_context": types.SimpleNamespace(
+                        get_session_env=context,
+                    ),
+                }):
+                    with self.assertRaises(self.tools.FDEDailyCaptureError):
+                        self.tools._trusted_fde_daily_cron_job_id(room_kind)
+
     def test_life_os_schemas_are_strict(self):
         date_property = {
             "type": "string",

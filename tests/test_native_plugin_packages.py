@@ -783,7 +783,9 @@ class NativePluginPackageTests(unittest.TestCase):
         by_name = {item["name"]: item for item in ctx.tools}
         names = [item["name"] for item in ctx.tools]
 
-        # The CORE surface stays exactly this, in this order, at the front.
+        # The interactive surface is an exact ordered contract: CORE 8,
+        # FDE Community 8, then Life OS 4. Removing a whole sibling family
+        # from both register() and the manifest must still fail this test.
         self.assertEqual(
             [
                 "donggu_core_recovery_status",
@@ -794,8 +796,21 @@ class NativePluginPackageTests(unittest.TestCase):
                 "donggu_core_readback",
                 "donggu_core_revoke",
                 "donggu_core_ack",
+                "donggu_fde_community_recovery_status",
+                "donggu_fde_community_plan",
+                "donggu_fde_community_receipt_status",
+                "donggu_fde_community_apply",
+                "donggu_fde_community_recover",
+                "donggu_fde_community_readback",
+                "donggu_fde_community_revoke",
+                "donggu_fde_community_ack",
+                "donggu_life_os_status",
+                "donggu_life_os_start_daily",
+                "donggu_life_os_record",
+                "donggu_life_os_finalize_daily",
+                "donggu_fde_daily_capture_upsert",
             ],
-            names[:8],
+            names,
         )
         # Every registered tool belongs to the package namespace, and no tool
         # is registered twice.
