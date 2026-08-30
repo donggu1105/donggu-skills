@@ -230,6 +230,29 @@ cron에서는 발송 전 **최근 목적지 메시지**를 읽고 최근 60일�
 
 완료 조건: 새 이벤트와 material update만 남아 있다.
 
+### 8. Bind the production cron explicitly
+
+이 스킬은 범용 절차이고, 실제 스케줄·대상 채널은 Hermes cron job이 소유한다. 생산 설정은 암묵적으로 추측하지 않는다.
+
+권장 production contract:
+
+```text
+schedule: 0 8 * * 1        # 매주 월요일 08:00 KST
+deliver: discord:<dedicated-channel-id>
+skills: [consulting-event-radar, last30days, grounded-citations]
+enabled_toolsets: [web, terminal, discord]
+workdir: <stable existing directory>
+```
+
+- dedicated channel은 `📣-컨설팅-행사-레이더`처럼 목적이 드러나는 이름을 쓴다.
+- cron prompt에 정확한 `channel_id`를 넣고 Discord `fetch_messages(channel_id, limit=100)`로 최근 이력을 읽는다.
+- `last30days.py`를 실제 실행했다는 완료 조건, 공식 원문 검증, event identity, `[SILENT]` 조건을 cron prompt에도 반복한다.
+- 첫 production run은 명시적으로 실행하고, scheduler의 `last_status=ok`, `last_delivery_error=null`, 실제 채널 메시지와 정확한 destination ID를 read-back한다.
+- 테스트 때문에 일반 대화 thread에 임시로 발송했다면 잘못된 테스트 메시지를 삭제하고 dedicated channel을 정본으로 다시 연결한다.
+- 사용자가 다른 주기나 목적지를 지정하면 이 기본값보다 최신 명시 요청이 우선한다.
+
+완료 조건: cron registry의 schedule·skills·toolsets·delivery·workdir가 의도와 정확히 일치하고, 한 번의 실제 실행이 dedicated channel에서 검증됐다.
+
 ## Evidence Rules
 
 - 공식 회사 event/careers 페이지가 최우선이다.

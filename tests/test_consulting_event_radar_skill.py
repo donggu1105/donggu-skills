@@ -68,6 +68,10 @@ class ConsultingEventRadarSkillTests(unittest.TestCase):
             "최근 목적지 메시지",
             "[SILENT]",
             "45 days",
+            "0 8 * * 1",
+            "📣-컨설팅-행사-레이더",
+            "fetch_messages(channel_id, limit=100)",
+            "last_status=ok",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, text)
