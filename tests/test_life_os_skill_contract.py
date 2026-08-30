@@ -299,7 +299,7 @@ class LifeOSSkillContractTests(unittest.TestCase):
     def test_public_docs_cover_installation_configuration_and_counts(self):
         root = ROOT_README.read_text(encoding="utf-8")
         plugin = PLUGIN_README.read_text(encoding="utf-8")
-        self.assertIn("skills-9-green", root)
+        self.assertIn("skills-10-green", root)
         self.assertIn("skills-1-green", plugin)
         for text in (root, plugin):
             self.assertIn("life-os", text)

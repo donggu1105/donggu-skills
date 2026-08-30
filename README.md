@@ -4,8 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin%20Marketplace-8B5CF6)](https://claude.com/claude-code)
-[![Plugins](https://img.shields.io/badge/plugins-5-blue)](#-plugins)
-[![Skills](https://img.shields.io/badge/skills-9-green)](#-plugins)
+[![Plugins](https://img.shields.io/badge/plugins-6-blue)](#-plugins)
+[![Skills](https://img.shields.io/badge/skills-10-green)](#-plugins)
 
 Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되어 `donggu-<domain>:<skill>` 형식으로 호출.
 
@@ -51,6 +51,16 @@ CORE·FDE Community transaction의 hash·journal·rollback과 FDE Community 일�
 - "강의 덱 만들어줘"
 - "세미나용 8페이지 한국어 발표 자료 만들어줘"
 - "PPT 대신 HTML 슬라이드로 빌드해줘"
+
+---
+
+### 🔎 `donggu-research` — Grounded public research
+
+공개 웹의 현재 상태를 공식 원문으로 검증하고, 동구님의 FDE·AX 업무에 맞는 결과만 추천합니다.
+
+| Skill | 호출 | 용도 |
+|---|---|---|
+| `consulting-event-radar` | `donggu-research:consulting-event-radar` | `last30days` 기반 한국 전략컨설팅펌·Big4·전문서비스사 세미나, 웨비나, 채용행사, 인접 AX 포럼 탐색·검증·추천 |
 
 ---
 
@@ -150,6 +160,10 @@ donggu-skills/                       ← marketplace repo
 │   │       ├── references/          ← layouts, layout-lock, themes, checklist, image-prompts, map-component
 │   │       └── scripts/             ← validate-deck.mjs
 │   └── README.md
+├── donggu-research/                 ← plugin (namespace: donggu-research:)
+│   ├── .claude-plugin/plugin.json
+│   ├── skills/consulting-event-radar/SKILL.md
+│   └── README.md
 ├── README.md                        ← 본 파일
 └── LICENSE
 ```
@@ -183,6 +197,7 @@ donggu-skills/                       ← marketplace repo
 |---|---|---|---|
 | **donggu-obsidian** | ✅ `v2.4.0` | 1 | Hermes-native Vault transactions, bounded FDE Capture, and Life OS summaries |
 | **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
+| **donggu-research** | ✅ `v1.0.0` | 1 | Grounded consulting, professional-services, and AX event radar |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |
 | 🔲 donggu-ax | planned | — | AI 도입·AX 컨설팅·임원 자료 |

@@ -43,6 +43,13 @@
       "description": "Freelance proposal auto-apply — capture login session, crawl a project brief + client pre-questions, draft a proposal from the portfolio Supabase DB (SSOT), autofill the apply form, and gate submission behind a Discord HITL button. apply-wishket skill (Wishket); DRY-RUN preview unless explicitly submitted; structured to add more platforms.",
       "version": "1.0.0",
       "strict": false
+    },
+    {
+      "name": "donggu-research",
+      "source": "./donggu-research",
+      "description": "Personal research workflows — verify live public information, rank it for donggu's work, and return concise grounded recommendations. Includes a Korea consulting and professional-services event radar.",
+      "version": "1.0.0",
+      "strict": false
     }
   ]
 }

@@ -1,0 +1,20 @@
+{
+  "name": "donggu-research",
+  "version": "1.0.0",
+  "description": "Personal research workflows — verify live public information, rank it for donggu's work, and return concise grounded recommendations. Includes a Korea consulting and professional-services event radar.",
+  "author": {
+    "name": "강동현 (donggu)",
+    "url": "https://github.com/donggu1105"
+  },
+  "repository": "https://github.com/donggu1105/donggu-skills",
+  "license": "MIT",
+  "keywords": [
+    "research",
+    "consulting",
+    "events",
+    "seminars",
+    "webinars",
+    "korea",
+    "professional-services"
+  ]
+}
