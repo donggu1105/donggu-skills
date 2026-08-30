@@ -56,11 +56,11 @@ CORE·FDE Community transaction의 hash·journal·rollback과 FDE Community 일�
 
 ### 🔎 `donggu-research` — Grounded public research
 
-`last30days` 산업 신호와 DART·IR 숫자를 결합해, 산업 구조·profit pool·P&L driver를 읽고 이익을 키우는 성장전략을 4주 루프로 훈련합니다.
+`last30days` 산업 신호와 DART·IR 숫자로, 제조·금융·유통·물류 등 실제 산업이 AX로 바뀌는 과정을 기업 하나·숫자 세 개로 쉽게 학습합니다.
 
 | Skill | 호출 | 용도 |
 |---|---|---|
-| `industry-profit-growth-strategy-radar` | `donggu-research:industry-profit-growth-strategy-radar` | 산업 구조→기업 P&L→실제 성장전략→1페이지 전략 메모의 4주 학습 루프 |
+| `industry-profit-growth-strategy-radar` | `donggu-research:industry-profit-growth-strategy-radar` | AX로 바뀌는 실제 산업을 초보자 눈높이에서 산업 하나·기업 하나·숫자 세 개로 학습 |
 
 ---
 
@@ -197,7 +197,7 @@ donggu-skills/                       ← marketplace repo
 |---|---|---|---|
 | **donggu-obsidian** | ✅ `v2.4.0` | 1 | Hermes-native Vault transactions, bounded FDE Capture, and Life OS summaries |
 | **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
-| **donggu-research** | ✅ `v1.2.0` | 1 | Industry, profit-pool, P&L, and revenue-led growth strategy learning |
+| **donggu-research** | ✅ `v1.3.0` | 1 | Beginner-friendly AX industry change and profit learning |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |
 | 🔲 donggu-ax | planned | — | AI 도입·AX 컨설팅·임원 자료 |

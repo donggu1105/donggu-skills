@@ -22,7 +22,7 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
         entry = next(item for item in marketplace["plugins"] if item["name"] == "donggu-research")
 
         self.assertEqual("donggu-research", plugin["name"])
-        self.assertEqual("1.2.0", plugin["version"])
+        self.assertEqual("1.3.0", plugin["version"])
         self.assertEqual(plugin["version"], entry["version"])
         self.assertEqual("./donggu-research", entry["source"])
 
@@ -34,8 +34,8 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
         match = re.search(r"(?m)^description:\s*[\"']?(.*?)[\"']?$", text)
         self.assertIsNotNone(match)
         description = match.group(1) if match is not None else ""
-        self.assertTrue(description.startswith("Use when learning industry dynamics"))
-        for cue in ("P&L", "profit pool", "growth strategy", "산업 동향", "이익을 늘리는 사업전략"):
+        self.assertTrue(description.startswith("Use when learning how AI/AX changes real industries"))
+        for cue in ("AI/AX", "P&L", "beginner-friendly Korean", "AX로 산업이 어떻게 바뀌고 이익을 늘리는가"):
             self.assertIn(cue, description)
         self.assertLessEqual(len(description), 1024)
 
@@ -100,20 +100,57 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
         self.assertIn("last30days는 최신 신호 탐지", text)
         self.assertIn("숫자의 정본", text)
 
-    def test_default_industry_and_output_are_learning_oriented(self):
+    def test_targets_industries_changed_by_ax_not_only_ax_suppliers(self):
         text = SKILL.read_text(encoding="utf-8")
-        self.assertIn("한국 IT서비스·SI·AI 전환 서비스 시장", text)
+        self.assertIn("AX 공급업체 시장이 아니다", text)
+        for industry in (
+            "제조",
+            "금융",
+            "유통·커머스",
+            "물류",
+            "헬스케어",
+            "전문서비스",
+            "콘텐츠·미디어",
+            "공공",
+        ):
+            with self.subTest(industry=industry):
+                self.assertIn(industry, text)
+        self.assertIn("industry_index", text)
+        self.assertIn("제조 → 금융 → 유통·커머스 → 물류", text)
+
+    def test_output_is_beginner_friendly_and_business_model_first(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for required in (
+            "사업전략을 처음 체계적으로 배우는 AI/FDE 실무자",
+            "이번 주 산업 하나",
+            "기업 하나",
+            "숫자는 최대 3개",
+            "새 용어는 최대 3개",
+            "초등학생도 이해할 수 있는 한국어",
+            "누가 왜 돈을 내는가",
+            "돈이 들어오고 비용이 나가는 흐름",
+            "AI 전에는",
+            "AI 이후에는",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, text)
+
         for section in (
-            "이번 주 산업 변화",
-            "profit pool 이동",
-            "P&L driver tree",
-            "성장전략 선택지",
-            "실제 기업 행동과 결과",
-            "반대 근거와 위험",
-            "동구님이 연습할 전략 질문",
+            "이번 주 한 문장",
+            "이 산업은 원래 어떻게 돈을 버나",
+            "AI 때문에 무엇이 바뀌나",
+            "기업 하나로 보기",
+            "숫자 3개만 보기",
+            "용어 3개만 배우기",
+            "이익을 늘릴 선택지",
+            "동구님이 답해볼 질문",
         ):
             with self.subTest(section=section):
                 self.assertIn(section, text)
+
+    def test_default_industry_and_output_are_learning_oriented(self):
+        text = SKILL.read_text(encoding="utf-8")
+        self.assertIn("제조업", text)
         self.assertIn("1페이지 전략 메모", text)
         self.assertIn("90일 검증", text)
 
@@ -121,7 +158,7 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
         text = SKILL.read_text(encoding="utf-8")
         for required in (
             "0 8 * * 1",
-            "📣-산업-P&L-성장전략",
+            "📣-AX-산업변화",
             "fetch_messages(channel_id, limit=100)",
             "최근 120일",
             "material learning delta",
