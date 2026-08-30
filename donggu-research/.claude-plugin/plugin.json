@@ -1,7 +1,7 @@
 {
   "name": "donggu-research",
-  "version": "1.0.0",
-  "description": "Personal research workflows — verify live public information, rank it for donggu's work, and return concise grounded recommendations. Includes a Korea consulting and professional-services event radar.",
+  "version": "1.1.0",
+  "description": "Personal research workflows — learn how strategy consulting firms actually deliver AI and AX work, then translate verified practices into donggu's FDE, DA, and AIDP operating model.",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"
@@ -11,8 +11,10 @@
   "keywords": [
     "research",
     "consulting",
-    "events",
-    "seminars",
+    "ai-consulting",
+    "practice-research",
+    "operating-model",
+    "transformation",
     "webinars",
     "korea",
     "professional-services"

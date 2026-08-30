@@ -56,11 +56,11 @@ CORE·FDE Community transaction의 hash·journal·rollback과 FDE Community 일�
 
 ### 🔎 `donggu-research` — Grounded public research
 
-공개 웹의 현재 상태를 공식 원문으로 검증하고, 동구님의 FDE·AX 업무에 맞는 결과만 추천합니다.
+`last30days`와 공식 원문으로 전략컨설팅펌의 AI 실무를 학습하고, 동구님의 FDE·DA·AIDP 업무에 옮길 수 있는 산출물과 개입 방식을 뽑습니다.
 
 | Skill | 호출 | 용도 |
 |---|---|---|
-| `consulting-event-radar` | `donggu-research:consulting-event-radar` | `last30days` 기반 한국 전략컨설팅펌·Big4·전문서비스사 세미나, 웨비나, 채용행사, 인접 AX 포럼 탐색·검증·추천 |
+| `ai-consulting-practice-radar` | `donggu-research:ai-consulting-practice-radar` | `last30days` 기반 컨설팅펌 AI 문제 정의·운영모델·구현·채택·ROI 사례 학습과 FDE·DA 비교 |
 
 ---
 
@@ -162,7 +162,7 @@ donggu-skills/                       ← marketplace repo
 │   └── README.md
 ├── donggu-research/                 ← plugin (namespace: donggu-research:)
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/consulting-event-radar/SKILL.md
+│   ├── skills/ai-consulting-practice-radar/SKILL.md
 │   └── README.md
 ├── README.md                        ← 본 파일
 └── LICENSE
@@ -197,7 +197,7 @@ donggu-skills/                       ← marketplace repo
 |---|---|---|---|
 | **donggu-obsidian** | ✅ `v2.4.0` | 1 | Hermes-native Vault transactions, bounded FDE Capture, and Life OS summaries |
 | **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
-| **donggu-research** | ✅ `v1.0.0` | 1 | Grounded consulting, professional-services, and AX event radar |
+| **donggu-research** | ✅ `v1.1.0` | 1 | last30days-backed AI consulting practice learning radar |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |
 | 🔲 donggu-ax | planned | — | AI 도입·AX 컨설팅·임원 자료 |
