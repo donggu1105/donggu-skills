@@ -56,11 +56,11 @@ CORE·FDE Community transaction의 hash·journal·rollback과 FDE Community 일�
 
 ### 🔎 `donggu-research` — Grounded public research
 
-`last30days`와 공식 원문으로 전략컨설팅펌의 AI 실무를 학습하고, 동구님의 FDE·DA·AIDP 업무에 옮길 수 있는 산출물과 개입 방식을 뽑습니다.
+`last30days` 산업 신호와 DART·IR 숫자를 결합해, 산업 구조·profit pool·P&L driver를 읽고 이익을 키우는 성장전략을 4주 루프로 훈련합니다.
 
 | Skill | 호출 | 용도 |
 |---|---|---|
-| `ai-consulting-practice-radar` | `donggu-research:ai-consulting-practice-radar` | `last30days` 기반 컨설팅펌 AI 문제 정의·운영모델·구현·채택·ROI 사례 학습과 FDE·DA 비교 |
+| `industry-profit-growth-strategy-radar` | `donggu-research:industry-profit-growth-strategy-radar` | 산업 구조→기업 P&L→실제 성장전략→1페이지 전략 메모의 4주 학습 루프 |
 
 ---
 
@@ -162,7 +162,7 @@ donggu-skills/                       ← marketplace repo
 │   └── README.md
 ├── donggu-research/                 ← plugin (namespace: donggu-research:)
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/ai-consulting-practice-radar/SKILL.md
+│   ├── skills/industry-profit-growth-strategy-radar/SKILL.md
 │   └── README.md
 ├── README.md                        ← 본 파일
 └── LICENSE
@@ -197,7 +197,7 @@ donggu-skills/                       ← marketplace repo
 |---|---|---|---|
 | **donggu-obsidian** | ✅ `v2.4.0` | 1 | Hermes-native Vault transactions, bounded FDE Capture, and Life OS summaries |
 | **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
-| **donggu-research** | ✅ `v1.1.0` | 1 | last30days-backed AI consulting practice learning radar |
+| **donggu-research** | ✅ `v1.2.0` | 1 | Industry, profit-pool, P&L, and revenue-led growth strategy learning |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |
 | 🔲 donggu-ax | planned | — | AI 도입·AX 컨설팅·임원 자료 |

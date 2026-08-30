@@ -1,7 +1,7 @@
 {
   "name": "donggu-research",
-  "version": "1.1.0",
-  "description": "Personal research workflows — learn how strategy consulting firms actually deliver AI and AX work, then translate verified practices into donggu's FDE, DA, and AIDP operating model.",
+  "version": "1.2.0",
+  "description": "Personal research workflows — learn industry dynamics, profit-pool movement, P&L drivers, and revenue-led growth strategy through a repeatable four-week research loop.",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"
@@ -10,12 +10,11 @@
   "license": "MIT",
   "keywords": [
     "research",
-    "consulting",
-    "ai-consulting",
-    "practice-research",
-    "operating-model",
-    "transformation",
-    "webinars",
+    "industry-strategy",
+    "profit-pool",
+    "pnl",
+    "growth-strategy",
+    "financial-analysis",
     "korea",
     "professional-services"
   ]
