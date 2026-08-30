@@ -154,6 +154,17 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
         self.assertIn("1페이지 전략 메모", text)
         self.assertIn("90일 검증", text)
 
+    def test_rejects_irrelevant_community_evidence_from_public_brief(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for required in (
+            "돈 버는 구조와 직접 연결되지 않은 커뮤니티 반응은 제외",
+            "제품 불만·사고·수리 경험",
+            "Reddit·커뮤니티 댓글은 핵심 근거로 쓰지 않는다",
+            "업무·고객·매출·비용 중 하나를 바꾼다는 인과",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, text)
+
     def test_weekly_cron_rotates_learning_stage_and_dedupes(self):
         text = SKILL.read_text(encoding="utf-8")
         for required in (
