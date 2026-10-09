@@ -291,9 +291,25 @@ def _authorize_life_os_call(operation: str) -> None:
         return
     if (
         get_session_env("HERMES_SESSION_PLATFORM", "").strip().lower() != "discord"
-        or get_session_env("HERMES_SESSION_CHAT_ID", "") != channel_id
+        or not _is_life_os_discord_chat(
+            channel_id,
+            chat_id=get_session_env("HERMES_SESSION_CHAT_ID", ""),
+            thread_id=get_session_env("HERMES_SESSION_THREAD_ID", ""),
+            parent_chat_id=get_session_env("HERMES_SESSION_PARENT_CHAT_ID", ""),
+        )
     ):
         raise CoreRuntimeError("Life OS Discord origin is not authorized")
+
+
+def _is_life_os_discord_chat(
+    channel_id: str, *, chat_id: str, thread_id: str, parent_chat_id: str,
+) -> bool:
+    """Accept the bound channel itself or a thread whose parent is that exact channel."""
+    if not channel_id:
+        return False
+    if chat_id == channel_id:
+        return True
+    return bool(thread_id) and chat_id == thread_id and parent_chat_id == channel_id
 
 
 def _message_type_name(value: Any) -> str:
@@ -339,8 +355,16 @@ def capture_trusted_discord_turn(*, event: Any, gateway: Any, **_kwargs: Any) ->
         message_id = str(event.message_id or "")
         if (
             platform != "discord"
-            or str(source.chat_id or "") != life_os_channel_id
-            or str(raw.channel.id) != life_os_channel_id
+            or not _is_life_os_discord_chat(
+                life_os_channel_id,
+                chat_id=str(source.chat_id or ""),
+                thread_id=str(getattr(source, "thread_id", "") or ""),
+                parent_chat_id=str(getattr(source, "parent_chat_id", "") or ""),
+            )
+            or (
+                str(raw.channel.id) != life_os_channel_id
+                and str(getattr(raw.channel, "parent_id", "") or "") != life_os_channel_id
+            )
             or message_id != str(raw.id)
             or message_id != str(source.message_id or "")
             or str(source.user_id or "") != str(raw.author.id)

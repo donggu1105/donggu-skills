@@ -514,6 +514,98 @@ class LifeOSPluginTests(unittest.TestCase):
         runtime.start_daily.assert_not_called()
         runtime.record.assert_not_called()
 
+    def test_origin_guard_accepts_threads_under_the_bound_channel_only(self):
+        runtime = mock.Mock()
+        runtime.status.return_value = {"status": "not_started"}
+        runtime.record.return_value = {"status": "free_record"}
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+
+        def thread_context(*, chat_id="777", thread_id="777", parent="456", message_id="123"):
+            values = dict(self.session_context(message_id=message_id).__closure__[0].cell_contents)
+            values.update({
+                "HERMES_SESSION_CHAT_ID": chat_id,
+                "HERMES_SESSION_THREAD_ID": thread_id,
+                "HERMES_SESSION_PARENT_CHAT_ID": parent,
+            })
+            return lambda name, default="": values.get(name, default)
+
+        for name, kwargs, allowed in (
+            ("child thread", {}, True),
+            ("foreign parent", {"parent": "999"}, False),
+            ("thread id mismatch", {"thread_id": "888"}, False),
+            ("no thread id", {"thread_id": ""}, False),
+        ):
+            with self.subTest(name), mock.patch.dict(sys.modules, {
+                "gateway": types.ModuleType("gateway"),
+                "gateway.session_context": types.SimpleNamespace(
+                    get_session_env=thread_context(**kwargs),
+                ),
+            }):
+                status = json.loads(self.tools.handle_life_os_status({}))
+            self.assertEqual(allowed, status["success"], status)
+
+    def test_hook_captures_auto_thread_and_child_thread_turns(self):
+        runtime = mock.Mock()
+        runtime.record.return_value = {"status": "free_record"}
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        for name, raw_channel in (
+            ("auto-thread first message in parent", types.SimpleNamespace(id=456)),
+            ("later message inside thread", types.SimpleNamespace(id=777, parent_id=456)),
+        ):
+            runtime.record.reset_mock()
+            discord_type, event = self.discord_event(text="체중 68")
+            event.raw_message.channel = raw_channel
+            event.source.chat_id = "777"
+            event.source.thread_id = "777"
+            event.source.parent_chat_id = "456"
+            values = dict(self.session_context().__closure__[0].cell_contents)
+            values.update({
+                "HERMES_SESSION_CHAT_ID": "777",
+                "HERMES_SESSION_THREAD_ID": "777",
+                "HERMES_SESSION_PARENT_CHAT_ID": "456",
+            })
+            fake_db = mock.Mock()
+            fake_db.get_messages.return_value = [{"id": 31, "role": "user", "content": "prepared"}]
+            with self.subTest(name), mock.patch.dict(sys.modules, {
+                "discord": types.SimpleNamespace(Message=discord_type),
+                "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock(return_value=fake_db)),
+                "gateway": types.ModuleType("gateway"),
+                "gateway.session_context": types.SimpleNamespace(
+                    get_session_env=lambda n, d="", v=values: v.get(n, d),
+                ),
+            }):
+                self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+                payload = json.loads(self.tools.handle_life_os_record({"operation": "free_record"}))
+                self.assertTrue(payload["success"], payload)
+                self.assertEqual("체중 68", runtime.record.call_args.kwargs["message_text"])
+
+    def test_hook_rejects_thread_under_foreign_channel(self):
+        runtime = mock.Mock()
+        setattr(self.tools, "_LIFE_OS_RUNTIME", runtime)
+        discord_type, event = self.discord_event(text="체중 68")
+        event.raw_message.channel = types.SimpleNamespace(id=777, parent_id=999)
+        event.source.chat_id = "777"
+        event.source.thread_id = "777"
+        event.source.parent_chat_id = "456"
+        values = dict(self.session_context().__closure__[0].cell_contents)
+        values.update({
+            "HERMES_SESSION_CHAT_ID": "777",
+            "HERMES_SESSION_THREAD_ID": "777",
+            "HERMES_SESSION_PARENT_CHAT_ID": "456",
+        })
+        with mock.patch.dict(sys.modules, {
+            "discord": types.SimpleNamespace(Message=discord_type),
+            "hermes_state": types.SimpleNamespace(SessionDB=mock.Mock()),
+            "gateway": types.ModuleType("gateway"),
+            "gateway.session_context": types.SimpleNamespace(
+                get_session_env=lambda n, d="", v=values: v.get(n, d),
+            ),
+        }):
+            self.tools.capture_trusted_discord_turn(event=event, gateway=self.gateway())
+            payload = json.loads(self.tools.handle_life_os_record({"operation": "free_record"}))
+        self.assertFalse(payload["success"])
+        runtime.record.assert_not_called()
+
     def test_origin_guard_allows_only_exact_cron_start_delivery(self):
         runtime = mock.Mock()
         runtime.start_daily.return_value = {"status": "active"}
