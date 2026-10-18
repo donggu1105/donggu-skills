@@ -1,6 +1,7 @@
 """Hermes tool schemas and handlers for donggu publishing."""
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
@@ -277,15 +278,45 @@ def _error(exc: Exception) -> str:
     return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
 
 
+# Host-provided call identity, bound by the public ``tool_execution`` middleware
+# for the duration of one donggu_publishing_* handler call. This replaces the old
+# import of a Hermes-internal contextvar, which broke silently when Hermes moved it.
+_HOST_CALL_CONTEXT: contextvars.ContextVar[tuple[str, str]] = contextvars.ContextVar(
+    "donggu_publishing_host_call_context", default=("", "")
+)
+_TOOL_PREFIX = "donggu_publishing_"
+
+
+def bind_host_call_context(*, tool_name: str = "", args: Any = None, next_call=None, **context: Any) -> Any:
+    """``tool_execution`` middleware: expose Hermes' session/turn IDs to our handlers.
+
+    Uses only the documented middleware contract (context kwargs + single-use
+    ``next_call``). Other tools pass through untouched.
+    """
+    if not str(tool_name).startswith(_TOOL_PREFIX):
+        return next_call(args)
+    session_id = context.get("session_id")
+    turn_id = context.get("turn_id")
+    token = _HOST_CALL_CONTEXT.set((
+        session_id if isinstance(session_id, str) else "",
+        turn_id if isinstance(turn_id, str) else "",
+    ))
+    try:
+        return next_call(args)
+    finally:
+        _HOST_CALL_CONTEXT.reset(token)
+
+
 def _trusted_context(kwargs: dict) -> tuple[str, str]:
     session_id = kwargs.get("session_id")
     turn_id = kwargs.get("turn_id")
+    host_session_id, host_turn_id = _HOST_CALL_CONTEXT.get()
     if not isinstance(turn_id, str) or not turn_id:
-        try:
-            from tools.approval import _approval_turn_id
-            turn_id = _approval_turn_id.get()
-        except Exception:
-            turn_id = ""
+        turn_id = host_turn_id
+    if not isinstance(session_id, str) or not session_id:
+        session_id = host_session_id
+    elif host_session_id and host_session_id != session_id:
+        raise PublishingError("trusted Hermes session context is inconsistent")
     if not isinstance(session_id, str) or not session_id or not isinstance(turn_id, str) or not turn_id:
         raise PublishingError("trusted Hermes session/turn context is required")
     return session_id, turn_id

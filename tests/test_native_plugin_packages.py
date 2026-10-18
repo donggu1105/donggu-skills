@@ -395,6 +395,44 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertIn("PUBLISHER_API_TOKEN", dispatch["requires_env"])
         self.assertIn("SUPABASE_SERVICE_KEY", dispatch["requires_env"])
 
+    def _assert_host_context_via_public_middleware(self, package, tools):
+        """Turn ID must arrive through the documented tool_execution middleware,
+        never through a Hermes-internal import (broke silently on 2026-09 refactor)."""
+        middleware = []
+
+        class MiddlewareContext(FakeContext):
+            def register_middleware(self, kind, callback):
+                middleware.append((kind, callback))
+
+        package.register(MiddlewareContext())
+        self.assertEqual(["tool_execution"], [kind for kind, _ in middleware])
+        bind = middleware[0][1]
+        seen = []
+
+        def handler(args):
+            seen.append(tools._trusted_context({"session_id": "s1"}))
+            return "ok"
+
+        result = bind(tool_name="donggu_publishing_preview", args={}, next_call=handler,
+                      session_id="s1", turn_id="s1:turn-7", task_id="t", tool_call_id="c")
+        self.assertEqual("ok", result)
+        self.assertEqual([("s1", "s1:turn-7")], seen)
+        # context does not leak past the call
+        with self.assertRaises(tools.PublishingError):
+            tools._trusted_context({"session_id": "s1"})
+        # mismatched session fails closed
+        with self.assertRaises(tools.PublishingError):
+            bind(tool_name="donggu_publishing_preview", args={},
+                 next_call=lambda a: tools._trusted_context({"session_id": "other"}),
+                 session_id="s1", turn_id="s1:turn-7")
+        # other tools pass through without binding
+        bind(tool_name="terminal", args={}, next_call=lambda a: seen.append(tools._HOST_CALL_CONTEXT.get()),
+             session_id="s1", turn_id="s1:turn-8")
+        self.assertEqual(("", ""), seen[-1])
+        # source must not reach into Hermes internals
+        source = (ROOT / "donggu-sns" / "tools.py").read_text(encoding="utf-8")
+        self.assertNotIn("from tools.approval", source)
+
     def test_sns_mutation_requires_trusted_hermes_context_and_cli_fails_closed(self):
         module_name = "donggu_sns_security_contract_test"
         package = load_package(ROOT / "donggu-sns", module_name)
@@ -405,6 +443,7 @@ class NativePluginPackageTests(unittest.TestCase):
             ("session", "session:task:turn-2"),
             tools._trusted_context({"session_id": "session", "turn_id": "session:task:turn-2"}),
         )
+        self._assert_host_context_via_public_middleware(package, tools)
 
         cli = importlib.import_module(module_name + ".runtime.publishing_cli")
         for action in ("approve", "confirm_maily", "dispatch"):

@@ -10,6 +10,7 @@ from .tools import (
     RECONCILIATION_LIST_SCHEMA,
     RECONCILIATION_RESOLVE_SCHEMA,
     STATUS_SCHEMA,
+    bind_host_call_context,
     check_requirements,
     handle_approve,
     handle_confirm,
@@ -23,6 +24,11 @@ from .tools import (
 
 
 def register(ctx) -> None:
+    # Public middleware contract delivers the host turn ID to our handlers.
+    # Without it every mutation fails closed ("trusted ... context is required").
+    register_middleware = getattr(ctx, "register_middleware", None)
+    if callable(register_middleware):
+        register_middleware("tool_execution", bind_host_call_context)
     required = [
         "SNS_WEBHOOK_TOKEN",
         "PUBLISHER_API_TOKEN",
