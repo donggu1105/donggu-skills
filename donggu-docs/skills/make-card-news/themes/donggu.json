@@ -1,0 +1,14 @@
+{
+  "name": "donggu",
+  "lang": "ko",
+  "fonts": ["Pretendard", "Apple SD Gothic Neo", "Noto Sans KR"],
+  "bg": "#fbfaf7",
+  "ink": "#17181c",
+  "muted": "#5f6470",
+  "accent": "#1f4fd8",
+  "accent_soft": "#e4ebff",
+  "line": "#e4e2dc",
+  "surface": "#f3f1ec",
+  "handle": "@100x.donggu",
+  "notes": "Personal LinkedIn/Threads voice: warm paper background, single blue accent. Adjust handle per channel."
+}

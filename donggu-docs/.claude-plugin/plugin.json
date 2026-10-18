@@ -1,7 +1,7 @@
 {
   "name": "donggu-docs",
-  "version": "1.1.0",
-  "description": "Document & deck authoring — build zero-dependency, animation-rich single-HTML slide decks for lectures, seminars, workshops, and launch talks. Style is driven by a designs/ DESIGN.md library or discovered visually",
+  "version": "1.2.0",
+  "description": "Document & deck authoring — zero-dependency single-HTML slide decks for lectures, seminars, workshops, and launch talks (make-ppt), plus card-news / carousel sets rendered to 1080×1350 PNG + PDF from an editable JSON spec (make-card-news).",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"
@@ -18,6 +18,10 @@
     "seminar",
     "workshop",
     "design-system",
-    "viewport-fitting"
+    "viewport-fitting",
+    "card-news",
+    "carousel",
+    "linkedin-document",
+    "instagram-carousel"
   ]
 }

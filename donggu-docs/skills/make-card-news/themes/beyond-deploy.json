@@ -1,0 +1,14 @@
+{
+  "name": "beyond-deploy",
+  "lang": "ko",
+  "fonts": ["Pretendard", "Apple SD Gothic Neo", "Noto Sans KR"],
+  "bg": "#ffffff",
+  "ink": "#1e2b21",
+  "muted": "#5b6a5c",
+  "accent": "#4d7c0f",
+  "accent_soft": "#e9f7cf",
+  "line": "#e6e8e3",
+  "surface": "#f5f6f3",
+  "handle": "beyonddeploy.kr",
+  "notes": "Same tokens as the BD mail design v9 (site --signal #4d7c0f olive, neutrals ink/muted/line/surface). White background, one accent, pill CTA."
+}

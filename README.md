@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin%20Marketplace-8B5CF6)](https://claude.com/claude-code)
 [![Plugins](https://img.shields.io/badge/plugins-6-blue)](#-plugins)
-[![Skills](https://img.shields.io/badge/skills-10-green)](#-plugins)
+[![Skills](https://img.shields.io/badge/skills-11-green)](#-plugins)
 
 Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되어 `donggu-<domain>:<skill>` 형식으로 호출.
 
@@ -46,11 +46,13 @@ CORE·FDE Community transaction의 hash·journal·rollback과 FDE Community 일�
 | Skill | 호출 | 용도 | Time budget |
 |---|---|---|---|
 | `make-ppt-slide` | `donggu-docs:make-ppt-slide` | 강의·세미나·워크샵 단일 HTML 덱 빌드 (`index.html` + `images/`) | 30-90분 |
+| `make-card-news` | `donggu-docs:make-card-news` | 확정 원고 → 카드뉴스/캐러셀 세트 (1080×1350 PNG + 링크드인용 PDF + 편집용 JSON, 레이아웃 QA 포함) | 10-30분 |
 
 **자연어 트리거 예시**:
 - "강의 덱 만들어줘"
 - "세미나용 8페이지 한국어 발표 자료 만들어줘"
 - "PPT 대신 HTML 슬라이드로 빌드해줘"
+- "이 글 카드뉴스로 만들어줘" / "링크드인 캐러셀로 뽑아줘"
 
 ---
 
@@ -154,11 +156,14 @@ donggu-skills/                       ← marketplace repo
 │   ├── .claude-plugin/
 │   │   └── plugin.json
 │   ├── skills/
-│   │   └── make-ppt-slide/
+│   │   ├── make-ppt/                ← SKILL.md, viewport-base.css, html-template.md, STYLE_PRESETS.md, scripts/
+│   │   └── make-card-news/
 │   │       ├── SKILL.md
-│   │       ├── assets/              ← template.html, motion.min.js
-│   │       ├── references/          ← layouts, layout-lock, themes, checklist, image-prompts, map-component
-│   │       └── scripts/             ← validate-deck.mjs
+│   │       ├── scripts/render_cards.py   ← JSON spec → PNG set + PDF + qa.json (headless Chrome)
+│   │       ├── templates/card.html       ← 1080×1350 card template + layout QA probe
+│   │       ├── themes/                   ← beyond-deploy.json, donggu.json
+│   │       ├── references/               ← card-spec, platform-specs, tool-landscape
+│   │       └── examples/sample-bd.json
 │   └── README.md
 ├── donggu-research/                 ← plugin (namespace: donggu-research:)
 │   ├── .claude-plugin/plugin.json
@@ -196,7 +201,7 @@ donggu-skills/                       ← marketplace repo
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
 | **donggu-obsidian** | ✅ `v2.4.0` | 1 | Hermes-native Vault transactions, bounded FDE Capture, and Life OS summaries |
-| **donggu-docs** | ✅ `v1.0.0` | 1 | Document & deck authoring (tightened HTML slide decks) |
+| **donggu-docs** | ✅ `v1.2.0` | 2 | Document & deck authoring (HTML slide decks, card-news / carousel sets) |
 | **donggu-research** | ✅ `v1.3.0` | 1 | Beginner-friendly AX industry change and profit learning |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |

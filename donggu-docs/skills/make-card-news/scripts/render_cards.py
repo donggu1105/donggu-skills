@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""Render a card-news spec (JSON) to 1080x1350 PNGs + one PDF with headless Chrome.
+
+Usage:
+    render_cards.py SPEC.json --out DIR [--theme NAME] [--no-pdf] [--chrome PATH]
+
+Exit codes: 0 ok · 1 usage/spec/render error · 2 rendered but QA found problems.
+
+Stdlib + optional Pillow (PDF merge). No Playwright, no SaaS. Chrome is found via
+$CARD_NEWS_CHROME, then the usual macOS/Linux locations.
+"""
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+SKILL_DIR = HERE.parent
+W, H = 1080, 1350
+CARD_TYPES = ("cover", "point", "quote", "list", "compare", "steps", "closing")
+REQUIRED = {
+    "cover": ("title",),
+    "point": ("title", "body"),
+    "quote": ("quote",),
+    "list": ("title", "items"),
+    "compare": ("title", "left", "right"),
+    "steps": ("title", "items"),
+    "closing": ("title",),
+}
+LIMITS = {"items": 5, "title_chars": 60}
+CHROME_CANDIDATES = (
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "google-chrome", "chromium", "chromium-browser", "chrome",
+)
+
+
+class SpecError(ValueError):
+    pass
+
+
+# ---------- spec ----------
+
+def validate_spec(spec: dict) -> list[dict]:
+    cards = spec.get("cards")
+    if not isinstance(cards, list) or not cards:
+        raise SpecError("spec.cards must be a non-empty list")
+    for i, card in enumerate(cards, 1):
+        t = card.get("type")
+        if t not in CARD_TYPES:
+            raise SpecError(f"card {i}: unknown type {t!r}; allowed {CARD_TYPES}")
+        for key in REQUIRED[t]:
+            if not card.get(key):
+                raise SpecError(f"card {i} ({t}): missing field {key!r}")
+        if t in ("list", "steps") and len(card["items"]) > LIMITS["items"]:
+            raise SpecError(f"card {i} ({t}): max {LIMITS['items']} items")
+        if t == "compare":
+            for side in ("left", "right"):
+                if not isinstance(card[side], dict) or not card[side].get("title"):
+                    raise SpecError(f"card {i} (compare): {side} needs a title")
+        if len(str(card.get("title", ""))) > LIMITS["title_chars"]:
+            raise SpecError(f"card {i}: title longer than {LIMITS['title_chars']} chars")
+    return cards
+
+
+def load_theme(name: str, skill_dir: Path = SKILL_DIR) -> dict:
+    path = Path(name) if name.endswith(".json") else skill_dir / "themes" / f"{name}.json"
+    if not path.is_file():
+        raise SpecError(f"theme not found: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+# ---------- html ----------
+
+_INLINE_BOLD = re.compile(r"\*\*(.+?)\*\*")
+
+
+def rich(text: str) -> str:
+    """Escape, then allow **bold** and line breaks only."""
+    parts = []
+    for i, line in enumerate(str(text).split("\n")):
+        esc = html.escape(line, quote=True)
+        esc = _INLINE_BOLD.sub(r'<strong class="em">\1</strong>', esc)
+        parts.append(esc)
+    return "<br>".join(parts)
+
+
+def _items_html(items: list, numbered: bool) -> str:
+    out = []
+    for n, it in enumerate(items, 1):
+        marker = f'<span class="num">{n:02d}</span>' if numbered else '<span class="dot"></span>'
+        out.append(f'<li>{marker}<span class="it">{rich(it)}</span></li>')
+    tag = "ol" if numbered else "ul"
+    return f'<{tag} class="items {"steps" if numbered else "bullets"}">{"".join(out)}</{tag}>'
+
+
+def card_body_html(card: dict) -> str:
+    t = card["type"]
+    if t == "cover":
+        sub = f'<p class="sub" data-qa="sub">{rich(card["subtitle"])}</p>' if card.get("subtitle") else ""
+        kicker = f'<p class="kicker">{rich(card["kicker"])}</p>' if card.get("kicker") else ""
+        return f'<div class="cover">{kicker}<h1 class="title big" data-qa="title">{rich(card["title"])}</h1>{sub}</div>'
+    if t == "point":
+        return (f'<h2 class="title" data-qa="title">{rich(card["title"])}</h2>'
+                f'<div class="body" data-qa="body">{rich(card["body"])}</div>')
+    if t == "quote":
+        who = f'<p class="who" data-qa="who">{rich(card["who"])}</p>' if card.get("who") else ""
+        return f'<div class="quote-wrap"><span class="qmark">“</span><blockquote class="quote" data-qa="body">{rich(card["quote"])}</blockquote>{who}</div>'
+    if t in ("list", "steps"):
+        lead = f'<p class="lead" data-qa="lead">{rich(card["lead"])}</p>' if card.get("lead") else ""
+        return (f'<h2 class="title" data-qa="title">{rich(card["title"])}</h2>{lead}'
+                f'<div class="body" data-qa="body">{_items_html(card["items"], numbered=(t == "steps"))}</div>')
+    if t == "compare":
+        cols = []
+        for side, cls in (("left", "l"), ("right", "r")):
+            s = card[side]
+            body = f'<div class="col-body">{rich(s.get("body", ""))}</div>' if s.get("body") else ""
+            cols.append(f'<div class="col {cls}" data-qa="col-{cls}"><p class="col-title">{rich(s["title"])}</p>{body}</div>')
+        foot = f'<p class="foot" data-qa="foot">{rich(card["footer"])}</p>' if card.get("footer") else ""
+        return (f'<h2 class="title" data-qa="title">{rich(card["title"])}</h2>'
+                f'<div class="compare" data-qa="body">{"".join(cols)}</div>{foot}')
+    if t == "closing":
+        body = f'<div class="body" data-qa="body">{rich(card["body"])}</div>' if card.get("body") else ""
+        cta = f'<p class="cta" data-qa="cta">{rich(card["cta"])}</p>' if card.get("cta") else ""
+        return f'<div class="closing"><h2 class="title" data-qa="title">{rich(card["title"])}</h2>{body}{cta}</div>'
+    raise SpecError(f"unhandled type {t}")
+
+
+def build_card_html(card: dict, index: int, total: int, spec: dict, theme: dict,
+                    template_path: Path | None = None) -> str:
+    template = (template_path or SKILL_DIR / "templates" / "card.html").read_text(encoding="utf-8")
+    font_stack = ", ".join(f'"{f}"' for f in theme["fonts"]) + ", sans-serif"
+    mapping = {
+        "LANG": theme.get("lang", "ko"),
+        "W": str(W), "H": str(H),
+        "FONT_STACK": font_stack,
+        "FONT_CHECK": theme["fonts"][0],
+        "BG": theme["bg"], "INK": theme["ink"], "MUTED": theme["muted"],
+        "ACCENT": theme["accent"], "ACCENT_SOFT": theme["accent_soft"], "LINE": theme["line"],
+        "SURFACE": theme["surface"],
+        "SERIES": html.escape(spec.get("series", "")),
+        "HANDLE": html.escape(spec.get("handle", theme.get("handle", ""))),
+        "PAGE": f"{index:02d} / {total:02d}",
+        "TYPE": card["type"],
+        "CONTENT": card_body_html(card),
+    }
+    out = template
+    for k, v in mapping.items():
+        out = out.replace("{{" + k + "}}", v)
+    leftover = re.findall(r"{{[A-Z_]+}}", out)
+    if leftover:
+        raise SpecError(f"template placeholders unresolved: {sorted(set(leftover))}")
+    return out
+
+
+# ---------- chrome ----------
+
+def find_chrome(explicit: str | None = None) -> str | None:
+    for cand in ([explicit] if explicit else []) + [os.environ.get("CARD_NEWS_CHROME")] + list(CHROME_CANDIDATES):
+        if not cand:
+            continue
+        if os.path.sep in cand:
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
+        else:
+            found = shutil.which(cand)
+            if found:
+                return found
+    return None
+
+
+def render_png(chrome: str, html_path: Path, png_path: Path, profile_dir: Path) -> dict:
+    """Screenshot one card and return the embedded QA probe result."""
+    cmd = [
+        chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
+        "--no-default-browser-check", f"--user-data-dir={profile_dir}", "--force-device-scale-factor=1",
+        f"--window-size={W},{H}", "--virtual-time-budget=4000", "--run-all-compositor-stages-before-draw",
+        f"--screenshot={png_path}", "--dump-dom", html_path.resolve().as_uri(),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if proc.returncode != 0 or not png_path.is_file():
+        raise RuntimeError(f"chrome failed for {html_path.name}: rc={proc.returncode}\n{proc.stderr[-800:]}")
+    m = re.search(r'data-qa-result="([^"]*)"', proc.stdout)
+    if not m:
+        return {"probe": "missing"}
+    return json.loads(html.unescape(m.group(1)))
+
+
+def merge_pdf(pngs: list[Path], pdf_path: Path) -> bool:
+    try:
+        from PIL import Image
+    except ImportError:
+        return False
+    images = [Image.open(p).convert("RGB") for p in pngs]
+    images[0].save(pdf_path, save_all=True, append_images=images[1:], resolution=144.0)
+    for im in images:
+        im.close()
+    return True
+
+
+# ---------- qa ----------
+
+def qa_card(index: int, card: dict, probe: dict, png: Path) -> tuple[dict, list[dict]]:
+    problems = []
+    report = {"index": index, "type": card["type"], "png": png.name, "font_available": probe.get("font", False),
+              "elements": probe.get("items", [])}
+    if probe.get("probe") == "missing":
+        problems.append({"card": index, "kind": "probe-missing", "detail": "QA script did not run"})
+        return report, problems
+    if not probe.get("font"):
+        problems.append({"card": index, "kind": "font-fallback", "detail": "primary font not available to Chrome"})
+    safe_bottom = round(H * 0.90)   # platform UI overlays the bottom 10 %; the footer sits exactly on this line
+    safe_right = round(W * 0.93)
+    chrome_ids = {"meta", "footer"}
+    footer = next((el for el in probe.get("items", []) if el["id"] == "footer"), None)
+    content_floor = footer["top"] - 8 if footer else safe_bottom
+    for el in probe.get("items", []):
+        if el.get("overflow"):
+            problems.append({"card": index, "kind": "overflow", "element": el["id"], "detail": "text clipped inside its box"})
+        if el["id"] in chrome_ids:
+            continue
+        if el.get("bottom", 0) > content_floor:
+            problems.append({"card": index, "kind": "safe-area", "element": el["id"],
+                             "detail": f"bottom {el['bottom']}px runs into the footer/bottom 10 % (limit {content_floor}px)"})
+        if el.get("right", 0) > safe_right:
+            problems.append({"card": index, "kind": "safe-area", "element": el["id"], "detail": f"right {el['right']}px > {safe_right}px"})
+    for a, b in probe.get("overlaps", []):
+        problems.append({"card": index, "kind": "overlap", "element": f"{a}+{b}", "detail": "boxes overlap"})
+    if footer and abs(footer["bottom"] - safe_bottom) > 6:
+        problems.append({"card": index, "kind": "layout", "element": "footer", "detail": f"footer bottom {footer['bottom']}px, expected ≈{safe_bottom}px (layout collapsed?)"})
+    try:
+        from PIL import Image
+        with Image.open(png) as im:
+            if im.size != (W, H):
+                problems.append({"card": index, "kind": "size", "detail": f"{im.size} != {(W, H)}"})
+    except ImportError:
+        pass
+    return report, problems
+
+
+# ---------- main ----------
+
+def render(spec_path: Path, out: Path, theme_name: str | None, chrome_path: str | None, make_pdf: bool) -> int:
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    cards = validate_spec(spec)
+    theme = load_theme(theme_name or spec.get("theme") or "donggu")
+    chrome = find_chrome(chrome_path)
+    if not chrome:
+        print("ERROR: no headless Chrome/Chromium found; set --chrome or $CARD_NEWS_CHROME", file=sys.stderr)
+        return 1
+    out.mkdir(parents=True, exist_ok=True)
+    html_dir = out / "html"
+    html_dir.mkdir(exist_ok=True)
+    total = len(cards)
+    pngs, reports, problems = [], [], []
+    with tempfile.TemporaryDirectory(prefix="cardnews-chrome-") as profile:
+        for i, card in enumerate(cards, 1):
+            page = build_card_html(card, i, total, spec, theme)
+            html_path = html_dir / f"{i:02d}.html"
+            html_path.write_text(page, encoding="utf-8")
+            png_path = out / f"{i:02d}.png"
+            probe = render_png(chrome, html_path, png_path, Path(profile))
+            report, probs = qa_card(i, card, probe, png_path)
+            pngs.append(png_path)
+            reports.append(report)
+            problems.extend(probs)
+            print(f"card {i:02d}/{total:02d} {card['type']:<8} {'OK' if not probs else 'ISSUES ' + str(len(probs))}")
+    pdf_ok = False
+    if make_pdf:
+        pdf_ok = merge_pdf(pngs, out / "cards.pdf")
+        if not pdf_ok:
+            problems.append({"card": 0, "kind": "pdf", "detail": "Pillow missing; PDF not written"})
+    qa = {"spec": str(spec_path), "theme": theme.get("name", theme_name), "chrome": chrome,
+          "cards_total": total, "pdf": pdf_ok, "cards": reports, "problems": problems}
+    (out / "qa.json").write_text(json.dumps(qa, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\n{total} PNG → {out}  pdf={'yes' if pdf_ok else 'no'}  problems={len(problems)}  (qa.json)")
+    return 2 if problems else 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("spec", type=Path)
+    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--theme", default=None, help="theme name in themes/ or a path to a .json")
+    ap.add_argument("--chrome", default=None)
+    ap.add_argument("--no-pdf", action="store_true")
+    a = ap.parse_args(argv)
+    try:
+        return render(a.spec, a.out, a.theme, a.chrome, make_pdf=not a.no_pdf)
+    except (SpecError, RuntimeError, json.JSONDecodeError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

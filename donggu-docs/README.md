@@ -3,9 +3,9 @@
 > Document & deck authoring skill collection — part of [`donggu-skills`](../) marketplace.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
-[![Skills](https://img.shields.io/badge/skills-1-green)](#-skills)
+[![Skills](https://img.shields.io/badge/skills-2-green)](#-skills)
 
-강의·세미나·워크샵·런칭 발표에서 쓸 **의존성 0 단일 HTML 덱**을 만드는 스킬 모음. PPT보다 가볍고, 브라우저만 있으면 어디서나 발표 가능.
+강의·세미나·워크샵·런칭 발표에서 쓸 **의존성 0 단일 HTML 덱**과, 링크드인·인스타그램용 **카드뉴스(캐러셀) 세트**를 만드는 스킬 모음. PPT보다 가볍고, 브라우저(Chrome)만 있으면 어디서나 만들고 발표할 수 있다.
 
 ---
 
@@ -14,6 +14,30 @@
 | Skill | 호출 | 사용 시점 | Output |
 |---|---|---|---|
 | **make-ppt** | `donggu-docs:make-ppt` | 강의·세미나·발표 덱 빌드, PPTX→웹 변환, 기존 HTML 덱 개선 | 의존성 0 단일 HTML 덱 |
+| **make-card-news** | `donggu-docs:make-card-news` | 확정 원고 → 카드뉴스/캐러셀 (링크드인 문서 게시물, 인스타·스레드 캐러셀) | 1080×1350 PNG 세트 + PDF + 편집용 JSON 스펙 |
+
+---
+
+## 🃏 `make-card-news`
+
+확정 원고를 **카드뉴스 세트**로 만든다. 글자는 이미지에 굽지 않고 HTML/CSS로 렌더링해서, 한 장만 고쳐 다시 뽑을 수 있다.
+
+```text
+spec.json (카드별 내용)  +  themes/<name>.json (색·폰트)  +  templates/card.html
+        ↓  scripts/render_cards.py  (headless Chrome 스크린샷)
+01.png … NN.png (1080×1350, 인스타·스레드)  +  cards.pdf (링크드인 문서 게시물)  +  qa.json (잘림·겹침·안전영역·폰트 검사)
+```
+
+- 카드 유형 7종: `cover` `point` `quote` `list` `steps` `compare` `closing` — 형식·한도는 `references/card-spec.md`
+- 테마: `beyond-deploy`(BD 메일 디자인 토큰), `donggu`(개인 채널). 새 톤은 테마 파일로 추가
+- 원고 작성은 `donggu-sns:writing-social-content`, 발행은 `donggu-sns:publish-sns`가 맡는다. 이 스킬은 파일만 만든다
+- 의존성: Chrome/Chromium(`$CARD_NEWS_CHROME`로 지정 가능), PDF 병합에 Pillow. Playwright·SaaS 없음
+- 서비스형 대안(Gamma·망고보드·PostNitro…) 비교는 `references/tool-landscape.md`
+
+```bash
+python3 donggu-docs/skills/make-card-news/scripts/render_cards.py \
+  donggu-docs/skills/make-card-news/examples/sample-bd.json --out ./out --theme beyond-deploy
+```
 
 ---
 

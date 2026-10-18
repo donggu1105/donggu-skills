@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width={{W}}, height={{H}}">
+<style>
+  :root {
+    --bg: {{BG}}; --ink: {{INK}}; --muted: {{MUTED}}; --accent: {{ACCENT}};
+    --accent-soft: {{ACCENT_SOFT}}; --line: {{LINE}}; --surface: {{SURFACE}};
+    --pad: 84px;            /* ≈ 7.8 % side margin */
+    --safe-bottom: 135px;   /* bottom 10 %: platform UI overlays — nothing important here */
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: {{W}}px; height: {{H}}px; overflow: hidden; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: {{FONT_STACK}};
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    word-break: keep-all; overflow-wrap: anywhere; line-break: strict;
+  }
+  .card { position: relative; width: {{W}}px; height: {{H}}px; padding: var(--pad); display: flex; flex-direction: column; }
+  .card::before { content: ""; position: absolute; left: 0; top: 0; width: 100%; height: 14px; background: var(--accent); }
+
+  .meta { display: flex; justify-content: space-between; align-items: baseline; font-size: 26px; font-weight: 600; color: var(--muted); letter-spacing: 0.01em; }
+  .meta .series { color: var(--accent); }
+  .main { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; padding: 48px 0 0; min-height: 0; }
+  .card.type-cover .main, .card.type-closing .main { justify-content: center; }
+  .footer { position: absolute; left: var(--pad); right: var(--pad); bottom: var(--safe-bottom); display: flex; justify-content: space-between; align-items: center; font-size: 24px; color: var(--muted); border-top: 2px solid var(--line); padding-top: 22px; }
+  .footer .handle { font-weight: 600; }
+
+  .title { margin: 0; font-weight: 800; font-size: 72px; line-height: 1.18; letter-spacing: -0.015em; text-wrap: balance; }
+  .title.big { font-size: 92px; line-height: 1.12; letter-spacing: -0.02em; }
+  .kicker { margin: 0 0 28px; font-size: 30px; font-weight: 700; color: var(--accent); }
+  .sub { margin: 36px 0 0; font-size: 38px; line-height: 1.45; color: var(--muted); font-weight: 500; }
+  .lead { margin: 28px 0 0; font-size: 36px; line-height: 1.45; color: var(--muted); }
+  .body { margin-top: 44px; font-size: 42px; line-height: 1.55; font-weight: 500; max-height: 720px; overflow: hidden; }
+  .em { font-weight: 800; color: var(--ink); background: linear-gradient(transparent 62%, var(--accent-soft) 62%); }
+
+  .quote-wrap { position: relative; padding-left: 36px; border-left: 10px solid var(--accent); }
+  .qmark { position: absolute; left: 32px; top: -110px; font-size: 220px; line-height: 1; color: var(--accent-soft); font-weight: 800; }
+  .quote { margin: 0; font-size: 56px; line-height: 1.38; font-weight: 700; max-height: 760px; overflow: hidden; }
+  .who { margin: 40px 0 0; font-size: 32px; color: var(--muted); font-weight: 600; }
+
+  .items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 30px; }
+  .items li { display: flex; align-items: flex-start; gap: 26px; font-size: 40px; line-height: 1.45; }
+  .items .dot { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 20px; border-radius: 50%; background: var(--accent); }
+  .items .num { flex: 0 0 72px; width: 72px; height: 72px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 30px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+  .items .it { flex: 1 1 auto; min-width: 0; }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 44px; max-height: 760px; }
+  .col { background: var(--surface); border: 2px solid var(--line); border-radius: 28px; padding: 40px 36px; overflow: hidden; }
+  .col.r { border-color: var(--accent); background: var(--accent-soft); }
+  .col-title { margin: 0 0 22px; font-size: 34px; font-weight: 800; color: var(--accent); }
+  .col.l .col-title { color: var(--muted); }
+  .col-body { font-size: 34px; line-height: 1.5; }
+  .foot { margin: 36px 0 0; font-size: 34px; line-height: 1.45; color: var(--muted); }
+
+  .type-closing .cta { margin: 48px 0 0; display: inline-block; align-self: flex-start; padding: 22px 40px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 34px; font-weight: 800; }
+</style>
+</head>
+<body>
+<div class="card type-{{TYPE}}">
+  <div class="meta" data-qa="meta"><span class="series">{{SERIES}}</span><span class="page">{{PAGE}}</span></div>
+  <div class="main">{{CONTENT}}</div>
+  <div class="footer" data-qa="footer"><span class="handle">{{HANDLE}}</span><span class="page">{{PAGE}}</span></div>
+</div>
+<script>
+  // Layout QA probe: read by the renderer from --dump-dom. Reports overflow + bounds per element.
+  document.fonts.ready.then(() => {
+    const r = { font: document.fonts.check('700 40px "{{FONT_CHECK}}"'), items: [], overlaps: [] };
+    const boxes = [];
+    for (const el of document.querySelectorAll('[data-qa]')) {
+      const b = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      // Clipping only happens when overflow is not visible; visible overflow is caught by bounds checks.
+      const clips = cs.overflow !== 'visible' || cs.overflowY !== 'visible';
+      const overflow = clips && (el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 2);
+      r.items.push({ id: el.dataset.qa, overflow, top: Math.round(b.top), bottom: Math.round(b.bottom),
+                     left: Math.round(b.left), right: Math.round(b.right) });
+      if (!el.closest('[data-qa] [data-qa]')) boxes.push({ id: el.dataset.qa, b });  // top-level boxes only
+    }
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i].b, c = boxes[j].b;
+      const x = Math.min(a.right, c.right) - Math.max(a.left, c.left);
+      const y = Math.min(a.bottom, c.bottom) - Math.max(a.top, c.top);
+      if (x > 4 && y > 4) r.overlaps.push([boxes[i].id, boxes[j].id]);
+    }
+    document.body.setAttribute('data-qa-result', JSON.stringify(r));
+  });
+</script>
+</body>
+</html>

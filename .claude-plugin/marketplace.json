@@ -19,8 +19,8 @@
     {
       "name": "donggu-docs",
       "source": "./donggu-docs",
-      "description": "Document & deck authoring — zero-dependency animation-rich single-HTML slide decks for lectures, seminars, workshops, and launch talks. Style driven by a designs/ DESIGN.md library or visual discovery.",
-      "version": "1.1.0",
+      "description": "Document & deck authoring — zero-dependency single-HTML slide decks (make-ppt) and card-news / carousel sets rendered to PNG + PDF from an editable JSON spec (make-card-news).",
+      "version": "1.2.0",
       "strict": false
     },
     {

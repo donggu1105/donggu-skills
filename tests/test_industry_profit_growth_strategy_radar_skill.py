@@ -187,7 +187,7 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
             self.assertIn("last30days", text)
             self.assertNotIn("ai-consulting-practice-radar", text)
         self.assertIn("plugins-6", root)
-        self.assertIn("skills-10", root)
+        self.assertIn("skills-11", root)
 
 
 if __name__ == "__main__":
