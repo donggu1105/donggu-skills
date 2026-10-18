@@ -136,18 +136,21 @@ PREVIEW_SCHEMA = {
         "before approval. For any long body, pass `content_file` (absolute path to the "
         "prepared .pub.md) instead of `content` so the exact disk bytes are published; "
         "retyping a long body into `content` risks silent character corruption. Add "
-        "`content_sha256` to make the runtime verify those bytes."
+        "`content_sha256` to make the runtime verify those bytes. "
+        "naver_blog is experimental PREAUTH, LOCKED pending live account/editor verification; publish only."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "channel": {"type": "string", "enum": ["tistory", "maily", "threads", "linkedin", "instagram"]},
+            "channel": {"type": "string", "enum": ["tistory", "maily", "threads", "linkedin", "instagram", "naver_blog"]},
             "operation": {"type": "string", "enum": ["publish", "update", "delete"]},
             "payload": {
                 "type": "object",
                 "description": (
                     "Channel payload. Use `content_file` (absolute path) plus optional "
-                    "`content_sha256` in place of `content` to load the body from disk."
+                    "`content_sha256` in place of `content` to load the body from disk. "
+                    "naver_blog requires blog_id, title, content, tags; optional category, "
+                    "cover_image. No dry_run. blog_id is bound exactly in the preview."
                 ),
             },
             "topic": {"type": "string"},

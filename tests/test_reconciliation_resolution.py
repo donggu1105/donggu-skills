@@ -177,6 +177,120 @@ class ReconciliationResolutionTest(PublishingRuntimeTests):
                 user_message_id=999,
             )
 
+    # --- 장부 반영 (회귀: 2026-10-02 tistory 309가 영수증에만 기록되고 장부엔 없었다) ---
+
+    def _ledger_inserts(self):
+        from tests.test_publishing_runtime import FakeApiHandler
+        return [
+            r for r in FakeApiHandler.requests
+            if r[0] == "POST" and r[1] == "/rest/v1/published_posts"
+        ]
+
+    def _resolve_recorded(self, receipt_id, **overrides):
+        kwargs = dict(
+            resolution="external_change_recorded",
+            approval_text="재조정 해소해줘",
+            evidence="공개 페이지 200",
+            url="https://donggu1105.tistory.com/309",
+            post_id="309",
+            session_id=self.SESSION_ID,
+            turn_id="turn-x",
+            user_message_id=999,
+        )
+        kwargs.update(overrides)
+        return self.runtime.resolve_reconciliation(receipt_id, **kwargs)
+
+    def test_external_change_recorded_inserts_ledger_row(self):
+        receipt_id = self._make_stuck_receipt()
+        result = self._resolve_recorded(receipt_id)
+        self.assertEqual("resolved_external_change_recorded", result["state"])
+        self.assertEqual("inserted", result["ledger_write"])
+        inserts = self._ledger_inserts()
+        self.assertEqual(1, len(inserts))
+        body = inserts[0][3]
+        self.assertEqual(
+            {"topic": "stuck-topic", "channel": "tistory", "note_path": "note.md",
+             "post_id": "309", "url": "https://donggu1105.tistory.com/309"},
+            body,
+        )
+
+    def test_ledger_failure_keeps_receipt_blocking(self):
+        from tests.test_publishing_runtime import FakeApiHandler
+        receipt_id = self._make_stuck_receipt()
+        FakeApiHandler.fail_ledger_insert = True
+        with self.assertRaises(self.module.PublishingError):
+            self._resolve_recorded(receipt_id)
+        # 영수증은 그대로 막고 있어야 한다 → 같은 절차로 재시도 가능.
+        with self.assertRaises(self.module.ReceiptError):
+            self.runtime.store.assert_no_reconciliation(channel="tistory", topic="stuck-topic")
+        FakeApiHandler.fail_ledger_insert = False
+        self.assertEqual("inserted", self._resolve_recorded(receipt_id)["ledger_write"])
+
+    def test_existing_matching_ledger_row_is_not_duplicated(self):
+        from tests.test_publishing_runtime import FakeApiHandler
+        FakeApiHandler.active_posts_enabled = True
+        FakeApiHandler.active_post = {
+            "id": 7, "post_id": "309",
+            "url": "https://donggu1105.tistory.com/309", "note_path": "note.md",
+        }
+        receipt_id = self._make_stuck_receipt()
+        result = self._resolve_recorded(receipt_id)
+        self.assertEqual("already_present", result["ledger_write"])
+        self.assertEqual([], self._ledger_inserts())
+
+    def test_conflicting_active_ledger_row_blocks_resolution(self):
+        from tests.test_publishing_runtime import FakeApiHandler
+        FakeApiHandler.active_posts_enabled = True  # 다른 post_id(existing-post)
+        receipt_id = self._make_stuck_receipt()
+        with self.assertRaises(self.module.PublishingError):
+            self._resolve_recorded(receipt_id)
+        self.assertEqual([], self._ledger_inserts())
+
+    def test_no_external_change_never_writes_ledger(self):
+        receipt_id = self._make_stuck_receipt()
+        self.runtime.resolve_reconciliation(
+            receipt_id, resolution="no_external_change", approval_text="재조정 해소해줘",
+            session_id=self.SESSION_ID, turn_id="turn-x", user_message_id=999,
+        )
+        self.assertEqual([], self._ledger_inserts())
+
+    def _legacy_resolved_receipt(self):
+        """장부 반영 이전 코드로 종결된 영수증(= 309 실제 상태)을 재현한다."""
+        receipt_id = self._make_stuck_receipt()
+        store = self.runtime.store
+        path = store._path(receipt_id)
+        receipt = store._read_receipt_file(path)
+        receipt.update({
+            "state": "resolved_external_change_recorded",
+            "resolution": "external_change_recorded",
+            "resolution_ledger": {"post_id": "309", "url": "https://donggu1105.tistory.com/309"},
+        })
+        store._write(receipt)
+        return receipt_id
+
+    def test_legacy_resolved_receipt_can_backfill_ledger_once(self):
+        receipt_id = self._legacy_resolved_receipt()
+        result = self._resolve_recorded(receipt_id, user_message_id=1000)
+        self.assertEqual("inserted", result["ledger_write"])
+        self.assertEqual(1, len(self._ledger_inserts()))
+        with self.assertRaises(self.module.PublishingError):
+            self._resolve_recorded(receipt_id, user_message_id=1001)
+        self.assertEqual(1, len(self._ledger_inserts()))
+
+    def test_backfill_rejects_different_identifiers(self):
+        receipt_id = self._legacy_resolved_receipt()
+        with self.assertRaises(self.module.PublishingError):
+            self._resolve_recorded(
+                receipt_id, url="https://donggu1105.tistory.com/310", post_id="310",
+            )
+        self.assertEqual([], self._ledger_inserts())
+
+    def test_backfill_still_requires_resolution_approval(self):
+        receipt_id = self._legacy_resolved_receipt()
+        with self.assertRaises(self.module.PublishingError):
+            self._resolve_recorded(receipt_id, approval_text="발행해")
+        self.assertEqual([], self._ledger_inserts())
+
 
 if __name__ == "__main__":
     unittest.main()

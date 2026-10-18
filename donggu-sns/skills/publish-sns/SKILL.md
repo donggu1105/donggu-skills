@@ -1,6 +1,6 @@
 ---
 name: publish-sns
-description: Use when the user asks to publish, post, or delete finalized SNS content (올려줘, 발행해줘, 게시해줘, 삭제해줘, 내려줘) on tistory, maily, threads, linkedin, or instagram, including finalized local image files.
+description: Use when the user asks to publish, post, or delete finalized SNS content (올려줘, 발행해줘, 게시해줘, 삭제해줘, 내려줘) on tistory, naver_blog (activation-locked), maily, threads, linkedin, or instagram, including finalized local image files.
 ---
 
 # Publish SNS
@@ -12,7 +12,7 @@ Publish channel notes from the Obsidian vault through the native adapter, record
 **Three iron rules:**
 1. **Never publish or delete without an explicit user approval AFTER showing a preview.** Channel agreement is not approval. Body shown ≠ body changed later — re-preview after any edit.
 2. **The ledger is the only memory.** post_id/url live in `published_posts`, never in conversation memory.
-3. **Blog/Tistory needs a section image plan, not merely “an image.”** Every Blog publish or update must include a hero image as `cover_image` **and section-specific body images distributed through the article**. Give every major `##` section a matching image; two short adjacent sections may share one only when they express the same visual concept. For a post with 3 or more `##` sections, require at least 3 images total (hero + at least 2 body images) and never leave more than 2 consecutive `##` sections without an image. Place each body image after the opening paragraph of the section it illustrates, not as a gallery at the top or bottom. Prefer the user’s real screenshots/assets; otherwise generate with `get-ai-image` when appropriate. A factual depiction of a real person, place, customer, product state, or event requires a supplied or verified asset and must never be fabricated with AI. The first image remains the hero/cover so body, list thumbnail, and OG image stay aligned. A hero plus a final related-video thumbnail does **not** satisfy this gate.
+3. **Blog/Tistory needs a section image plan, not merely “an image.”** Every Tistory publish or update must include a hero image as `cover_image` **and section-specific body images distributed through the article**. Give every major `##` section a matching image; two short adjacent sections may share one only when they express the same visual concept. For a post with 3 or more `##` sections, require at least 3 images total (hero + at least 2 body images) and never leave more than 2 consecutive `##` sections without an image. Place each body image after the opening paragraph of the section it illustrates, not as a gallery at the top or bottom. Prefer the user’s real screenshots/assets; otherwise generate with `get-ai-image` when appropriate. A factual depiction of a real person, place, customer, product state, or event requires a supplied or verified asset and must never be fabricated with AI. The first image remains the hero/cover so body, list thumbnail, and OG image stay aligned. A hero plus a final related-video thumbnail does **not** satisfy this gate.
 
 Content *formats* are NOT defined here. Text drafts are owned by `writing-social-content`; this skill accepts only finalized text and finalized image files and owns the upload and publishing contract. It does not generate cards or finished Shorts/video files.
 
@@ -20,12 +20,18 @@ Content *formats* are NOT defined here. Text drafts are owned by `writing-social
 
 성공한 실발행 결과가 `published_posts`에 저장되면 existing DB trigger가 **발행 완료 이벤트**를 생성한다. 이 이벤트가 후속 검토의 유일한 경계다. `publish-sns`는 CORE/Snippet/MOC를 직접 생성하거나 후보를 적용하지 않는다. webhook 실패, 장부 저장 실패, preview, `dry-run`은 발행 완료 이벤트를 만들지 않는다.
 
+## Naver Blog — installed but activation locked
+
+For NaverBlog vault notes, first read `references/naver-blog-vault.md` for exact path, metadata, body boundary, and channel-local status rules. Content topology is usable even while public publishing stays locked.
+
+The experimental `naver_blog` channel has a dedicated native macOS service at fixed `127.0.0.1:8001` (LaunchAgent `com.donggu.naver-native`), while Tistory/Maily remain on Docker port 8000. It is **not ready for public publishing**. It is bound to `beyonddeploy`; the installed runner fixes `NAVER_BLOG_ENABLED=false` and the DOM contract empty. Native login, read-only check and headless publish share the same Chromium channel and protected dedicated profile. Current editor code rejects images/cover/rich Markdown; the separate compiler/media-preflight implementation is not live SmartEditor integration. Do not strip content or claim Tistory parity. Read `/Users/joeykang/.hermes/deployments/naver-native/STATUS.md` and the `browser-automation-session-recovery` skill's `references/donggu-naver-native.md` for installed paths and login steps. A gateway restart from the user's own Terminal is still required before the native channel schema becomes visible; never bypass the gateway restart guard. Login, potentially autosaved editor test input, and exact preview/later-turn public approval are separate gates. The same receipt/ledger rules below apply; no direct endpoint publishing.
+
 ## Flow
 
 ```
 "<topic> <channel>에 올려줘"
   1. Find note(s):  Personal Branding/40_Channel_Packs/<folder>/<채널> - <topic>.md
-     folder→channel: Blog→tistory · Maily→maily · Threads→threads · LinkedIn→linkedin · Instagram→instagram
+     folder→channel: Blog→tistory · NaverBlog→naver_blog (locked) · Maily→maily · Threads→threads · LinkedIn→linkedin · Instagram→instagram
      │
      ├─ note MISSING ──► DO NOT stop and ask for a filename.
      │     Offer to CREATE a missing text-channel draft with writing-social-content,
@@ -109,7 +115,13 @@ Content *formats* are NOT defined here. Text drafts are owned by `writing-social
      Inspect the existing post first and resolve it through the ledger/update path.
   6. Report per-channel success/failure + URLs. Update note frontmatter `status: published`
      only when at least one real publish succeeded and its ledger write completed. A dry-run-only
-     result leaves the note status unchanged.
+     result leaves the note status unchanged. In the same edit, write `published_url: <url>`
+     (directly under `status`/`published_at`) using the URL **re-read from the ledger row**, not
+     the dispatch response. This is a convenience link only — the ledger stays canonical; if
+     they ever differ, the ledger wins and the note is corrected. The same applies after a
+     `재조정 해소` with `external_change_recorded`. LinkedIn is usually posted manually by the
+     user: when they paste the post URL, record it as `published_url` in the LinkedIn note only
+     (no ledger write — the ledger is adapter-owned).
 ```
 
 ### Native adapter contract
@@ -166,6 +178,7 @@ reconciliation이 아니다. 그런데도 reconciliation이 걸렸다면 발행�
 
 | Channel | Body source in note | Payload notes | Format canon |
 |---|---|---|---|
+| naver_blog | `# 발행 원고` 직후 첫 비어 있지 않은 행=title; 이후 `# 편집 메모` 앞까지만 content (see `references/naver-blog-vault.md`) | `blog_id`, exact `category`, approved `public_tags` → `tags`; locked plain-text candidate only | writing-social-content `references/naver-blog.md` |
 | tistory | first line = title, markdown body as-is — **but run blog-image prep first** (see below) | `category`? (default 프로덕트 엔지니어), **required public `tags` 4–7** | vault `TEMPLATE - Blog 발행 틀` |
 | maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is — **blog-image prep first if it has `![[embeds]]`** | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
 | threads | `## 발행` text until the next `##` = `content`; `![[image]]` embeds → `image_urls` | ≤500 chars, 0 hashtags, 0 body URLs; native preview rejects overlength, hashtags, and unambiguous URL strings | **writing-social-content** |

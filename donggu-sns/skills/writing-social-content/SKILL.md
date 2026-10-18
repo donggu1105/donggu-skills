@@ -1,6 +1,6 @@
 ---
 name: writing-social-content
-description: Use when drafting or adapting text for Blog, LinkedIn, Threads, or Maily from a supplied source or brief. Routes through bundled common-voice, channel rules, and curated style examples; does not require external voice documents and does not save or publish content.
+description: Use when drafting or adapting text for Blog (Tistory/Naver Blog), LinkedIn, Threads, or Maily from a supplied source or brief. Routes through bundled common-voice, channel rules, and curated style examples; does not require external voice documents and does not save or publish content.
 ---
 
 # Writing Social Content
@@ -24,10 +24,12 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 5. 여러 채널이면 각 채널의 규칙과 examples를 각각 읽는다.
 6. 요청하지 않은 채널 reference는 읽지 않는다.
 7. 필수 reference가 없거나 읽히지 않으면 packaging 오류로 중단한다. 외부 보이스 문서나 과거 글을 찾아 우회하지 않는다.
+8. 네이버 요청은 Blog의 플랫폼 분기다. `references/naver-blog.md`의 검색 질문·재편집 규칙을 추가 로드한다. 별도 작성 스킬이나 외부 보이스 의존성을 만들지 않는다. 저장 schema와 자동발행 지원 여부는 이 authoring 스킬의 소유가 아니다.
 
 | 채널 | 규칙 reference | 논지 잠금 후 examples reference |
 |---|---|---|
-| Blog | `references/blog.md` | `references/examples-blog.md` |
+| Blog (Tistory) | `references/blog.md` | `references/examples-blog.md` |
+| Blog (Naver Blog / 네이버 / naver_blog) | `references/blog.md` + `references/naver-blog.md` | `references/examples-blog.md` (문체만, 네이버 성과 사례 아님) |
 | LinkedIn | `references/linkedin.md` | `references/examples-linkedin.md` |
 | Threads | `references/threads.md` | `references/examples-threads.md` |
 | Maily | `references/maily.md` | `references/examples-maily.md` |
@@ -140,7 +142,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 - 파일 저장 요청: 확정 본문을 target-native 파일 도구에 넘긴다. 이 스킬은 경로·schema·frontmatter를 소유하지 않는다.
 - 이미지 요청: 사용자 제공 스크린샷·사진·자산을 우선하고, 적합한 자산이 없으면 `get-ai-image`로 넘긴다.
 - 영상 요청: YouTube 기획만 `youtube`로 넘긴다. Instagram 카드·캐러셀 구성과 완성 영상 제작은 이 스킬 밖이다.
-- 게시 요청: `publish-sns`의 preview·approval 절차로 넘긴다. LinkedIn·Threads 초안의 외부 URL은 제거하고 본문 계약을 다시 검수한다. 이 스킬은 게시하지 않는다.
+- 게시 요청: `publish-sns`의 preview·approval 절차로 넘긴다. Threads 초안의 외부 URL은 제거하고 본문 계약을 다시 검수한다. 이 스킬은 게시하지 않는다.
 
 ## Common Mistakes
 
@@ -153,7 +155,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 | reference를 읽지 않고 매트릭스만 보고 작성 | 공통 보이스 + 요청 채널 reference를 반드시 읽는다. |
 | 논지 잠금 전에 기존 글 예시부터 읽기 | 근거 장부와 현재 논지를 먼저 잠근 뒤 요청 채널 examples만 읽는다. |
 | 예시의 문장·사례·결론을 재사용 | register·리듬·전환·종결 방식만 추출하고 내용은 현재 source에서만 가져온다. |
-| LinkedIn·Threads 외부 URL을 본문에 합치기 | URL을 제거하고 본문 URL 0개를 다시 검수한다. |
+| Threads 외부 URL을 본문에 합치기 | URL을 제거하고 본문 URL 0개를 다시 검수한다. |
 | 외부 보이스 문서나 과거 글을 자동 조회 | 금지. 스킬 내부 reference가 작성 규칙의 정본이다. |
 | 기존 글을 길이만 바꿔 재사용 | 채널별 독자·호흡·구조로 다시 쓴다. |
 | 과거 관점이나 익숙한 결론으로 수렴 | 현재 source에서 새 논지를 잠근다. |

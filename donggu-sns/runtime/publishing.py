@@ -55,6 +55,7 @@ class TransportError(PublishingError):
 _RECEIPT_RE = re.compile(r"^[A-Za-z0-9_-]{20,80}$")
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,199}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_NAVER_BLOG_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,49}")
 _MAX_TEXT = 500_000
 _MAX_CONTENT_FILE_BYTES = 4 * 1024 * 1024
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -96,6 +97,7 @@ def _embedded_ipv4(address):
             return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
     return None
 _DEFAULT_PUBLISHER_API_BASE = "http://127.0.0.1:8000"
+_DEFAULT_NAVER_PUBLISHER_API_BASE = "http://127.0.0.1:8001"
 _EXPECTED_SUPABASE_HOST = "fvfayignxybdyyravorg.supabase.co"
 
 _ENDPOINTS = {
@@ -110,6 +112,7 @@ _ENDPOINTS = {
 }
 
 _LOCAL_ENDPOINTS = {
+    ("naver_blog", "publish"): "/publish-sync/naver_blog",
     ("tistory", "publish"): "/publish-sync/tistory",
     ("tistory", "update"): "/update-sync/tistory",
     ("tistory", "delete"): "/unpublish-sync/tistory",
@@ -117,6 +120,7 @@ _LOCAL_ENDPOINTS = {
 }
 
 _CONTRACTS = {
+    ("naver_blog", "publish"): ({"blog_id", "title", "content", "tags"}, {"category", "cover_image"}),
     ("tistory", "publish"): ({"title", "content", "tags"}, {"category", "cover_image"}),
     ("tistory", "update"): ({"title", "content", "tags"}, {"category", "cover_image"}),
     ("maily", "publish"): ({"title", "content", "subtitle"}, {"tags", "dry_run"}),
@@ -345,6 +349,33 @@ def _validate_url(value: Any, field: str) -> str:
     return text
 
 
+def _validate_naver_result(url: Any, post_id: Any, *, blog_id: str) -> tuple[str, str]:
+    """Accept only the exact approved blog and canonical positive logNo.
+
+    Match raw bytes-as-text, not browser-normalized URL components: credentials,
+    ports, escapes, dot segments and whitespace must never acquire authority.
+    """
+    text = _nonempty(url, "publisher url")
+    identifier = _nonempty(post_id, "publisher post_id")
+    if re.fullmatch(r"[1-9][0-9]{0,19}", identifier) is None:
+        raise ValidationError("publisher post_id must be 1 to 20 canonical positive digits")
+    match = re.fullmatch(
+        r"https://blog\.naver\.com/" + re.escape(blog_id) + r"/([1-9][0-9]*)", text,
+    )
+    if match is not None and identifier == match.group(1):
+        return text, identifier
+    # Closed alternate grammar: exactly blogId + logNo, either order. No extra
+    # query keys, duplicate keys, percent decoding or browser normalization.
+    for query in (
+        r"blogId=" + re.escape(blog_id) + r"&logNo=([1-9][0-9]*)",
+        r"logNo=([1-9][0-9]*)&blogId=" + re.escape(blog_id),
+    ):
+        match = re.fullmatch(r"https://blog\.naver\.com/PostView\.naver\?" + query, text)
+        if match is not None and identifier == match.group(1):
+            return f"https://blog.naver.com/{blog_id}/{identifier}", identifier
+    raise ValidationError("publisher identifiers do not match the approved Naver blog target")
+
+
 def _validate_image_url(value: Any, *, allowed_hosts: set[str], resolve_dns: bool = True) -> str:
     if not isinstance(value, str) or value != value.strip():
         raise ValidationError("image URL contains a browser-normalized path")
@@ -478,6 +509,19 @@ def _validate_service_base(value: str, *, service: str, allow_test_origins: bool
     return text
 
 
+def _validate_naver_publisher_base(value: str, *, allow_test_origins: bool) -> str:
+    """Naver has a dedicated native service, never the shared/Docker publisher."""
+    text = _nonempty(value, "Naver publisher base URL")
+    if not allow_test_origins:
+        valid = text == _DEFAULT_NAVER_PUBLISHER_API_BASE
+    else:
+        match = re.fullmatch(r"http://(?:127\.0\.0\.1|localhost):([1-9][0-9]{0,4})", text)
+        valid = match is not None and int(match.group(1)) <= 65535
+    if not valid:
+        raise ValidationError("untrusted Naver publisher origin")
+    return text
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -587,8 +631,14 @@ def _validate_payload(
         raise ValidationError("payload does not match the closed channel contract")
     clean: Dict[str, Any] = {}
     for field, value in payload.items():
-        if field in {"title", "content", "subtitle", "caption", "category"}:
+        if field == "blog_id":
+            if not isinstance(value, str) or _NAVER_BLOG_ID_RE.fullmatch(value) is None:
+                raise ValidationError("blog_id must be 1 to 50 ASCII letters, digits, underscores or hyphens, starting with a letter or digit")
+            clean[field] = value
+        elif field in {"title", "content", "subtitle", "caption", "category"}:
             text = _nonempty(value, field)
+            if channel == "naver_blog" and len(text) > {"title": 100, "content": 100_000}.get(field, _MAX_TEXT):
+                raise ValidationError(f"naver_blog {field} exceeds the publisher limit")
             clean[field] = (
                 _validate_content_contract(channel, operation, text)
                 if field == "content"
@@ -599,7 +649,7 @@ def _validate_payload(
                 value, allowed_hosts=allowed_image_hosts, resolve_dns=resolve_image_hosts,
             )
         elif field in {"tags"}:
-            if not isinstance(value, list) or len(value) > 50:
+            if not isinstance(value, list) or len(value) > (30 if channel == "naver_blog" else 50):
                 raise ValidationError("tags must be a bounded string list")
             if channel != "tistory":
                 clean[field] = [_nonempty(item, "tag").strip() for item in value]
@@ -1157,6 +1207,7 @@ class ReceiptStore:
         ledger: Any = None,
         approval_digest: str,
         approval_message_id: int,
+        before_resolve: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
     ) -> Dict[str, Any]:
         """Close a stuck receipt so the channel can publish again.
 
@@ -1173,35 +1224,69 @@ class ReceiptStore:
         state, both enforced by the caller.  File structure and routing fields are
         still validated, so a tampered or unrelated file is rejected.
         """
-        path = self._path(receipt_id)
-        receipt = self._read_receipt_file(path)
-        if receipt.get("receipt_id") != receipt_id:
-            raise ReceiptError("receipt binding mismatch")
-        if not all(
-            isinstance(receipt.get(field), str) and receipt.get(field)
-            for field in ("state", "channel", "topic")
-        ):
-            raise ReceiptError("invalid receipt file")
-        if receipt.get("state") not in ("reconciliation_required", "dispatching"):
-            raise ReceiptError("receipt is not awaiting reconciliation")
-        if resolution not in _RESOLUTIONS:
-            raise ReceiptError("unknown reconciliation resolution")
+        with self._lock(receipt_id):
+            path = self._path(receipt_id)
+            receipt = self._read_receipt_file(path)
+            if receipt.get("receipt_id") != receipt_id:
+                raise ReceiptError("receipt binding mismatch")
+            if not all(
+                isinstance(receipt.get(field), str) and receipt.get(field)
+                for field in ("state", "channel", "topic")
+            ):
+                raise ReceiptError("invalid receipt file")
+            if resolution not in _RESOLUTIONS:
+                raise ReceiptError("unknown reconciliation resolution")
+            state = receipt.get("state")
+            # 장부 보강(backfill): 장부 반영 이전 코드로 이미 종결된 외부변경 영수증은
+            # 같은 url·post_id로 한 번 더 해소해 장부 행만 채울 수 있다. 다른 값으로
+            # 바꾸거나, 이미 장부 반영이 기록된 영수증을 다시 여는 것은 거부한다.
+            backfill = (
+                state == "resolved_external_change_recorded"
+                and resolution == _RESOLUTION_RECORDED
+                and receipt.get("resolution_ledger_write") is None
+            )
+            if backfill:
+                if receipt.get("resolution_ledger") != ledger:
+                    raise ReceiptError("ledger backfill must use the originally recorded url and post_id")
+            elif state not in ("reconciliation_required", "dispatching"):
+                raise ReceiptError("receipt is not awaiting reconciliation")
 
-        terminal = (
-            "resolved_no_external_change"
-            if resolution == _RESOLUTION_NO_CHANGE
-            else "resolved_external_change_recorded"
-        )
-        receipt["state"] = terminal
-        receipt["resolution"] = resolution
-        receipt["resolved_at"] = int(time.time())
-        receipt["resolution_evidence"] = str(evidence or "")[:_MAX_TEXT]
-        receipt["resolution_approval_sha256"] = approval_digest
-        receipt["resolution_message_id"] = approval_message_id
-        if ledger is not None:
-            receipt["resolution_ledger"] = ledger
-        self._write(receipt)
-        return receipt
+            # 장부 반영은 영수증 종결보다 먼저 한다. 장부 쓰기가 실패하면 예외가
+            # 그대로 올라가 영수증은 reconciliation_required로 남는다 — 채널은 계속
+            # 막히지만 같은 승인 절차로 다시 해소할 수 있다(fail-closed). 반대 순서면
+            # 채널은 풀렸는데 장부에 글이 없어 이후 수정·삭제가 불가능해진다
+            # (2026-10-02 tistory 309).
+            ledger_write = None
+            if before_resolve is not None:
+                ledger_write = before_resolve(receipt)
+
+            if backfill:
+                # 원래 종결 기록은 보존하고 보강 사실만 덧붙인다.
+                receipt["resolution_ledger_write"] = ledger_write
+                receipt["ledger_backfilled_at"] = int(time.time())
+                receipt["ledger_backfill_evidence"] = str(evidence or "")[:_MAX_TEXT]
+                receipt["ledger_backfill_approval_sha256"] = approval_digest
+                receipt["ledger_backfill_message_id"] = approval_message_id
+                self._write(receipt)
+                return receipt
+
+            terminal = (
+                "resolved_no_external_change"
+                if resolution == _RESOLUTION_NO_CHANGE
+                else "resolved_external_change_recorded"
+            )
+            receipt["state"] = terminal
+            receipt["resolution"] = resolution
+            receipt["resolved_at"] = int(time.time())
+            receipt["resolution_evidence"] = str(evidence or "")[:_MAX_TEXT]
+            receipt["resolution_approval_sha256"] = approval_digest
+            receipt["resolution_message_id"] = approval_message_id
+            if ledger is not None:
+                receipt["resolution_ledger"] = ledger
+            if ledger_write is not None:
+                receipt["resolution_ledger_write"] = ledger_write
+            self._write(receipt)
+            return receipt
 
     def claim(
         self,
@@ -1249,6 +1334,8 @@ class PublishingRuntime:
         ledger: SupabaseLedger,
         publisher_api_base_url: Optional[str] = None,
         publisher_api_token: Optional[str] = None,
+        naver_publisher_api_base_url: Optional[str] = None,
+        naver_publisher_api_token: Optional[str] = None,
         receipt_ttl_seconds: int = 900,
         timeout: int = 200,
         allow_test_origins: bool = False,
@@ -1281,6 +1368,18 @@ class PublishingRuntime:
             else None
         )
         self.ledger = ledger
+        if (naver_publisher_api_base_url is None) != (naver_publisher_api_token is None):
+            raise ValidationError("Naver publisher API base URL and token must be configured together")
+        self.naver_publisher_api_base_url = (
+            _validate_naver_publisher_base(
+                naver_publisher_api_base_url, allow_test_origins=allow_test_origins,
+            )
+            if naver_publisher_api_base_url is not None else None
+        )
+        self.naver_publisher_api_token = (
+            _nonempty(naver_publisher_api_token, "Naver publisher API token")
+            if naver_publisher_api_token is not None else None
+        )
         self.timeout = int(timeout)
         self.image_allowed_hosts = set(image_allowed_hosts or ({"img.test"} if allow_test_origins else {_EXPECTED_SUPABASE_HOST}))
         self.resolve_image_hosts = not allow_test_origins
@@ -1293,6 +1392,12 @@ class PublishingRuntime:
         publisher_token = os.getenv("PUBLISHER_API_TOKEN", "").strip()
         if not publisher_token:
             raise ValidationError("PUBLISHER_API_TOKEN is required")
+        naver_token = os.getenv("NAVER_PUBLISHER_API_TOKEN", "").strip() or None
+        # Validate even when disabled: an override is not a fallback route.
+        naver_base = _validate_naver_publisher_base(
+            os.getenv("NAVER_PUBLISHER_API_BASE_URL", _DEFAULT_NAVER_PUBLISHER_API_BASE),
+            allow_test_origins=False,
+        )
         home = Path(os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser()
         return cls(
             receipt_root=home / "state" / "donggu-publishing" / "receipts",
@@ -1302,6 +1407,8 @@ class PublishingRuntime:
                 "PUBLISHER_API_BASE_URL", _DEFAULT_PUBLISHER_API_BASE,
             ),
             publisher_api_token=publisher_token,
+            naver_publisher_api_base_url=naver_base if naver_token else None,
+            naver_publisher_api_token=naver_token,
             ledger=SupabaseLedger.from_env(),
         )
 
@@ -1358,6 +1465,8 @@ class PublishingRuntime:
         inline_images = _extract_markdown_images(clean.get("content", ""))
         image_urls = list(clean.get("image_urls", []))
         image_urls.extend(image["url"] for image in inline_images)
+        if channel == "naver_blog" and clean.get("cover_image"):
+            image_urls.append(clean["cover_image"])
         preview["image_count"] = len(dict.fromkeys(image_urls))
         if inline_images:
             preview["inline_images"] = inline_images
@@ -1453,6 +1562,11 @@ class PublishingRuntime:
                 "post_id": _nonempty(post_id, "post_id"),
             }
 
+        def write_ledger(receipt: Dict[str, Any]) -> Optional[str]:
+            if ledger is None:
+                return None
+            return self._record_resolved_external_change(receipt, ledger)
+
         receipt = self.store.resolve_reconciliation(
             receipt_id,
             resolution=resolution,
@@ -1460,6 +1574,7 @@ class PublishingRuntime:
             ledger=ledger,
             approval_digest=hashlib.sha256(text.strip().encode("utf-8")).hexdigest(),
             approval_message_id=approval_message_id,
+            before_resolve=write_ledger,
         )
         return {
             "receipt_id": receipt.get("receipt_id"),
@@ -1468,7 +1583,53 @@ class PublishingRuntime:
             "channel": receipt.get("channel"),
             "topic": receipt.get("topic"),
             "ledger": receipt.get("resolution_ledger"),
+            "ledger_write": receipt.get("resolution_ledger_write"),
         }
+
+    def _record_resolved_external_change(
+        self, receipt: Dict[str, Any], ledger: Dict[str, str],
+    ) -> str:
+        """Make `published_posts` reflect a mutation the operator verified.
+
+        Returns what happened so the receipt keeps an audit trail. Raises on any
+        conflict or write failure so the receipt stays blocking (fail-closed).
+        """
+        operation = receipt.get("operation")
+        channel = str(receipt.get("channel"))
+        topic = str(receipt.get("topic"))
+        if operation == "publish":
+            note_path = _nonempty(receipt.get("note_path"), "receipt note_path")
+            active = self.ledger.find_active_optional(topic, channel)
+            if active is not None:
+                if str(active.get("post_id") or "") == ledger["post_id"]:
+                    return "already_present"
+                raise ValidationError(
+                    "another active ledger post exists for this topic and channel"
+                )
+            self.ledger.record_publish(
+                topic=topic, channel=channel, note_path=note_path,
+                post_id=ledger["post_id"], url=ledger["url"],
+            )
+            return "inserted"
+        if operation == "update":
+            active = self.ledger.find_active_optional(topic, channel)
+            if active is None or str(active.get("post_id") or "") != ledger["post_id"]:
+                raise ValidationError("updated post does not match the active ledger post")
+            return "already_present"
+        if operation == "delete":
+            resolved = receipt.get("resolved")
+            if not isinstance(resolved, dict) or str(resolved.get("post_id") or "") != ledger["post_id"]:
+                raise ValidationError("deleted post does not match the approved ledger post")
+            active = self.ledger.find_active_optional(topic, channel)
+            if active is None:
+                return "already_deleted"
+            if str(active.get("id")) != str(resolved.get("id")):
+                raise ValidationError("active ledger post changed since the delete was approved")
+            self.ledger.mark_deleted(
+                ledger_id=resolved["id"], channel=channel, post_id=ledger["post_id"],
+            )
+            return "marked_deleted"
+        raise ValidationError("unsupported receipt operation for ledger resolution")
 
     @staticmethod
     def _verify_binding(receipt: Dict[str, Any]) -> None:
@@ -1718,6 +1879,15 @@ class PublishingRuntime:
                 receipt, "reconciliation_required", result=result, payload=None,
             )
             return result
+        if channel == "naver_blog" and (
+            self.naver_publisher_api_base_url is None or self.naver_publisher_api_token is None
+        ):
+            result = {
+                "status": "failed", "receipt_id": receipt_id,
+                "error": "Naver dedicated publisher configuration is required; no shared or webhook fallback",
+            }
+            self.store.transition(receipt, "failed", result=result, payload=None)
+            return result
         if real_publish:
             try:
                 existing = self.ledger.find_active_optional(receipt["topic"], channel)
@@ -1744,15 +1914,21 @@ class PublishingRuntime:
                 )
                 return result
         key = (channel, operation)
+        publisher_base = (
+            self.naver_publisher_api_base_url if channel == "naver_blog"
+            else self.publisher_api_base_url
+        )
+        publisher_token = (
+            self.naver_publisher_api_token if channel == "naver_blog"
+            else self.publisher_api_token
+        )
         use_local_publisher = (
-            key in _LOCAL_ENDPOINTS and self.publisher_api_base_url is not None
+            key in _LOCAL_ENDPOINTS and publisher_base is not None
         )
         if use_local_publisher:
-            publisher_base = self.publisher_api_base_url
-            publisher_token = self.publisher_api_token
             assert publisher_base is not None and publisher_token is not None
             resolved = receipt.get("resolved") or {}
-            request_body = _local_api_payload(
+            request_body = dict(webhook_payload) if channel == "naver_blog" else _local_api_payload(
                 operation,
                 webhook_payload,
                 post_id=resolved.get("post_id"),
@@ -1836,6 +2012,10 @@ class PublishingRuntime:
                 external_mutation_possible = (
                     response.get("external_mutation_possible") is True
                     or has_external_identifiers
+                    or (channel == "naver_blog" and not (
+                        response.get("success") is False
+                        and response.get("external_mutation_possible") is False
+                    ))
                 )
                 if external_mutation_possible:
                     return require_reconciliation(
@@ -1857,7 +2037,13 @@ class PublishingRuntime:
         }
         if operation != "delete":
             try:
-                result["url"] = _validate_url(response.get("url"), "publisher url")
+                if channel == "naver_blog":
+                    result["url"], result["post_id"] = _validate_naver_result(
+                        response.get("url"), response.get("post_id"),
+                        blog_id=receipt["payload"]["blog_id"],
+                    )
+                else:
+                    result["url"] = _validate_url(response.get("url"), "publisher url")
                 if channel in {"tistory", "threads"}:
                     result["post_id"] = _nonempty(response.get("post_id"), "publisher post_id")
             except ValidationError:
