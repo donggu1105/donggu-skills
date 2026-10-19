@@ -36,6 +36,8 @@ REQUIRED = {
     "closing": ("title",),
 }
 LIMITS = {"items": 5, "title_chars": 60}
+IMAGE_MODES = ("full", "band", "inline")
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 CHROME_CANDIDATES = (
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -69,7 +71,33 @@ def validate_spec(spec: dict) -> list[dict]:
                     raise SpecError(f"card {i} (compare): {side} needs a title")
         if len(str(card.get("title", ""))) > LIMITS["title_chars"]:
             raise SpecError(f"card {i}: title longer than {LIMITS['title_chars']} chars")
+        img = card.get("image")
+        if img is not None:
+            if not isinstance(img, dict) or not img.get("src"):
+                raise SpecError(f"card {i}: image must be an object with 'src'")
+            mode = img.get("mode", "band")
+            if mode not in IMAGE_MODES:
+                raise SpecError(f"card {i}: image.mode {mode!r} not in {IMAGE_MODES}")
+            if not str(img["src"]).lower().endswith(IMAGE_EXTS):
+                raise SpecError(f"card {i}: image.src must be one of {IMAGE_EXTS}")
+            z = img.get("zoom", 1.0)
+            if not isinstance(z, (int, float)) or not 1.0 <= float(z) <= 2.0:
+                raise SpecError(f"card {i}: image.zoom must be a number between 1 and 2")
+            if t == "compare" and mode == "inline":
+                raise SpecError(f"card {i}: compare cards take 'full' or 'band' images only")
     return cards
+
+
+def resolve_image(src: str, spec_dir: Path) -> Path:
+    """Local path (absolute, or relative to the spec file). Remote URLs are not fetched — download first."""
+    if re.match(r"^https?://", src):
+        raise SpecError(f"image.src is a URL ({src[:60]}…); download it next to the spec and reference the file")
+    p = Path(src).expanduser()
+    if not p.is_absolute():
+        p = (spec_dir / p).resolve()
+    if not p.is_file():
+        raise SpecError(f"image not found: {p}")
+    return p
 
 
 def load_theme(name: str, skill_dir: Path = SKILL_DIR) -> dict:
@@ -135,10 +163,41 @@ def card_body_html(card: dict) -> str:
     raise SpecError(f"unhandled type {t}")
 
 
+def image_block(card: dict, spec_dir: Path | None) -> tuple[str, str, str, str, str]:
+    """Returns (mode, outer_block_html, inline_html, focus, overlay, zoom) for the card's image, if any."""
+    img = card.get("image")
+    if not img:
+        return "text", "", "", "50% 50%", "0.72", "1.0"
+    mode = img.get("mode", "band")
+    src = img["src"]
+    if spec_dir is not None:
+        src = resolve_image(src, spec_dir).as_uri()
+    alt = html.escape(img.get("alt", ""), quote=True)
+    focus = html.escape(str(img.get("focus", "50% 50%")), quote=True)
+    overlay = str(float(img.get("overlay", 0.72)))
+    zoom = str(float(img.get("zoom", 1.0)))
+    tag = f'<img src="{html.escape(src, quote=True)}" alt="{alt}" data-qa-img="{mode}">'
+    if mode == "full":
+        return mode, f'<div class="bg">{tag}</div>', "", focus, overlay, zoom
+    if mode == "band":
+        return mode, f'<div class="band">{tag}</div>', "", focus, overlay, zoom
+    return mode, "", f'<div class="inline-img" data-qa="image">{tag}</div>', focus, overlay, zoom
+
+
 def build_card_html(card: dict, index: int, total: int, spec: dict, theme: dict,
-                    template_path: Path | None = None) -> str:
+                    template_path: Path | None = None, spec_dir: Path | None = None) -> str:
     template = (template_path or SKILL_DIR / "templates" / "card.html").read_text(encoding="utf-8")
     font_stack = ", ".join(f'"{f}"' for f in theme["fonts"]) + ", sans-serif"
+    mode, outer, inline, focus, overlay, zoom = image_block(card, spec_dir)
+    content = card_body_html(card)
+    if inline:
+        # inline image sits after the title (list/steps/point) or after the body (closing/cover/quote)
+        marker = "</h2>" if "</h2>" in content and card["type"] in ("point", "list", "steps") else None
+        if marker:
+            head, tail = content.split(marker, 1)
+            content = head + marker + inline + tail
+        else:
+            content = content + inline
     mapping = {
         "LANG": theme.get("lang", "ko"),
         "W": str(W), "H": str(H),
@@ -151,7 +210,12 @@ def build_card_html(card: dict, index: int, total: int, spec: dict, theme: dict,
         "HANDLE": html.escape(spec.get("handle", theme.get("handle", ""))),
         "PAGE": f"{index:02d} / {total:02d}",
         "TYPE": card["type"],
-        "CONTENT": card_body_html(card),
+        "MODE": mode,
+        "IMAGE_BLOCK": outer,
+        "FOCUS": focus,
+        "OVERLAY": overlay,
+        "ZOOM": zoom,
+        "CONTENT": content,
     }
     out = template
     for k, v in mapping.items():
@@ -235,6 +299,12 @@ def qa_card(index: int, card: dict, probe: dict, png: Path) -> tuple[dict, list[
             problems.append({"card": index, "kind": "safe-area", "element": el["id"], "detail": f"right {el['right']}px > {safe_right}px"})
     for a, b in probe.get("overlaps", []):
         problems.append({"card": index, "kind": "overlap", "element": f"{a}+{b}", "detail": "boxes overlap"})
+    for im in probe.get("images", []):
+        report.setdefault("images", []).append(im)
+        if not im.get("loaded"):
+            problems.append({"card": index, "kind": "image", "element": im.get("id"), "detail": "image failed to load (path? format?)"})
+        elif im.get("w", 0) < 900:
+            problems.append({"card": index, "kind": "image-small", "element": im.get("id"), "detail": f"source only {im.get('w')}px wide; will look soft at 1080"})
     if footer and abs(footer["bottom"] - safe_bottom) > 6:
         problems.append({"card": index, "kind": "layout", "element": "footer", "detail": f"footer bottom {footer['bottom']}px, expected ≈{safe_bottom}px (layout collapsed?)"})
     try:
@@ -264,7 +334,7 @@ def render(spec_path: Path, out: Path, theme_name: str | None, chrome_path: str 
     pngs, reports, problems = [], [], []
     with tempfile.TemporaryDirectory(prefix="cardnews-chrome-") as profile:
         for i, card in enumerate(cards, 1):
-            page = build_card_html(card, i, total, spec, theme)
+            page = build_card_html(card, i, total, spec, theme, spec_dir=spec_path.resolve().parent)
             html_path = html_dir / f"{i:02d}.html"
             html_path.write_text(page, encoding="utf-8")
             png_path = out / f"{i:02d}.png"

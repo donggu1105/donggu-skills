@@ -101,6 +101,55 @@ class SpecAndHtmlTest(unittest.TestCase):
         self.assertIn(self.theme["accent"], html)
         self.assertIn('data-qa-result', html)  # QA probe script is embedded
 
+    def test_sample_uses_images_in_every_mode_and_ships_the_files(self):
+        cards = render_cards.validate_spec(self.spec)
+        modes = {c["image"].get("mode", "band") for c in cards if c.get("image")}
+        self.assertTrue({"full", "band"} <= modes, modes)
+        spec_dir = SKILL / "examples"
+        for c in cards:
+            if c.get("image"):
+                p = render_cards.resolve_image(c["image"]["src"], spec_dir)
+                self.assertTrue(p.is_file(), p)
+                self.assertLess(p.stat().st_size, 400_000, f"{p.name}: keep sample photos small")
+                self.assertTrue(c["image"].get("alt"), f"{c['type']}: image needs alt text")
+
+    def test_image_spec_validation(self):
+        base = {"type": "point", "title": "t", "body": "b"}
+        for bad in (
+            {"src": "x.gif"},                        # unsupported extension
+            {"src": "x.jpg", "mode": "hero"},        # unknown mode
+            {"src": "x.jpg", "zoom": 3},             # zoom out of range
+            "assets/x.jpg",                          # must be an object
+        ):
+            with self.assertRaises(render_cards.SpecError, msg=bad):
+                render_cards.validate_spec({"cards": [dict(base, image=bad)]})
+        with self.assertRaises(render_cards.SpecError):  # compare takes no inline image
+            render_cards.validate_spec({"cards": [{"type": "compare", "title": "t",
+                "left": {"title": "a", "body": "b"}, "right": {"title": "c", "body": "d"},
+                "image": {"src": "x.jpg", "mode": "inline"}}]})
+        with self.assertRaises(render_cards.SpecError):  # URLs are not fetched
+            render_cards.resolve_image("https://example.com/a.jpg", SKILL)
+        with self.assertRaises(render_cards.SpecError):  # missing file
+            render_cards.resolve_image("assets/does-not-exist.jpg", SKILL / "examples")
+
+    def test_image_modes_render_to_distinct_markup(self):
+        img = SKILL / "examples" / "assets" / "lounge-wide.jpg"
+        for mode, needle in (("full", 'class="bg"'), ("band", 'class="band"'), ("inline", 'class="inline-img"')):
+            card = {"type": "point", "title": "t", "body": "b",
+                    "image": {"src": str(img), "mode": mode, "focus": "30% 40%", "overlay": 0.8, "zoom": 1.2}}
+            html = render_cards.build_card_html(card, index=1, total=1, spec=self.spec, theme=self.theme,
+                                                spec_dir=SKILL / "examples")
+            self.assertIn(needle, html, mode)
+            self.assertIn(f"mode-{mode}", html)
+            self.assertIn("--focus: 30% 40%", html)
+            self.assertIn("--zoom: 1.2", html)
+            self.assertIn(img.as_uri(), html)  # file:// so Chrome can load it without a server
+            self.assertIn('data-qa-img', html)  # probe reports load state
+        plain = render_cards.build_card_html({"type": "point", "title": "t", "body": "b"},
+                                             index=1, total=1, spec=self.spec, theme=self.theme)
+        self.assertIn("mode-text", plain)
+        self.assertNotIn("<img", plain)
+
 
 class RenderTest(unittest.TestCase):
     def setUp(self):
@@ -152,6 +201,21 @@ class RenderTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
             qa = json.loads((out / "qa.json").read_text(encoding="utf-8"))
             self.assertTrue(any(p["kind"] == "overflow" for p in qa["problems"]), qa)
+
+    def test_broken_image_is_reported_not_silently_blank(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.jpg"
+            bad.write_bytes(b"not really a jpeg")
+            spec = {"theme": "beyond-deploy", "handle": "@test", "cards": [
+                {"type": "point", "title": "이미지 깨짐", "body": "본문", "image": {"src": "bad.jpg", "mode": "band"}}]}
+            spec_path = Path(tmp) / "spec.json"
+            spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+            out = Path(tmp) / "out"
+            proc = subprocess.run([sys.executable, str(RENDERER), str(spec_path), "--out", str(out), "--no-pdf"],
+                                  capture_output=True, text=True, timeout=120)
+            self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+            qa = json.loads((out / "qa.json").read_text(encoding="utf-8"))
+            self.assertTrue(any(p["kind"] == "image" for p in qa["problems"]), qa)
 
 
 if __name__ == "__main__":

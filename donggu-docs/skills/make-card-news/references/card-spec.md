@@ -22,7 +22,20 @@ One JSON file per card set. Top level:
 | `compare` | `title`, `left{title,body?}`, `right{title,body?}` | `footer` | before/after, A vs B — the right box is the accented one |
 | `closing` | `title` | `body`, `cta` | last card — one CTA pill, no like/follow begging |
 
-Limits enforced by `validate_spec`: unknown type, missing required field, >5 items, title > 60 chars.
+Limits enforced by `validate_spec`: unknown type, missing required field, >5 items, title > 60 chars, bad `image` object.
+
+## `image` (optional on every type; `compare` accepts `full`/`band` only)
+
+| Key | Required | Meaning |
+|---|---|---|
+| `src` | yes | local `.jpg/.jpeg/.png/.webp`, absolute or relative to the spec file. URLs are rejected — download first |
+| `mode` | no (default `band`) | `full` = fills the card behind a dark gradient, white type, text bottom-anchored · `band` = top 500 px, series pill moves below the photo · `inline` = 340 px rounded image after the title (point/list/steps) or after the body (cover/quote/closing) |
+| `focus` | no (`50% 50%`) | CSS `object-position`; also the zoom anchor. Lower the y value to give heads headroom |
+| `zoom` | no (1.0) | 1–2, crops in around `focus` |
+| `overlay` | no (0.72) | 0–1 gradient darkness for `full`; 0.78–0.85 for busy or bright photos |
+| `alt` | recommended | what's in the frame — used for review and for the vault note |
+
+The probe records `images[]` (loaded, natural size) and flags `image` (failed to load) and `image-small` (< 900 px wide).
 
 ## Inline markup (the only markup)
 
@@ -34,8 +47,9 @@ Limits enforced by `validate_spec`: unknown type, missing required field, >5 ite
 ## Sizes baked into the template (do not shrink to fit — cut copy instead)
 
 - Canvas 1080×1350, side padding 84 px (~7.8 %), footer sits on the 90 % line; nothing below it.
-- Title 72 px/1.18 (cover 92 px), body 42 px/1.55, list items 40 px, quote 56 px, compare columns 34 px, footer/meta 24–26 px.
-- Body boxes cap at 720–760 px tall and clip (`overflow: hidden`); the QA probe reports `overflow` when that happens — shorten the text.
+- Title and quote 80 px/1.18 (72 px on `band` cards); body 54 px (48 on band); list/steps items 52 px (42 on band); lead/sub 42 px; compare column body 40 px, closing line 42 px; series pill 26 px; footer 26 px. Everything the reader is meant to read is ≥ 40 px — headline-sized by design.
+- White cards start their content at a fixed line (170 px under the pill) so the set keeps one rhythm; `full` cards bottom-anchor the text above the footer; `band` cards start right under the pill below the photo.
+- Body boxes cap at 400–700 px tall and clip (`overflow: hidden`); the QA probe reports `overflow` when that happens — shorten the text, never the type.
 
 ## Themes (`themes/<name>.json`)
 
