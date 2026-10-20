@@ -403,7 +403,7 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         marketplace_versions = {
             plugin["name"]: plugin["version"] for plugin in marketplace["plugins"]
         }
-        for plugin_name in ("donggu-sns", "donggu-obsidian"):
+        for plugin_name in ("donggu-sns",):
             manifest = json.loads(
                 (REPO_ROOT / plugin_name / ".claude-plugin" / "plugin.json").read_text(
                     encoding="utf-8"

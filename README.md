@@ -27,18 +27,6 @@ Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되
 
 ## 🧩 Plugins
 
-### 📚 `donggu-obsidian` — Native Vault runtime
-
-사용자-facing 진입점은 `life-os` 하나입니다. Vault 구조·라우팅 프롬프트는 각 Vault의 `AGENTS.md`·`RULES.md`·`HOME.md`·`INDEX`가 직접 소유합니다.
-
-| Skill | 호출 | 용도 |
-|---|---|---|
-| `life-os` | `/donggu-obsidian:life-os` | Daily 대화 체크인, Capture, 첨부 기록, 구조화된 AI 정리 |
-
-CORE·FDE Community transaction의 hash·journal·rollback과 FDE Community 일일 Capture writer는 plugin native runtime이 소유하며 prompt skill로 노출하지 않습니다.
-
----
-
 ### 🎬 `donggu-docs` — Document & deck authoring
 
 강의·세미나·워크샵·런칭 발표용 **단일 HTML 덱** 빌드 시스템. 22개 잠긴 레이아웃(S01~S22) + 4개 컬러 테마 + 정규식 검증기 기반으로 매번 같은 톤이 자동 보장. 원본은 [bytonylee/future-slide-skill](https://github.com/bytonylee/future-slide-skill)의 `tightened-slide`, 본 plugin은 강의 톤으로 재작성한 donggu 버전 (Apache-2.0 → MIT derivative).
@@ -83,21 +71,19 @@ claude plugin marketplace add donggu1105/donggu-skills
 ### 2️⃣ Plugin install
 
 ```
-/plugin install donggu-obsidian@donggu-skills
+/plugin install donggu-sns@donggu-skills
 ```
 
 또는:
 ```bash
-claude plugin install donggu-obsidian@donggu-skills
+claude plugin install donggu-sns@donggu-skills
 ```
 
 ### 3️⃣ 첫 호출
 
 ```
-/donggu-obsidian:life-os
+/donggu-sns:writing-social-content
 ```
-
-Vault의 일반 읽기·검색·정리는 해당 Vault의 권위 파일과 필요한 범용 Obsidian 스킬을 직접 사용합니다.
 
 ### Codex — 현재 `donggu-sns` 지원
 
@@ -127,9 +113,9 @@ claude plugin marketplace update donggu-skills
 
 특정 plugin 제거:
 ```bash
-claude plugin disable donggu-obsidian
+claude plugin disable donggu-sns
 # 또는 영구 제거:
-claude plugin uninstall donggu-obsidian@donggu-skills
+claude plugin uninstall donggu-sns@donggu-skills
 ```
 
 ---
@@ -142,16 +128,6 @@ donggu-skills/                       ← marketplace repo
 │   └── marketplace.json             ← Claude Code 전체 plugin catalog
 ├── .agents/plugins/marketplace.json      ← Codex manifest-ready subset catalog
 ├── donggu-sns/.codex-plugin/plugin.json  ← Codex plugin manifest
-├── donggu-obsidian/                 ← plugin (namespace: donggu-obsidian:)
-│   ├── .claude-plugin/
-│   │   └── plugin.json              ← plugin 메타
-│   ├── skills/
-│   │   ├── core-review-approval/    ← internal helper scripts, no SKILL.md
-│   │   └── life-os/
-│   │       ├── SKILL.md
-│   │       └── scripts/life-os.py
-│   ├── runtime/                     ← native transaction + Capture + Life OS runtime
-│   └── README.md
 ├── donggu-docs/                     ← plugin (namespace: donggu-docs:)
 │   ├── .claude-plugin/
 │   │   └── plugin.json
@@ -200,7 +176,6 @@ donggu-skills/                       ← marketplace repo
 
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
-| **donggu-obsidian** | ✅ `v2.4.0` | 1 | Hermes-native Vault transactions, bounded FDE Capture, and Life OS summaries |
 | **donggu-docs** | ✅ `v1.2.0` | 2 | Document & deck authoring (HTML slide decks, card-news / carousel sets) |
 | **donggu-research** | ✅ `v1.3.0` | 1 | Beginner-friendly AX industry change and profit learning |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |

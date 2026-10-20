@@ -93,7 +93,6 @@ make-ppt/
 ## 🔗 관련
 
 - [donggu-skills marketplace](../) — 본 plugin 부모
-- [donggu-obsidian](../donggu-obsidian/) — vault 콘텐츠 추출 후 본 스킬로 발표 자료화
 
 ---
 

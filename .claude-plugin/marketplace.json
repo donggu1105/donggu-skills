@@ -10,13 +10,6 @@
   },
   "plugins": [
     {
-      "name": "donggu-obsidian",
-      "source": "./donggu-obsidian",
-      "description": "Hermes-native Vault transactions, bounded FDE Community daily Capture writing, and recoverable Life OS AI summaries.",
-      "version": "2.4.0",
-      "strict": false
-    },
-    {
       "name": "donggu-docs",
       "source": "./donggu-docs",
       "description": "Document & deck authoring — zero-dependency single-HTML slide decks (make-ppt) and card-news / carousel sets rendered to PNG + PDF from an editable JSON spec (make-card-news).",

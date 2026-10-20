@@ -125,4 +125,3 @@ codex plugin add donggu-sns@donggu-skills
 ## Related
 
 - 마켓플레이스: [donggu-skills](../)
-- Vault 운영: [donggu-obsidian](../donggu-obsidian/)
