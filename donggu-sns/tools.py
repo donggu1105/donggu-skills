@@ -18,16 +18,25 @@ _TRIGGERING_HEADER_RE = re.compile(
     r"^\[Triggering message id:\s*`[^`\r\n]+`[^\r\n]*\]\s*\r?\n\r?\n"
 )
 _SENDER_PREFIX_RE = re.compile(r"^\[[^\]\r\n]{1,200}\][ \t]*")
+# A sender label must look like a display name, never like steering text that a
+# strip could hide ("[하지 마] 발행해" must not become "발행해").
+_UNSAFE_LABEL_RE = re.compile(
+    r"취소|보류|나중|하지\s*마|하지\s*말|지\s*마|지\s*말|안\s*(?:돼|해|할래)|[?？]"
+    r"|Recent channel messages|New message|IMPORTANT|INTERNAL|SYSTEM",
+    re.IGNORECASE,
+)
 
 
 def _normalize_trusted_user_message(content: str) -> str:
     """Strip platform metadata before applying publishing approval grammar.
 
-    Discord persists a trusted user row as a triggering-message header followed
-    by a display-name prefix. Those are transport metadata, not user intent.
-    Only strip the sender prefix when the trusted header was present; a plain
-    user message beginning with brackets must remain unchanged. A structured
-    (non-string) row carries no approval grammar and must fail closed.
+    Discord multi-user threads persist a trusted user row as an optional
+    triggering-message header followed by a ``[display name]`` prefix. Those are
+    transport metadata, not user intent. Hermes stopped persisting the header in
+    Oct 2026, so the sender prefix is also stripped from a header-less row, but
+    only when the row is a single line and the label cannot carry steering text.
+    Everything after the label must still satisfy the full approval grammar.
+    A structured (non-string) row carries no approval grammar and fails closed.
     """
     if not isinstance(content, str):
         return ""
@@ -35,6 +44,10 @@ def _normalize_trusted_user_message(content: str) -> str:
     if _TRIGGERING_HEADER_RE.match(text):
         text = _TRIGGERING_HEADER_RE.sub("", text, count=1)
         text = _SENDER_PREFIX_RE.sub("", text, count=1)
+    elif "\n" not in text and "\r" not in text:
+        label = _SENDER_PREFIX_RE.match(text)
+        if label is not None and _UNSAFE_LABEL_RE.search(label.group(0)) is None:
+            text = text[label.end():]
     return text.strip()
 
 

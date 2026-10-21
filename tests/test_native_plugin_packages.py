@@ -74,7 +74,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-sns", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("2.10.0", claude["version"])
+        self.assertEqual("2.10.1", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_codex_marketplace_exposes_only_sns_from_existing_domain_path(self):
@@ -86,7 +86,7 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertEqual(["donggu-sns"], [item["name"] for item in marketplace["plugins"]])
         entry = marketplace["plugins"][0]
         self.assertEqual({"source": "local", "path": "./donggu-sns"}, entry["source"])
-        self.assertEqual("2.10.0", entry["version"])
+        self.assertEqual("2.10.1", entry["version"])
         self.assertEqual(
             {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
             entry["policy"],
@@ -128,7 +128,7 @@ class NativePluginPackageTests(unittest.TestCase):
         )
         self.assertEqual("donggu-sns", codex["name"])
         self.assertEqual("./skills/", codex["skills"])
-        self.assertEqual("2.10.0", codex["version"])
+        self.assertEqual("2.10.1", codex["version"])
         self.assertEqual(codex["version"], claude["version"])
         self.assertEqual(codex["version"], manifest_scalar(package / "plugin.yaml", "version"))
         self.assertEqual(codex["version"], marketplace["plugins"][0]["version"])
@@ -357,6 +357,42 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertIn("SNS_WEBHOOK_TOKEN", dispatch["requires_env"])
         self.assertIn("PUBLISHER_API_TOKEN", dispatch["requires_env"])
         self.assertIn("SUPABASE_SERVICE_KEY", dispatch["requires_env"])
+
+    def test_sns_approval_strips_headerless_discord_sender_label_safely(self):
+        """Regression 2026-10-22: Hermes stopped persisting the Triggering header,
+        so '[강동현] 티스토리 발행해' was rejected. Strip a plain sender label, but
+        never one that carries steering text, and never on multi-line rows."""
+        module_name = "donggu_sns_headerless_label_test"
+        load_package(ROOT / "donggu-sns", module_name)
+        tools = importlib.import_module(module_name + ".tools")
+        runtime_mod = importlib.import_module(module_name + ".runtime.publishing")
+        normalize = tools._normalize_trusted_user_message
+        approve = runtime_mod._require_operation_approval
+
+        # header-less single-line rows: label removed, grammar still enforced
+        self.assertEqual("티스토리 발행해", normalize("[강동현] 티스토리 발행해"))
+        self.assertEqual("티스토리 발행해", approve(normalize("[강동현] 티스토리 발행해"), "publish"))
+        self.assertEqual("스레드 발행해", normalize("[강동현]스레드 발행해"))
+        # legacy header form still works
+        self.assertEqual(
+            "발행해",
+            normalize("[Triggering message id: `1` — use as `message_id`]\n\n[강동현] 발행해"),
+        )
+        # a label carrying steering text is NOT stripped, so approval fails
+        for row in ("[하지 마] 발행해", "[취소] 발행해", "[나중에] 발행해", "[이거 맞아?] 발행해"):
+            with self.subTest(row=row):
+                self.assertEqual(row, normalize(row))
+                with self.assertRaises(runtime_mod.ApprovalError):
+                    approve(normalize(row), "publish")
+        # multi-line rows (context blocks, injected notices) are never label-stripped
+        block = "[Recent channel messages]\n[강동현] 아직도?\n\n[New message]\n[강동현] 발행해"
+        self.assertEqual(block, normalize(block))
+        with self.assertRaises(runtime_mod.ApprovalError):
+            approve(normalize(block), "publish")
+        # stripping the label never turns a non-approval into an approval
+        for row in ("[강동현] 발행해 볼까?", "[강동현] 발행해 두지 마", "[강동현] 응"):
+            with self.subTest(row=row), self.assertRaises(runtime_mod.ApprovalError):
+                approve(normalize(row), "publish")
 
     def _assert_host_context_via_public_middleware(self, package, tools):
         """Turn ID must arrive through the documented tool_execution middleware,

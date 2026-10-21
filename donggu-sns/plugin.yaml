@@ -1,6 +1,6 @@
 manifest_version: 1
 name: donggu-sns
-version: "2.10.0"
+version: "2.10.1"
 description: "Native publishing adapter with receipt-bound approval. Tistory and Maily call the loopback FastAPI publisher directly; other channels use n8n webhooks."
 author: "강동현 (donggu)"
 kind: standalone
