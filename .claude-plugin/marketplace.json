@@ -20,21 +20,21 @@
       "name": "donggu-sns",
       "source": "./donggu-sns",
       "description": "SNS and YouTube editorial operations — portable channel-native text authoring, AI-image generation, YouTube planning, and gated publishing.",
-      "version": "2.9.0",
+      "version": "2.10.0",
       "strict": false
     },
     {
       "name": "donggu-media",
       "source": "./donggu-media",
       "description": "YouTube media helpers — get-youtube-scripts is a captions-only fallback for source-track selection and 429 avoidance; save-youtube-source creates the Obsidian reference note. No audio transcription.",
-      "version": "1.1.6",
+      "version": "1.1.7",
       "strict": false
     },
     {
       "name": "donggu-apply",
       "source": "./donggu-apply",
       "description": "Freelance proposal auto-apply — capture login session, crawl a project brief + client pre-questions, draft a proposal from the portfolio Supabase DB (SSOT), autofill the apply form, and gate submission behind a Discord HITL button. apply-wishket skill (Wishket); DRY-RUN preview unless explicitly submitted; structured to add more platforms.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "strict": false
     },
     {
