@@ -25,9 +25,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SKILL_DIR = HERE.parent
 W, H = 1080, 1350
-CARD_TYPES = ("cover", "point", "quote", "list", "compare", "steps", "closing")
+CARD_TYPES = ("cover", "stat", "point", "quote", "list", "compare", "steps", "closing")
 REQUIRED = {
     "cover": ("title",),
+    "stat": ("value", "label"),
     "point": ("title", "body"),
     "quote": ("quote",),
     "list": ("title", "items"),
@@ -35,7 +36,7 @@ REQUIRED = {
     "steps": ("title", "items"),
     "closing": ("title",),
 }
-LIMITS = {"items": 5, "title_chars": 60}
+LIMITS = {"items": 5, "title_chars": 60, "stat_value_chars": 6}
 IMAGE_MODES = ("full", "band", "inline")
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 CHROME_CANDIDATES = (
@@ -71,6 +72,8 @@ def validate_spec(spec: dict) -> list[dict]:
                     raise SpecError(f"card {i} (compare): {side} needs a title")
         if len(str(card.get("title", ""))) > LIMITS["title_chars"]:
             raise SpecError(f"card {i}: title longer than {LIMITS['title_chars']} chars")
+        if t == "stat" and len(str(card["value"])) > LIMITS["stat_value_chars"]:
+            raise SpecError(f"card {i} (stat): value longer than {LIMITS['stat_value_chars']} chars — one short number per slide; move detail to label/context")
         img = card.get("image")
         if img is not None:
             if not isinstance(img, dict) or not img.get("src"):
@@ -137,6 +140,15 @@ def card_body_html(card: dict) -> str:
         sub = f'<p class="sub" data-qa="sub">{rich(card["subtitle"])}</p>' if card.get("subtitle") else ""
         kicker = f'<p class="kicker">{rich(card["kicker"])}</p>' if card.get("kicker") else ""
         return f'<div class="cover">{kicker}<h1 class="title big" data-qa="title">{rich(card["title"])}</h1>{sub}</div>'
+    if t == "stat":
+        kicker = f'<p class="kicker">{rich(card["kicker"])}</p>' if card.get("kicker") else ""
+        unit = f'<span class="stat-unit">{rich(card["unit"])}</span>' if card.get("unit") else ""
+        ctx = f'<p class="stat-context" data-qa="body">{rich(card["context"])}</p>' if card.get("context") else ""
+        src = f'<p class="stat-source" data-qa="source">{rich(card["source"])}</p>' if card.get("source") else ""
+        num = rich(card["value"]).replace("1", '<span class="k1">1</span>')  # optical kern: the 1's foot leaves a hole
+        return (f'<div class="stat">{kicker}'
+                f'<p class="stat-value" data-qa="value"><span class="stat-num">{num}</span>{unit}</p>'
+                f'<h2 class="stat-label" data-qa="label">{rich(card["label"])}</h2>{ctx}{src}</div>')
     if t == "point":
         return (f'<h2 class="title" data-qa="title">{rich(card["title"])}</h2>'
                 f'<div class="body" data-qa="body">{rich(card["body"])}</div>')

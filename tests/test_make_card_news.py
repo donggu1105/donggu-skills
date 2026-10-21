@@ -86,6 +86,22 @@ class SpecAndHtmlTest(unittest.TestCase):
             render_cards.validate_spec({"cards": [{"type": "point", "title": "제목만"}]})
         with self.assertRaises(render_cards.SpecError):
             render_cards.validate_spec({"cards": []})
+        with self.assertRaises(render_cards.SpecError):  # stat needs value + label
+            render_cards.validate_spec({"cards": [{"type": "stat", "value": "100"}]})
+        with self.assertRaises(render_cards.SpecError):  # one number per slide: value must be short
+            render_cards.validate_spec({"cards": [{"type": "stat", "value": "1,234,567,890", "label": "x"}]})
+
+    def test_stat_card_markup_puts_number_first_and_names_the_source(self):
+        card = {"type": "stat", "kicker": "케이스 토크 4회차 동안", "value": "100", "unit": "여 명",
+                "label": "FDE와 AX 실무자를 만났습니다", "context": "첫 모임은 두 FDE의 사례로 시작했습니다.",
+                "source": "beyonddeploy.kr 필드노트"}
+        html = render_cards.build_card_html(card, index=3, total=8, spec=self.spec, theme=self.theme)
+        self.assertIn('class="stat"', html)
+        self.assertLess(html.index('data-qa="value"'), html.index('data-qa="label"'))
+        self.assertIn('data-qa="source"', html)
+        self.assertIn("type-stat", html)
+        # label is headline-sized: it shares the .title size token, not the body one
+        self.assertRegex(html, r"\.stat-label\s*\{[^}]*font-size:\s*var\(--title-size\)")
 
     def test_html_escapes_and_keeps_korean_word_breaks(self):
         card = {"type": "point", "title": "<script>x</script>", "body": "줄1\n**강조**"}

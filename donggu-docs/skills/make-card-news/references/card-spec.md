@@ -15,6 +15,7 @@ One JSON file per card set. Top level:
 | `type` | Required | Optional | Use for |
 |---|---|---|---|
 | `cover` | `title` | `kicker`, `subtitle` | card 1 — the hook, ≤ 3 title lines |
+| `stat` | `value` (≤ 6 chars), `label` | `kicker`, `unit`, `context`, `source` | one number per slide — the second hook (card 2–3); `value` is the digits only, `unit` the counter (`여 명`, `%`, `배`), `label` a headline-sized sentence, `source` where the number comes from |
 | `point` | `title`, `body` | — | one claim + 2–4 sentences |
 | `quote` | `quote` | `who` | a question or line heard verbatim |
 | `list` | `title`, `items` (≤5) | `lead` | parallel items, bullets |
@@ -22,7 +23,7 @@ One JSON file per card set. Top level:
 | `compare` | `title`, `left{title,body?}`, `right{title,body?}` | `footer` | before/after, A vs B — the right box is the accented one |
 | `closing` | `title` | `body`, `cta` | last card — one CTA pill, no like/follow begging |
 
-Limits enforced by `validate_spec`: unknown type, missing required field, >5 items, title > 60 chars, bad `image` object.
+Limits enforced by `validate_spec`: unknown type, missing required field, >5 items, title > 60 chars, stat value > 6 chars, bad `image` object.
 
 ## `image` (optional on every type; `compare` accepts `full`/`band` only)
 
@@ -47,7 +48,7 @@ The probe records `images[]` (loaded, natural size) and flags `image` (failed to
 ## Sizes baked into the template (do not shrink to fit — cut copy instead)
 
 - Canvas 1080×1350, side padding 84 px (~7.8 %), footer sits on the 90 % line; nothing below it.
-- Title and quote 80 px/1.18 (72 px on `band` cards); body 54 px (48 on band); list/steps items 52 px (42 on band); lead/sub 42 px; compare column body 40 px, closing line 42 px; series pill 26 px; footer 26 px. Everything the reader is meant to read is ≥ 40 px — headline-sized by design.
+- Tokens in `card.html`: `--title-size` 88 px (`--title-size-band` 78 px on `band` cards), `--body-size` 58 px (52 on band), `--item-size` 56 px (46 on band), `--sub-size` 46 px for lead/sub/closing line/stat context; compare column body 44 px; stat number 300 px + unit 92 px (220/72 on band), stat label = `--title-size`; series pill 26 px; footer 26 px. Lead, sub and closing lines are set in ink, not grey — body copy is meant to read as big and as dark as a headline.
 - White cards start their content at a fixed line (170 px under the pill) so the set keeps one rhythm; `full` cards bottom-anchor the text above the footer; `band` cards start right under the pill below the photo.
 - Body boxes cap at 400–700 px tall and clip (`overflow: hidden`); the QA probe reports `overflow` when that happens — shorten the text, never the type.
 
