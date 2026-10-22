@@ -9,6 +9,7 @@ One JSON file per card set. Top level:
 | `handle` | no (theme default) | footer label, e.g. `beyonddeploy.kr`, `@100x.donggu` |
 | `source` | no | where the copy came from (kept for provenance, not rendered) |
 | `cards` | yes | ordered list, 1–20 cards (6–8 recommended) |
+| `backdrop` | no | `{src, tint}` — a photo (usually the cover's or the warmest frame) rendered as a heavily blurred, brand-tinted wash behind every text card, so the set keeps one atmosphere after the cover instead of dropping to flat white. `tint` 0.5–1 = how much theme bg covers it (0.68 ≈ clearly green at phone size, 0.86 ≈ barely there). Band cards wash with their own photo; `full` cards never wash; a card can opt out with `"wash": false` |
 
 ## Card types
 
@@ -33,6 +34,7 @@ Limits enforced by `validate_spec`: unknown type, missing required field, >5 ite
 | `mode` | no (default `band`) | `full` = fills the card behind a dark gradient, white type, text bottom-anchored · `band` = top 500 px, series pill moves below the photo · `inline` = 340 px rounded image after the title (point/list/steps) or after the body (cover/quote/closing) |
 | `focus` | no (`50% 50%`) | CSS `object-position`; also the zoom anchor. Lower the y value to give heads headroom |
 | `zoom` | no (1.0) | 1–2, crops in around `focus` |
+| `fade` | no (0.42) | `band` only, 0.2–0.9: fraction of the band height where the photo starts dissolving into the page. Raise it (0.7–0.86) when the bottom of the frame holds things that must stay sharp (hands, a laptop, a badge); the dissolve shortens accordingly |
 | `overlay` | no (0.72) | 0–1 gradient darkness for `full`; 0.78–0.85 for busy or bright photos |
 | `alt` | recommended | what's in the frame — used for review and for the vault note |
 

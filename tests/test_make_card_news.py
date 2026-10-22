@@ -135,6 +135,7 @@ class SpecAndHtmlTest(unittest.TestCase):
             {"src": "x.gif"},                        # unsupported extension
             {"src": "x.jpg", "mode": "hero"},        # unknown mode
             {"src": "x.jpg", "zoom": 3},             # zoom out of range
+            {"src": "x.jpg", "fade": 1.5},           # fade out of range
             "assets/x.jpg",                          # must be an object
         ):
             with self.assertRaises(render_cards.SpecError, msg=bad):
@@ -164,7 +165,44 @@ class SpecAndHtmlTest(unittest.TestCase):
         plain = render_cards.build_card_html({"type": "point", "title": "t", "body": "b"},
                                              index=1, total=1, spec=self.spec, theme=self.theme)
         self.assertIn("mode-text", plain)
-        self.assertNotIn("<img", plain)
+        self.assertNotIn("<img", plain)  # no spec_dir → no wash either; relative src must never leak into HTML
+        no_bd = dict(self.spec); no_bd.pop("backdrop", None)
+        plain2 = render_cards.build_card_html({"type": "point", "title": "t", "body": "b"},
+                                              index=1, total=1, spec=no_bd, theme=self.theme, spec_dir=SKILL / "examples")
+        self.assertNotIn("<img", plain2)
+
+    def test_backdrop_wash_ties_text_and_band_cards_to_the_cover(self):
+        img = SKILL / "examples" / "assets" / "lounge-wide.jpg"
+        spec = dict(self.spec, backdrop={"src": str(img), "tint": 0.84})
+        # text card: set-level backdrop becomes a blurred wash behind the content
+        text = render_cards.build_card_html({"type": "point", "title": "t", "body": "b"},
+                                            index=1, total=1, spec=spec, theme=self.theme, spec_dir=SKILL / "examples")
+        self.assertIn('class="wash"', text)
+        self.assertIn('data-qa-img="wash"', text)
+        self.assertRegex(text, r'<div class="card [^"]*has-wash')
+        self.assertIn("--wash-tint: 0.84", text)
+        # band card: wash comes from its own photo so the band dissolves into itself
+        other = SKILL / "examples" / "assets" / "lounge-close.jpg"
+        band = render_cards.build_card_html({"type": "point", "title": "t", "body": "b",
+                                             "image": {"src": str(other), "mode": "band"}},
+                                            index=1, total=1, spec=spec, theme=self.theme, spec_dir=SKILL / "examples")
+        self.assertIn('class="band"', band)
+        self.assertEqual(band.count(other.as_uri()), 2, "band photo should appear as band and as wash")
+        self.assertNotIn(img.as_uri(), band)
+        # full-bleed card: no wash (the cover look is untouched)
+        full = render_cards.build_card_html({"type": "cover", "title": "t",
+                                             "image": {"src": str(other), "mode": "full"}},
+                                            index=1, total=1, spec=spec, theme=self.theme, spec_dir=SKILL / "examples")
+        self.assertNotIn('class="wash"', full)
+        self.assertNotRegex(full, r'<div class="card [^"]*has-wash')
+        # per-card opt-out
+        bare = render_cards.build_card_html({"type": "point", "title": "t", "body": "b", "wash": False},
+                                            index=1, total=1, spec=spec, theme=self.theme, spec_dir=SKILL / "examples")
+        self.assertNotIn('class="wash"', bare)
+        # sample ships with a backdrop so the set is continuous out of the box
+        self.assertIn("backdrop", self.spec)
+        with self.assertRaises(render_cards.SpecError):
+            render_cards.validate_spec({"backdrop": {"src": "x.gif"}, "cards": [{"type": "point", "title": "t", "body": "b"}]})
 
 
 class RenderTest(unittest.TestCase):

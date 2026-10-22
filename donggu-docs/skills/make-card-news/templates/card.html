@@ -18,6 +18,8 @@
     --body-size: 58px;      /* body copy is deliberately headline-class: readable in a moving feed */
     --item-size: 56px;
     --sub-size: 46px;
+    --wash-tint: {{WASH_TINT}}; /* 0.5–1: how much theme bg covers the blurred backdrop */
+    --fade: {{FADE}};        /* 0.2–0.8: where (fraction of band height) the band photo starts dissolving */
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; width: {{W}}px; height: {{H}}px; overflow: hidden; }
@@ -31,24 +33,35 @@
   .card::before { content: ""; position: absolute; left: 0; top: 0; width: 100%; height: 14px; background: var(--accent); z-index: 3; }
 
   /* ---------- images ---------- */
-  .bg, .band { position: absolute; left: 0; top: 0; width: {{W}}px; overflow: hidden; z-index: 0; }
+  .bg, .band { position: absolute; left: 0; top: 0; width: {{W}}px; overflow: hidden; z-index: 1; }
   .bg { height: {{H}}px; }
   .band { height: var(--band-h); }
   .bg img, .band img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: var(--focus); transform: scale(var(--zoom)); transform-origin: var(--focus); }
   .bg::after { content: ""; position: absolute; inset: 0;
     background: linear-gradient(to top, rgba(10,14,10,var(--overlay)) 0%, rgba(10,14,10,calc(var(--overlay) * 0.85)) 30%, rgba(10,14,10,calc(var(--overlay) * 0.35)) 62%, rgba(10,14,10,0.10) 100%); }
   .band::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(10,14,10,0.34) 0%, rgba(10,14,10,0) 40%); }
+  /* wash: blurred backdrop photo under text/band cards → the set keeps one atmosphere */
+  .wash { position: absolute; inset: -80px; z-index: 0; overflow: hidden; }
+  .wash img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: var(--focus); filter: blur(70px) saturate(0.9) brightness(1.08); transform: scale(1.2); }
+  .wash::before { content: ""; position: absolute; inset: 0; z-index: 1; background: var(--accent); mix-blend-mode: color; opacity: 0.55; } /* pull every leaked hue toward the brand */
+  /* tint toward the brand, never neutral grey: grey over a photo reads as dirt, a warm/green cast reads as light */
+  .wash::after { content: ""; position: absolute; inset: 0; z-index: 2; background: color-mix(in srgb, var(--bg) 82%, var(--accent-soft)); opacity: var(--wash-tint); }
+  .has-wash .footer { border-top-color: rgba(0,0,0,0.14); }
+  /* band → page: the band itself goes transparent over its own blurred copy (ease-in, ~250 px) */
+  .band { --f0: calc(var(--fade) * 100%); --fr: calc(100% - var(--fade) * 100%);
+          -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 var(--f0), rgba(0,0,0,0.9) calc(var(--f0) + var(--fr) * 0.3), rgba(0,0,0,0.55) calc(var(--f0) + var(--fr) * 0.62), rgba(0,0,0,0.18) calc(var(--f0) + var(--fr) * 0.86), rgba(0,0,0,0) 100%);
+          mask-image: linear-gradient(to bottom, #000 0%, #000 var(--f0), rgba(0,0,0,0.9) calc(var(--f0) + var(--fr) * 0.3), rgba(0,0,0,0.55) calc(var(--f0) + var(--fr) * 0.62), rgba(0,0,0,0.18) calc(var(--f0) + var(--fr) * 0.86), rgba(0,0,0,0) 100%); }
   .inline-img { position: relative; width: 100%; height: 340px; border-radius: 28px; overflow: hidden; margin: 32px 0 0; background: var(--surface); flex: 0 0 auto; }
   .inline-img img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: var(--focus); }
 
   /* ---------- chrome ---------- */
-  .meta { position: relative; z-index: 2; display: flex; justify-content: flex-start; align-items: center; font-size: 26px; font-weight: 800; letter-spacing: 0.01em; }
+  .meta { position: relative; z-index: 3; display: flex; justify-content: flex-start; align-items: center; font-size: 26px; font-weight: 800; letter-spacing: 0.01em; }
   .meta .series { color: #fff; background: var(--accent); padding: 12px 24px; border-radius: 999px; }
   .meta .page { display: none; }
-  .footer { position: absolute; z-index: 2; left: var(--pad); right: var(--pad); bottom: var(--safe-bottom); display: flex; justify-content: space-between; align-items: center; font-size: 26px; color: var(--muted); border-top: 2px solid var(--line); padding-top: 22px; }
+  .footer { position: absolute; z-index: 3; left: var(--pad); right: var(--pad); bottom: var(--safe-bottom); display: flex; justify-content: space-between; align-items: center; font-size: 26px; color: var(--muted); border-top: 2px solid var(--line); padding-top: 22px; }
   .footer .handle { font-weight: 700; }
-  .main { position: relative; z-index: 1; flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-start; padding: 170px 0 0; min-height: 0; }
-  .mode-text.type-closing .main { padding-top: 110px; }
+  .main { position: relative; z-index: 2; flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-start; padding: 170px 0 0; min-height: 0; }
+  .mode-text.type-closing .main { padding-top: 0; justify-content: center; }
 
   /* over an image: white type, pill labels */
   .mode-full .meta .series { background: var(--accent); box-shadow: 0 0 0 3px rgba(255,255,255,0.9); }
@@ -68,11 +81,12 @@
   .title.big { font-size: var(--title-size); }
   .mode-band .title { font-size: var(--title-size-band); }
   .kicker { margin: 0 0 30px; font-size: 34px; font-weight: 800; color: var(--accent); }
-  .sub { margin: 32px 0 0; font-size: var(--sub-size); line-height: 1.38; color: var(--ink); font-weight: 600; }
-  .lead { margin: 26px 0 0; font-size: var(--sub-size); line-height: 1.38; color: var(--ink); font-weight: 600; }
-  .body { margin-top: 44px; font-size: var(--body-size); line-height: 1.42; font-weight: 600; max-height: 640px; overflow: hidden; }
+  .sub { margin: 32px 0 0; font-size: var(--sub-size); line-height: 1.42; color: var(--ink); font-weight: 500; }
+  .lead { margin: 26px 0 0; font-size: var(--sub-size); line-height: 1.42; color: var(--muted); font-weight: 500; }
+  .body { margin-top: 44px; font-size: var(--body-size); line-height: 1.48; font-weight: 500; max-height: 660px; overflow: hidden; }
   .mode-band .body { font-size: 52px; max-height: 410px; }
   .em { font-weight: 800; color: var(--ink); background: linear-gradient(transparent 62%, var(--accent-soft) 62%); }
+  .has-wash .em { background: linear-gradient(transparent 60%, color-mix(in srgb, var(--accent) 32%, #fff) 60%); }
 
   .quote-wrap { position: relative; padding-left: 40px; border-left: 12px solid var(--accent); }
   .qmark { position: absolute; left: 36px; top: -120px; font-size: 240px; line-height: 1; color: var(--accent-soft); font-weight: 800; }
@@ -82,7 +96,7 @@
   .who { margin: 32px 0 0; font-size: 42px; color: var(--muted); font-weight: 700; }
 
   .items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 34px; }
-  .items li { display: flex; align-items: flex-start; gap: 28px; font-size: var(--item-size); line-height: 1.32; font-weight: 700; }
+  .items li { display: flex; align-items: flex-start; gap: 28px; font-size: var(--item-size); line-height: 1.36; font-weight: 600; }
   .mode-band .items { gap: 18px; }
   .mode-band .items li { font-size: 46px; gap: 22px; line-height: 1.28; }
   .mode-band .body { margin-top: 24px; }
@@ -96,9 +110,11 @@
   .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-top: 44px; max-height: 700px; align-items: stretch; }
   .col { background: var(--surface); border: 2px solid var(--line); border-radius: 30px; padding: 44px 38px; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
   .col.r { border-color: var(--accent); background: var(--accent-soft); }
+  .has-wash .col { background: rgba(255,255,255,0.62); border-color: rgba(0,0,0,0.10); }
+  .has-wash .col.r { background: color-mix(in srgb, var(--accent-soft) 78%, #fff); border-color: var(--accent); }
   .col-title { margin: 0 0 20px; font-size: 44px; font-weight: 800; color: var(--accent); }
   .col.l .col-title { color: var(--muted); }
-  .col-body { font-size: 44px; line-height: 1.38; font-weight: 600; }
+  .col-body { font-size: 44px; line-height: 1.42; font-weight: 500; }
   .foot { margin: 40px 0 0; font-size: var(--sub-size); line-height: 1.38; color: var(--ink); font-weight: 700; }
 
   /* ---------- stat: one number per slide ---------- */
@@ -108,7 +124,7 @@
   .stat-num .k1 { margin-right: -0.07em; }
   .stat-unit { font-size: 92px; font-weight: 800; letter-spacing: -0.03em; word-spacing: 0; margin-left: 0.06em; }
   .stat-label { margin: 28px 0 0; font-weight: 800; font-size: var(--title-size); line-height: 1.16; letter-spacing: -0.02em; text-wrap: balance; }
-  .stat-context { margin: 30px 0 0; font-size: var(--sub-size); line-height: 1.38; color: var(--ink); font-weight: 600; }
+  .stat-context { margin: 30px 0 0; font-size: var(--sub-size); line-height: 1.42; color: var(--ink); font-weight: 500; }
   .stat-source { margin: 26px 0 0; font-size: 32px; color: var(--muted); font-weight: 600; }
   .mode-full .stat-value, .mode-full .stat-label { color: #fff; }
   .mode-full .stat-context, .mode-full .stat-source { color: rgba(255,255,255,0.86); }
@@ -121,7 +137,8 @@
 </style>
 </head>
 <body>
-<div class="card type-{{TYPE}} mode-{{MODE}}">
+<div class="card type-{{TYPE}} mode-{{MODE}} {{WASH_CLASS}}">
+  {{WASH_BLOCK}}
   {{IMAGE_BLOCK}}
   <div class="meta" data-qa="meta"><span class="series">{{SERIES}}</span><span class="page">{{PAGE}}</span></div>
   <div class="main">{{CONTENT}}</div>

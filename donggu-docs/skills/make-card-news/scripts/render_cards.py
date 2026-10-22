@@ -57,6 +57,15 @@ def validate_spec(spec: dict) -> list[dict]:
     cards = spec.get("cards")
     if not isinstance(cards, list) or not cards:
         raise SpecError("spec.cards must be a non-empty list")
+    bd = spec.get("backdrop")
+    if bd is not None:
+        if not isinstance(bd, dict) or not bd.get("src"):
+            raise SpecError("spec.backdrop must be an object with 'src'")
+        if not str(bd["src"]).lower().endswith(IMAGE_EXTS):
+            raise SpecError(f"spec.backdrop.src must be one of {IMAGE_EXTS}")
+        tint = bd.get("tint", 0.86)
+        if not isinstance(tint, (int, float)) or not 0.5 <= float(tint) <= 1.0:
+            raise SpecError("spec.backdrop.tint must be a number between 0.5 and 1 (how much of the theme bg shows through)")
     for i, card in enumerate(cards, 1):
         t = card.get("type")
         if t not in CARD_TYPES:
@@ -86,6 +95,9 @@ def validate_spec(spec: dict) -> list[dict]:
             z = img.get("zoom", 1.0)
             if not isinstance(z, (int, float)) or not 1.0 <= float(z) <= 2.0:
                 raise SpecError(f"card {i}: image.zoom must be a number between 1 and 2")
+            fd = img.get("fade", 0.42)
+            if not isinstance(fd, (int, float)) or not 0.2 <= float(fd) <= 0.9:
+                raise SpecError(f"card {i}: image.fade must be between 0.2 and 0.9 (fraction of the band where the dissolve starts)")
             if t == "compare" and mode == "inline":
                 raise SpecError(f"card {i}: compare cards take 'full' or 'band' images only")
     return cards
@@ -176,10 +188,10 @@ def card_body_html(card: dict) -> str:
 
 
 def image_block(card: dict, spec_dir: Path | None) -> tuple[str, str, str, str, str]:
-    """Returns (mode, outer_block_html, inline_html, focus, overlay, zoom) for the card's image, if any."""
+    """Returns (mode, outer_block_html, inline_html, focus, overlay, zoom, fade) for the card's image, if any."""
     img = card.get("image")
     if not img:
-        return "text", "", "", "50% 50%", "0.72", "1.0"
+        return "text", "", "", "50% 50%", "0.72", "1.0", "0.42"
     mode = img.get("mode", "band")
     src = img["src"]
     if spec_dir is not None:
@@ -188,19 +200,46 @@ def image_block(card: dict, spec_dir: Path | None) -> tuple[str, str, str, str, 
     focus = html.escape(str(img.get("focus", "50% 50%")), quote=True)
     overlay = str(float(img.get("overlay", 0.72)))
     zoom = str(float(img.get("zoom", 1.0)))
+    fade = str(float(img.get("fade", 0.42)))
     tag = f'<img src="{html.escape(src, quote=True)}" alt="{alt}" data-qa-img="{mode}">'
     if mode == "full":
-        return mode, f'<div class="bg">{tag}</div>', "", focus, overlay, zoom
+        return mode, f'<div class="bg">{tag}</div>', "", focus, overlay, zoom, fade
     if mode == "band":
-        return mode, f'<div class="band">{tag}</div>', "", focus, overlay, zoom
-    return mode, "", f'<div class="inline-img" data-qa="image">{tag}</div>', focus, overlay, zoom
+        return mode, f'<div class="band">{tag}</div>', "", focus, overlay, zoom, fade
+    return mode, "", f'<div class="inline-img" data-qa="image">{tag}</div>', focus, overlay, zoom, fade
+
+
+def wash_block(card: dict, mode: str, spec: dict, spec_dir: Path | None) -> tuple[str, str, str]:
+    """A blurred, tinted copy of a photo behind the whole card, so text and band cards keep the
+    cover's atmosphere instead of dropping to flat white. Returns (wash_html, class, tint).
+    - full cards: none (the photo already fills the card)
+    - band cards: their own photo (the band dissolves into the page)
+    - text cards: the set-level `backdrop` photo
+    - `"wash": false` on a card opts out."""
+    if mode == "full" or card.get("wash") is False:
+        return "", "", "0.86"
+    src = None
+    tint = 0.86
+    bd = spec.get("backdrop")
+    if mode == "band" and card.get("image"):
+        src = card["image"]["src"]
+        if bd:
+            tint = float(bd.get("tint", tint))
+    elif bd:
+        src, tint = bd["src"], float(bd.get("tint", tint))
+    if not src or spec_dir is None:
+        return "", "", "0.86"
+    src = resolve_image(src, spec_dir).as_uri()
+    tag = f'<img src="{html.escape(src, quote=True)}" alt="" data-qa-img="wash">'
+    return f'<div class="wash">{tag}</div>', "has-wash", str(tint)
 
 
 def build_card_html(card: dict, index: int, total: int, spec: dict, theme: dict,
                     template_path: Path | None = None, spec_dir: Path | None = None) -> str:
     template = (template_path or SKILL_DIR / "templates" / "card.html").read_text(encoding="utf-8")
     font_stack = ", ".join(f'"{f}"' for f in theme["fonts"]) + ", sans-serif"
-    mode, outer, inline, focus, overlay, zoom = image_block(card, spec_dir)
+    mode, outer, inline, focus, overlay, zoom, fade = image_block(card, spec_dir)
+    wash, wash_cls, wash_tint = wash_block(card, mode, spec, spec_dir)
     content = card_body_html(card)
     if inline:
         # inline image sits after the title (list/steps/point) or after the body (closing/cover/quote)
@@ -224,9 +263,13 @@ def build_card_html(card: dict, index: int, total: int, spec: dict, theme: dict,
         "TYPE": card["type"],
         "MODE": mode,
         "IMAGE_BLOCK": outer,
+        "WASH_BLOCK": wash,
+        "WASH_CLASS": wash_cls,
+        "WASH_TINT": wash_tint,
         "FOCUS": focus,
         "OVERLAY": overlay,
         "ZOOM": zoom,
+        "FADE": fade,
         "CONTENT": content,
     }
     out = template

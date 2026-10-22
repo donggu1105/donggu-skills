@@ -2,6 +2,7 @@
   "theme": "beyond-deploy",
   "series": "Beyond Deploy · 필드노트",
   "handle": "beyonddeploy.kr",
+  "backdrop": { "src": "assets/lounge-wide.jpg", "tint": 0.68 },
   "source": "https://beyonddeploy.kr/field-notes/four-rounds-hundred-fdes (호스트 강동현, 2026-10-14). 사진 4장: 케이스 토크 4회차 현장, 같은 필드노트에 게재된 공개분 (창가 라운지 컷은 2·5번에 다른 크롭으로 재사용)",
   "cards": [
     {
@@ -15,7 +16,7 @@
       "type": "quote",
       "quote": "FDE는 어디까지 커버해야 하나요?",
       "who": "네 번의 케이스 토크에서 가장 자주 들은 질문",
-      "image": { "src": "assets/lounge-wide.jpg", "mode": "full", "focus": "50% 35%", "overlay": 0.82, "alt": "창가 라운지에서 서로의 이야기를 듣는 소그룹" }
+      "image": { "src": "assets/lounge-wide.jpg", "mode": "band", "focus": "50% 40%", "alt": "창가 라운지에서 서로의 이야기를 듣는 소그룹" }
     },
     {
       "type": "stat",
@@ -40,7 +41,7 @@
       "type": "point",
       "title": "피로는 도구보다\n사람 사이에서 왔습니다",
       "body": "AI 도구가 들어올수록\n일하는 방식을 바꿔야 하고,\n그 과정은 결국 **동료를 설득하는 일**입니다.",
-      "image": { "src": "assets/lounge-wide.jpg", "mode": "band", "focus": "50% 60%", "alt": "창가 라운지에서 서로의 이야기를 듣는 소그룹" }
+      "image": { "src": "assets/lounge-close.jpg", "mode": "band", "focus": "0% 6%", "zoom": 1.34, "fade": 0.8, "alt": "원형 테이블을 둘러싸고 소그룹 대화를 나누는 참가자들" }
     },
     {
       "type": "compare",
@@ -57,14 +58,13 @@
         "공통점과 차이점을 찾아 묻는다",
         "가져갈 것과 걸러 낼 것을 고른다"
       ],
-      "image": { "src": "assets/lounge-close.jpg", "mode": "band", "focus": "26% 48%", "zoom": 1.22, "alt": "원형 테이블을 둘러싸고 소그룹 대화를 나누는 참가자들" }
+      "image": { "src": "assets/window-talk.jpg", "mode": "band", "focus": "35% 0%", "zoom": 1.06, "fade": 0.86, "alt": "창가 테이블에서 노트북을 앞에 두고 이야기를 나누는 참가자들" }
     },
     {
       "type": "closing",
       "title": "혼자 붙잡고 있던 질문,\n다음 자리에 들고 와 주세요",
       "body": "다음 모임 일정과 신청 오픈 소식은\n뉴스레터로 가장 먼저 보내 드립니다.",
-      "cta": "beyonddeploy.kr에서 뉴스레터 신청",
-      "image": { "src": "assets/window-talk.jpg", "mode": "band", "focus": "35% 30%", "alt": "창가 테이블에서 노트북을 앞에 두고 이야기를 나누는 참가자들" }
+      "cta": "beyonddeploy.kr에서 뉴스레터 신청"
     }
   ]
 }

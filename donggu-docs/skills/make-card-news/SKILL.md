@@ -18,10 +18,11 @@ Turn approved copy into a multi-card set (카드뉴스, carousel): per-card PNGs
 1. **Copy is locked before layout.** Claims, numbers, names and sources come from the approved text verbatim. The spec may shorten for the card format, never add facts.
 2. **Text is never baked into generated images.** Photos and illustrations come from the user's own assets (event photos already published on their site, approved brand illustrations) or `get-ai-image`; all words are rendered by the template so they stay editable and legible.
 3. **Every set carries images, and body type is headline-sized.** Dark-mode variants were considered and declined for Beyond Deploy (white + olive is the brand); don't offer them again unless asked. A text-only white set was rejected as "너무 별로". Default rhythm: cover `full` photo → hook `full` photo → white content card → `band` card → … → closing `band`/`inline`. Body copy stays at the template sizes (≥48 px); if it doesn't fit, cut words, never shrink type.
-4. **Faces are a liability, not decoration.** Prefer frames where people are seen from behind, in profile, or small in a wide room. Never crop a head at an edge, never put the series pill on a face (band cards place it below the photo for this reason), and don't use a close-up of an identifiable participant without their OK. `focus`/`zoom` exist to steer crops away from faces, not into them.
-5. **Count before you report.** Say "N장" only after listing the output directory — PNG files, not spec or HTML files. `qa.json` is the evidence.
-6. **Production ≠ publishing.** Deliver files and the source path, state draft/final, stop. Publishing goes through `publish-sns` after the user's explicit approval.
-7. **Korean first.** The template uses `word-break: keep-all`; the QA probe confirms the primary font actually loaded. Fix orphans with a non-breaking space in the spec (`100여\u00a0명`) or a manual `\n`, not by shrinking fonts below the template sizes.
+4. **One cover, then one atmosphere.** The cover is the only dark full-bleed card. Everything after it sits on the set `backdrop` wash (text cards) or dissolves into its own blurred photo (band cards) — never flat white next to a photographic cover, and never a second dark cover at card 2 (it reads as two covers, then an abrupt switch). The closing card sits on the plain wash so it lands instead of looking like one more slide.
+5. **Faces are a liability, not decoration.** Prefer frames where people are seen from behind, in profile, or small in a wide room. Never crop a head at an edge, never put the series pill on a face (band cards place it below the photo for this reason), and don't use a close-up of an identifiable participant without their OK. `focus`/`zoom` exist to steer crops away from faces, not into them.
+6. **Count before you report.** Say "N장" only after listing the output directory — PNG files, not spec or HTML files. `qa.json` is the evidence.
+7. **Production ≠ publishing.** Deliver files and the source path, state draft/final, stop. Publishing goes through `publish-sns` after the user's explicit approval.
+8. **Korean first.** The template uses `word-break: keep-all`; the QA probe confirms the primary font actually loaded. Fix orphans with a non-breaking space in the spec (`100여\u00a0명`) or a manual `\n`, not by shrinking fonts below the template sizes.
 
 ## Procedure
 
@@ -55,7 +56,10 @@ OUT_DIR/
 - Overseas SaaS generators (Gamma, PostNitro, aiCarousels) are fine for one-offs but must be proven with real Korean copy first; 망고보드/미리캔버스 are font-safe but tilt toward a public-notice look. See `references/tool-landscape.md` before recommending any of them.
 - Mobbin has no card-news templates — it indexes shipped-UI screenshots; use it only for layout references.
 - `object-position` alone can't zoom; that's what `zoom` (CSS `transform: scale`, anchored at `focus`) is for. A crop that "beheads" someone at the top edge usually needs a lower `focus` y, not more zoom.
-- `.compare` columns must be `align-items: start`, otherwise the shorter box stretches to the taller one and looks empty.
+- `.compare` columns stretch to equal height with content vertically centred; on a wash the left box is 62 % white so it doesn't read as a white sticker.
+- Band dissolve: the fade must land on floor/chairs/wall, never through bottles, laptops, hands or a name tag — it reads as a smear, not a dissolve. Tune `focus`/`zoom` first (push the clutter below the band), then `fade`. If an object physically sits in the bottom 15 % of the frame it cannot be cleared; pick another frame or accept a soft veil (a veiled name tag is fine — it keeps the name unreadable).
+- Wash tint: grey over a photo reads as dirt; the template pulls the blurred photo toward the accent hue (`mix-blend-mode: color`) and tints the cover layer with `accent_soft`. Check the wash at 375 px — what looks green at 1080 can collapse to grey in the feed.
+- Don't reuse one frame two swipes apart (cards 5 and 7 with the same speaker read as a repeat even when not adjacent); reuse is fine between a `full` and a `band` crop of the same frame.
 - Don't duplicate one photo across two cards at different crops unless the set has fewer photos than image cards; it reads as filler.
 - Prior deep research on this class lives in the user's Downloads (`카드뉴스_제작방식_딥리서치_*.md`); its conclusions are condensed in `references/tool-landscape.md` — extend, don't redo.
 
