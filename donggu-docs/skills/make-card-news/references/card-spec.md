@@ -22,7 +22,7 @@ One JSON file per card set. Top level:
 | `list` | `title`, `items` (≤5) | `lead` | parallel items, bullets |
 | `steps` | `title`, `items` (≤5) | `lead` | an ordered process, numbered badges |
 | `compare` | `title`, `left{title,body?}`, `right{title,body?}` | `footer` | before/after, A vs B — the right box is the accented one |
-| `closing` | `title` | `body`, `cta` | last card — one CTA pill, no like/follow begging |
+| `closing` | `title` | `body`, `cta` | last card — `cta` is one platform-native action line (저장 / 공유 / 댓글 / "링크는 프로필과 첫 댓글에"), rendered as an accent line with an arrow, **not a button**. URLs and click/tap verbs are rejected: nothing inside the image is clickable on Instagram, and LinkedIn strips links from document PDFs. The real link goes in the caption / first comment / profile |
 
 Limits enforced by `validate_spec`: unknown type, missing required field, >5 items, title > 60 chars, stat value > 6 chars, bad `image` object.
 

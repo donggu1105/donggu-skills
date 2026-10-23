@@ -91,6 +91,25 @@ class SpecAndHtmlTest(unittest.TestCase):
         with self.assertRaises(render_cards.SpecError):  # one number per slide: value must be short
             render_cards.validate_spec({"cards": [{"type": "stat", "value": "1,234,567,890", "label": "x"}]})
 
+    def test_closing_cta_is_a_platform_native_action_not_a_fake_button(self):
+        # Nothing inside a card image is clickable (Instagram: no links at all; LinkedIn strips links
+        # from document PDFs). A URL or a "click/tap" verb in the cta is a fake affordance → reject.
+        base = {"type": "closing", "title": "t"}
+        for bad in ("https://beyonddeploy.kr", "beyonddeploy.kr/newsletter 클릭", "여기를 눌러 신청", "링크를 탭하세요"):
+            with self.assertRaises(render_cards.SpecError, msg=bad):
+                render_cards.validate_spec({"cards": [dict(base, cta=bad)]})
+        ok = render_cards.validate_spec({"cards": [dict(base, cta="신청 링크는 프로필과 댓글에")]})
+        self.assertEqual(ok[0]["cta"], "신청 링크는 프로필과 댓글에")
+        html = render_cards.build_card_html(dict(base, cta="저장해 두고 다음 모임 전에 다시 보기"),
+                                            index=1, total=1, spec=self.spec, theme=self.theme)
+        self.assertIn('data-qa="cta"', html)
+        self.assertNotRegex(html, r"\.cta\s*\{[^}]*border-radius:\s*999px")  # not drawn as a button
+        # the sample set must follow the rule too
+        closing = [c for c in self.spec["cards"] if c["type"] == "closing"]
+        self.assertTrue(closing)
+        for c in closing:
+            self.assertNotRegex(c.get("cta", ""), r"https?://|\.kr|\.com|클릭|눌러|탭")
+
     def test_stat_card_markup_puts_number_first_and_names_the_source(self):
         card = {"type": "stat", "kicker": "케이스 토크 4회차 동안", "value": "100", "unit": "여 명",
                 "label": "FDE와 AX 실무자를 만났습니다", "context": "첫 모임은 두 FDE의 사례로 시작했습니다.",

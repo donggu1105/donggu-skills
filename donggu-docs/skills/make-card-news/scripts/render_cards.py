@@ -37,6 +37,9 @@ REQUIRED = {
     "closing": ("title",),
 }
 LIMITS = {"items": 5, "title_chars": 60, "stat_value_chars": 6}
+# Nothing inside a card image is clickable: Instagram has no in-image links, LinkedIn strips links from
+# document PDFs. A URL or a click/tap verb in the CTA is a fake button → rejected at validation.
+FAKE_CTA = re.compile(r"https?://|www\.|\.(?:kr|com|io|net|org|ai|app|dev)(?:/|\b)|클릭|눌러|누르|탭하|터치|click|tap\b", re.IGNORECASE)
 IMAGE_MODES = ("full", "band", "inline")
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 CHROME_CANDIDATES = (
@@ -81,6 +84,9 @@ def validate_spec(spec: dict) -> list[dict]:
                     raise SpecError(f"card {i} (compare): {side} needs a title")
         if len(str(card.get("title", ""))) > LIMITS["title_chars"]:
             raise SpecError(f"card {i}: title longer than {LIMITS['title_chars']} chars")
+        if t == "closing" and card.get("cta") and FAKE_CTA.search(str(card["cta"])):
+            raise SpecError(f"card {i} (closing): cta {card['cta']!r} is a URL or a click verb — nothing in the image is clickable. "
+                            "Use a platform-native action (저장 / 공유 / 댓글 / 프로필 링크 / 첫 댓글) and put the URL in the caption.")
         if t == "stat" and len(str(card["value"])) > LIMITS["stat_value_chars"]:
             raise SpecError(f"card {i} (stat): value longer than {LIMITS['stat_value_chars']} chars — one short number per slide; move detail to label/context")
         img = card.get("image")

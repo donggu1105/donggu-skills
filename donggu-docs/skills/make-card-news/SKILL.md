@@ -22,7 +22,8 @@ Turn approved copy into a multi-card set (카드뉴스, carousel): per-card PNGs
 5. **Faces are a liability, not decoration.** Prefer frames where people are seen from behind, in profile, or small in a wide room. Never crop a head at an edge, never put the series pill on a face (band cards place it below the photo for this reason), and don't use a close-up of an identifiable participant without their OK. `focus`/`zoom` exist to steer crops away from faces, not into them.
 6. **Count before you report.** Say "N장" only after listing the output directory — PNG files, not spec or HTML files. `qa.json` is the evidence.
 7. **Production ≠ publishing.** Deliver files and the source path, state draft/final, stop. Publishing goes through `publish-sns` after the user's explicit approval.
-8. **Korean first.** The template uses `word-break: keep-all`; the QA probe confirms the primary font actually loaded. Fix orphans with a non-breaking space in the spec (`100여\u00a0명`) or a manual `\n`, not by shrinking fonts below the template sizes.
+8. **No fake buttons.** Nothing inside a card image is tappable — Instagram carousels have no in-image links, and LinkedIn disables links inside document PDFs. The closing `cta` is a sentence with an arrow, never a pill/button, never a URL, never "클릭/눌러/탭". Point to a native action instead (저장, 공유, 댓글, 프로필 링크, 첫 댓글) and hand the URL to the caption via `writing-social-content`. The validator rejects URLs and click verbs in `cta`.
+9. **Korean first.** The template uses `word-break: keep-all`; the QA probe confirms the primary font actually loaded. Fix orphans with a non-breaking space in the spec (`100여\u00a0명`) or a manual `\n`, not by shrinking fonts below the template sizes.
 
 ## Procedure
 
