@@ -28,7 +28,10 @@ spec.json (카드별 내용)  +  themes/<name>.json (색·폰트)  +  templates/
 01.png … NN.png (1080×1350, 인스타·스레드)  +  cards.pdf (링크드인 문서 게시물)  +  qa.json (잘림·겹침·안전영역·폰트 검사)
 ```
 
-- 카드 유형 7종: `cover` `point` `quote` `list` `steps` `compare` `closing` — 형식·한도는 `references/card-spec.md`
+- 카드 유형 8종: `cover` `stat` `point` `quote` `list` `steps` `compare` `closing` — 형식·한도는 `references/card-spec.md`
+- 레이아웃 2종: `cinematic`(기본 — 전 장 사진 전면 + 어두운 그라데이션 + 흰 글자, 선·라벨·페이지 번호 없음), `classic`(흰 바탕 + 워시 + 밴드 사진)
+- 사람 사진: 얼굴 박스 기준으로 크롭을 고르고(글자 위 여백 ≥70px 또는 글자 아래 묻힘), 식별 가능한 참가자는 `content-rights-clearance`로 판정해 노트에 남긴다. 이미지 안 가짜 버튼·URL은 검증에서 거부
+- 볼트 적재: `scripts/vault_handoff.py` — qa 통과 세트를 Obsidian 볼트의 `Attachments/<날짜> - <제목> (카드뉴스)/`(PNG·PDF·cards.json·사진·MANIFEST 해시)와 채널 원고 노트(`channel_pack`, draft)로 넣고 INDEX 줄을 더한다. 기존 노트는 덮어쓰지 않음
 - 테마: `beyond-deploy`(BD 메일 디자인 토큰), `donggu`(개인 채널). 새 톤은 테마 파일로 추가
 - 원고 작성은 `donggu-sns:writing-social-content`, 발행은 `donggu-sns:publish-sns`가 맡는다. 이 스킬은 파일만 만든다
 - 의존성: Chrome/Chromium(`$CARD_NEWS_CHROME`로 지정 가능), PDF 병합에 Pillow. Playwright·SaaS 없음
@@ -37,6 +40,8 @@ spec.json (카드별 내용)  +  themes/<name>.json (색·폰트)  +  templates/
 ```bash
 python3 donggu-docs/skills/make-card-news/scripts/render_cards.py \
   donggu-docs/skills/make-card-news/examples/sample-bd.json --out ./out --theme beyond-deploy
+python3 donggu-docs/skills/make-card-news/scripts/vault_handoff.py \
+  spec.json --out ./out --title "제목" --channel instagram --source-url URL --dry-run
 ```
 
 ---

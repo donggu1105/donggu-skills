@@ -56,13 +56,13 @@ class PackagingTest(unittest.TestCase):
         marketplace = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
         entry = next(item for item in marketplace["plugins"] if item["name"] == "donggu-docs")
         self.assertEqual(claude["version"], entry["version"])
-        self.assertEqual("1.2.0", claude["version"])
+        self.assertEqual("1.3.0", claude["version"])
         readme = (PACKAGE / "README.md").read_text(encoding="utf-8")
         self.assertIn("skills-2", readme)
         self.assertIn("make-card-news", readme)
         root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("donggu-docs:make-card-news", root_readme)
-        self.assertIn("v1.2.0", root_readme)
+        self.assertIn("v1.3.0", root_readme)
 
     def test_sns_package_still_free_of_card_news(self):
         # The SNS domain retired its card-news skill on purpose; the new skill lives in docs.

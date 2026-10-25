@@ -1,7 +1,7 @@
 {
   "name": "donggu-docs",
-  "version": "1.2.0",
-  "description": "Document & deck authoring — zero-dependency single-HTML slide decks for lectures, seminars, workshops, and launch talks (make-ppt), plus card-news / carousel sets rendered to 1080×1350 PNG + PDF from an editable JSON spec (make-card-news).",
+  "version": "1.3.0",
+  "description": "Document & deck authoring — zero-dependency single-HTML slide decks for lectures, seminars, workshops, and launch talks (make-ppt), plus card-news / carousel sets rendered to 1080×1350 PNG + PDF from an editable JSON spec, with a cinematic photo layout and an Obsidian vault handoff (make-card-news).",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"

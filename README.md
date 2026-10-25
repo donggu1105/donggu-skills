@@ -34,7 +34,7 @@ Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되
 | Skill | 호출 | 용도 | Time budget |
 |---|---|---|---|
 | `make-ppt-slide` | `donggu-docs:make-ppt-slide` | 강의·세미나·워크샵 단일 HTML 덱 빌드 (`index.html` + `images/`) | 30-90분 |
-| `make-card-news` | `donggu-docs:make-card-news` | 확정 원고 → 카드뉴스/캐러셀 세트 (1080×1350 PNG + 링크드인용 PDF + 편집용 JSON, 레이아웃 QA 포함) | 10-30분 |
+| `make-card-news` | `donggu-docs:make-card-news` | 확정 원고 → 카드뉴스/캐러셀 세트 (1080×1350 PNG + 링크드인용 PDF + 편집용 JSON, 시네마틱 사진 레이아웃, 레이아웃 QA, 옵시디언 볼트 적재) | 10-30분 |
 
 **자연어 트리거 예시**:
 - "강의 덱 만들어줘"
@@ -136,10 +136,11 @@ donggu-skills/                       ← marketplace repo
 │   │   └── make-card-news/
 │   │       ├── SKILL.md
 │   │       ├── scripts/render_cards.py   ← JSON spec → PNG set + PDF + qa.json (headless Chrome)
+│   │       ├── scripts/vault_handoff.py  ← finished set → Obsidian vault (Attachments + channel note + INDEX lines)
 │   │       ├── templates/card.html       ← 1080×1350 card template + layout QA probe
 │   │       ├── themes/                   ← beyond-deploy.json, donggu.json
 │   │       ├── references/               ← card-spec, platform-specs, tool-landscape
-│   │       └── examples/sample-bd.json
+│   │       └── examples/sample-bd.json (cinematic) · sample-bd-classic.json
 │   └── README.md
 ├── donggu-research/                 ← plugin (namespace: donggu-research:)
 │   ├── .claude-plugin/plugin.json
@@ -176,7 +177,7 @@ donggu-skills/                       ← marketplace repo
 
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
-| **donggu-docs** | ✅ `v1.2.0` | 2 | Document & deck authoring (HTML slide decks, card-news / carousel sets) |
+| **donggu-docs** | ✅ `v1.3.0` | 2 | Document & deck authoring (HTML slide decks, card-news / carousel sets with cinematic layout + vault handoff) |
 | **donggu-research** | ✅ `v1.3.0` | 1 | Beginner-friendly AX industry change and profit learning |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |
