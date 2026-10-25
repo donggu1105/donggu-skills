@@ -34,7 +34,8 @@ Turn approved copy into a multi-card set (카드뉴스, carousel): per-card PNGs
 4. **Write the spec** — JSON as in `examples/sample-bd.json` (`"layout": "cinematic"`). `handle` is the small first/last-card signature (`series` is shown only in `classic`). `**bold**` inside text becomes an accent highlight; `\n` is a line break; nothing else is markup.
 5. **Render** — `python3 scripts/render_cards.py SPEC.json --out OUT_DIR [--theme NAME]`. Needs a headless Chrome/Chromium (`$CARD_NEWS_CHROME` or the default macOS/Linux locations) and Pillow for the PDF. Exit 0 = clean, 2 = rendered with QA problems, 1 = spec/render error.
 6. **QA** — read `OUT_DIR/qa.json` (overflow, safe-area, overlap, font fallback, image load/size per card). The probe cannot see faces, so build a contact sheet (all cards, 4 per row) and run a vision ship-gate that lists only blockers: readable face under text, head straddling the copy edge, head sliced by a frame edge, orphan word, clipped element, muddy card, consecutive near-duplicates, leftover line/pill/counter. Then check the densest cards at 375 px (phone feed width) for small text (compare boxes, step numerals, captions). Fix the spec (`focus`/`zoom`/photo swap/shorter copy) or the template and re-render; don't hand-edit PNGs.
-7. **Deliver** — attach the PNGs (and the PDF for LinkedIn), name the spec path as the editable source, say which cards are draft vs final, and name the next step (approval → `publish-sns`). For Beyond Deploy, copy final assets next to the content note in the vault.
+7. **Deliver** — attach the PNGs (and the PDF for LinkedIn), name the spec path as the editable source, say which cards are draft vs final, and name the next step (approval → `publish-sns`).
+8. **File it in the vault** (after the user says the set is good; the vault's AGENTS.md wants the layout shown and approved first) — `python3 scripts/vault_handoff.py SPEC.json --out OUT_DIR --title "제목" --channel instagram --source-url URL --source "[[근거 노트]]" --caption-file caption.md --consent "사진·동의 상태" [--dry-run]`. It refuses a set whose `qa.json` has problems, then writes in the vault's required order: `Attachments/<date> - <title> (카드뉴스)/` (PNGs, PDF, `cards.json` + `assets/`, `MANIFEST.md` with SHA-256 per file) → one `Content/<Channel>/<Channel> - <title>.md` (`type: channel_pack`, `status: draft`, per-card copy, embeds, caption draft, consent status, editorial notes) → one line each in `Content/INDEX`, the channel INDEX and `Attachments/INDEX` (section `## 카드뉴스` / `## 공식 콘텐츠 자료`, `updated` bumped). Existing notes are never overwritten (`"status": "exists"`), publish fields are never invented, signed URLs are rejected. Run `--dry-run` first and paste the plan; then verify with the Obsidian CLI: `obsidian eval "code=(async()=>{…unresolvedLinks…})()"` must return `[]` for the note and the three INDEXes. The vault is git-tracked but the user commits it — don't.
 
 ## Outputs
 
@@ -45,6 +46,12 @@ OUT_DIR/
 ├── html/NN.html      rendered pages (debugging / manual tweaks)
 └── qa.json           per-card probe + problems list
 ```
+
+## Where things live (so the skill and the vault don't fight)
+
+- **How** (renderer, template, themes, this procedure, tests) → this skill in `donggu-skills`, mirrored to the live clone the profiles symlink. The vault's rule: process belongs to skills, the vault keeps sources, direction, editorial judgement and the manuscripts.
+- **What / why** (the set itself) → the vault area that owns the channel: Beyond Deploy official content under `FDE 커뮤니티 (Beyond Deploy)/Content/<Channel>/` + `Attachments/`; the user's personal channels under `Personal Branding/40_Channel_Packs/<Channel>/` (pass `--area "Personal Branding"` only after checking `_GUIDES/RULES.md` — the handoff currently knows the BD layout). One manuscript per channel folder; another channel reusing the set links the first note instead of copying the copy.
+- `examples/sample-bd.json` is a renderer fixture, not the content's source of truth; the vault note + its `cards.json` copy are.
 
 ## Platform notes (details and official-doc caveats in `references/platform-specs.md`)
 
@@ -72,4 +79,5 @@ OUT_DIR/
 
 - `qa.json` → `problems: []`, `font_available: true` on every card, `cards_total` equals the number of PNGs on disk, `cards.pdf` present.
 - Contact sheet passed the vision ship-gate (no blockers) and the densest cards read at 375 px.
-- Tests: `python -m pytest tests/test_make_card_news.py` from the repo root (renders the sample when Chrome is available).
+- Vault handoff: dry-run plan matches, `MANIFEST.md` hashes equal the files on disk, no `supabase.co`/signed URL in the copied spec, Obsidian CLI reports zero unresolved links for the note and the three INDEXes.
+- Tests: `python -m pytest tests/test_make_card_news.py` from the repo root (renders the sample when Chrome is available; the handoff tests run against a temp vault).
