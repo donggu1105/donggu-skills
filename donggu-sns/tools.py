@@ -160,7 +160,9 @@ PREVIEW_SCHEMA = {
                 "type": "object",
                 "description": (
                     "Channel payload. Use `content_file` (absolute path) plus optional "
-                    "`content_sha256` in place of `content` to load the body from disk."
+                    "`content_sha256` in place of `content` to load the body from disk. "
+                    "Threads also accepts `topic_tag` (one, 1-50 chars) and `spoilers` "
+                    "(verbatim body substrings to hide, max 10)."
                 ),
             },
             "topic": {"type": "string"},

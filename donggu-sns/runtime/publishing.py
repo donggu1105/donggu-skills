@@ -120,7 +120,7 @@ _CONTRACTS = {
     ("tistory", "publish"): ({"title", "content", "tags"}, {"category", "cover_image"}),
     ("tistory", "update"): ({"title", "content", "tags"}, {"category", "cover_image"}),
     ("maily", "publish"): ({"title", "content", "subtitle"}, {"tags", "dry_run"}),
-    ("threads", "publish"): ({"content"}, {"image_urls"}),
+    ("threads", "publish"): ({"content"}, {"image_urls", "topic_tag", "spoilers"}),
     ("linkedin", "publish"): ({"content"}, set()),
     ("instagram", "publish"): ({"image_urls", "caption"}, set()),
     ("tistory", "delete"): (set(), set()),
@@ -258,6 +258,51 @@ def _opening_fence(line: str) -> Optional[str]:
 def _is_closing_fence(line: str, opening: str) -> bool:
     match = _FENCE_CLOSE_RE.fullmatch(line)
     return bool(match and secrets.compare_digest(match.group(1), opening))
+
+
+_THREADS_TOPIC_TAG_FORBIDDEN = frozenset(".&")
+_THREADS_MAX_SPOILERS = 10
+
+
+def _validate_threads_topic_tag(value: Any) -> str:
+    """Threads allows exactly one topic tag per post: 1-50 chars, no '.' or '&'."""
+    if not isinstance(value, str):
+        raise ValidationError("topic_tag must be a string")
+    tag = value.strip().lstrip("#").strip()
+    if not 1 <= len(tag) <= 50:
+        raise ValidationError("topic_tag must be 1 to 50 characters")
+    if any(ch in _THREADS_TOPIC_TAG_FORBIDDEN for ch in tag) or any(ch in "\r\n\t" for ch in tag):
+        raise ValidationError("topic_tag must not contain periods, ampersands, or line breaks")
+    return tag
+
+
+def _threads_spoiler_entities(content: str, spoilers: Any) -> list:
+    """Resolve spoiler substrings to Threads ``text_entities`` (code point offsets).
+
+    Each spoiler is a substring of the body; the n-th repeat of the same string
+    hides the n-th occurrence. Entities must not overlap.
+    """
+    if not isinstance(spoilers, list) or not 1 <= len(spoilers) <= _THREADS_MAX_SPOILERS:
+        raise ValidationError("spoilers must contain 1 to 10 substrings")
+    if any(ord(ch) > 0xFFFF for ch in content):
+        # Code point and UTF-16 offsets diverge on astral chars (emoji); refuse
+        # rather than hide the wrong span.
+        raise ValidationError("spoilers cannot be used when the content contains emoji or other astral characters")
+    entities = []
+    search_from: Dict[str, int] = {}
+    for item in spoilers:
+        if not isinstance(item, str) or not item.strip() or len(item) > 500:
+            raise ValidationError("each spoiler must be a non-empty substring")
+        start = content.find(item, search_from.get(item, 0))
+        if start < 0:
+            raise ValidationError("each spoiler must appear verbatim in the threads content")
+        search_from[item] = start + len(item)
+        entities.append({"entity_type": "SPOILER", "offset": start, "length": len(item)})
+    ordered = sorted(entities, key=lambda e: e["offset"])
+    for left, right in zip(ordered, ordered[1:]):
+        if left["offset"] + left["length"] > right["offset"]:
+            raise ValidationError("spoilers must not overlap")
+    return ordered
 
 
 def _validate_content_contract(channel: str, operation: str, content: str) -> str:
@@ -626,12 +671,21 @@ def _validate_payload(
                 )
                 for item in value
             ]
+        elif field == "topic_tag":
+            clean[field] = _validate_threads_topic_tag(value)
+        elif field == "spoilers":
+            if not isinstance(value, list):
+                raise ValidationError("spoilers must be a list")
+            clean[field] = list(value)
         elif field == "dry_run":
             if type(value) is not bool:
                 raise ValidationError("dry_run must be boolean")
             clean[field] = value
         else:  # exact-key validation above makes this defensive only
             raise ValidationError("unsupported payload field")
+    if "spoilers" in clean:
+        # Validates presence/overlap; the webhook resolves offsets the same way.
+        _threads_spoiler_entities(clean["content"], clean["spoilers"])
     if "content" in clean:
         for image in _extract_markdown_images(clean["content"]):
             _validate_image_url(
@@ -1353,6 +1407,12 @@ class PublishingRuntime:
         preview: Dict[str, Any] = {"payload": clean}
         if "content" in clean:
             preview["content_chars"] = len(clean["content"])
+        if "topic_tag" in clean:
+            preview["topic_tag"] = clean["topic_tag"]
+        if "spoilers" in clean:
+            preview["spoiler_entities"] = _threads_spoiler_entities(
+                clean["content"], clean["spoilers"],
+            )
         if "caption" in clean:
             preview["caption_chars"] = len(clean["caption"])
         inline_images = _extract_markdown_images(clean.get("content", ""))
@@ -1767,6 +1827,10 @@ class PublishingRuntime:
         else:
             if operation in {"update", "delete"}:
                 webhook_payload["post_id"] = receipt["resolved"]["post_id"]
+            if channel == "threads" and "spoilers" in webhook_payload:
+                webhook_payload["text_entities"] = _threads_spoiler_entities(
+                    webhook_payload["content"], webhook_payload.pop("spoilers"),
+                )
             request_body = webhook_payload
             request_url = self.webhook_base_url + "/" + _ENDPOINTS[key]
             headers = {

@@ -168,9 +168,17 @@ reconciliation이 아니다. 그런데도 reconciliation이 걸렸다면 발행�
 |---|---|---|---|
 | tistory | first line = title, markdown body as-is — **but run blog-image prep first** (see below) | `category`? (default 프로덕트 엔지니어), **required public `tags` 4–7** | vault `TEMPLATE - Blog 발행 틀` |
 | maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is — **blog-image prep first if it has `![[embeds]]`** | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
-| threads | `## 발행` text until the next `##` = `content`; `![[image]]` embeds → `image_urls` | ≤500 chars, 0 hashtags, 0 body URLs; native preview rejects overlength, hashtags, and unambiguous URL strings | **writing-social-content** |
+| threads | `## 발행` text until the next `##` = `content`; `![[image]]` embeds → `image_urls`; frontmatter `topic_tag` → `topic_tag`; frontmatter `spoilers` → `spoilers` | ≤500 chars, 0 hashtags, 0 body URLs; native preview rejects overlength, hashtags, and unambiguous URL strings. `topic_tag` 1개(1–50자, `.`·`&` 금지), `spoilers` = 본문에 그대로 있는 부분 문자열 1–10개 | **writing-social-content** |
 | linkedin | `## Draft` final version until the next `##` | `content` only, 0 body URLs; native preview rejects unambiguous URL strings | writing-social-content |
 | instagram | finalized caption + finalized local image files → `upload_images.py` → `image_urls` | 1 img=single, 2–10=carousel | finalized caption and images |
+
+### Topic tag · spoilers (threads)
+
+- **토픽 태그는 글당 1개뿐이다.** 노트 frontmatter `topic_tag`가 있으면 그 값을 쓰고, 없으면 기본값 `AI Threads`(스레드 최대 AI 커뮤니티 태그)를 제안해 미리보기에 보여준다. 사용자가 미리보기에서 바꿀 수 있다. 본문에 `#태그`를 넣지 않는다(본문 해시태그 0개 규칙 유지).
+- 태그 선택은 아직 실험 중이다. 고정하지 말고 글마다 미리보기에서 확인받는다. 비교 결과(비팔로워 조회수)가 나오면 기본값을 다시 정한다.
+- 발행된 글의 토픽 태그는 API로 수정할 수 없다(수정 엔드포인트 없음, 앱도 15분 한도). 지난 글을 태그 때문에 지우고 다시 올리지 않는다 — 반응이 사라진다.
+- **스포일러**: frontmatter `spoilers:` 목록에 본문의 부분 문자열을 그대로 적는다(같은 문자열을 두 번 적으면 두 번째 등장 위치를 가린다). 런타임이 위치를 계산해 Threads `text_entities`로 넘긴다. 최대 10개, 겹치면 거부한다. 본문에 이모지가 있으면 위치 계산이 어긋날 수 있어 런타임이 거부한다 — 이모지를 빼거나 스포일러를 포기한다.
+- 미리보기에는 `topic_tag`와 `spoiler_entities`(가려질 문자열)가 나온다. 둘 다 사용자에게 보여주고 승인받는다.
 
 ### Tags (tistory blog)
 
@@ -253,7 +261,7 @@ agents must never call mutation endpoints directly or print token values.
 
 | Other SNS webhook (`https://n8n.donggu.site/webhook/…`, `X-SNS-Token`) | Body |
 |---|---|
-| `sns-pub-threads` | `{content, image_urls?}` |
+| `sns-pub-threads` | `{content, image_urls?, topic_tag?, text_entities?}` (런타임이 `spoilers`를 `text_entities`로 변환) |
 | `sns-pub-linkedin` | `{content}` |
 | `sns-pub-instagram` | `{image_urls, caption}` |
 | `sns-del-threads` | `{post_id}` |

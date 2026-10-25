@@ -74,7 +74,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-sns", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("2.11.3", claude["version"])
+        self.assertEqual("2.12.0", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_codex_marketplace_exposes_only_sns_from_existing_domain_path(self):
@@ -86,7 +86,7 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertEqual(["donggu-sns"], [item["name"] for item in marketplace["plugins"]])
         entry = marketplace["plugins"][0]
         self.assertEqual({"source": "local", "path": "./donggu-sns"}, entry["source"])
-        self.assertEqual("2.11.3", entry["version"])
+        self.assertEqual("2.12.0", entry["version"])
         self.assertEqual(
             {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
             entry["policy"],
@@ -128,7 +128,7 @@ class NativePluginPackageTests(unittest.TestCase):
         )
         self.assertEqual("donggu-sns", codex["name"])
         self.assertEqual("./skills/", codex["skills"])
-        self.assertEqual("2.11.3", codex["version"])
+        self.assertEqual("2.12.0", codex["version"])
         self.assertEqual(codex["version"], claude["version"])
         self.assertEqual(codex["version"], manifest_scalar(package / "plugin.yaml", "version"))
         self.assertEqual(codex["version"], marketplace["plugins"][0]["version"])

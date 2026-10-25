@@ -524,6 +524,47 @@ class PublishingRuntimeTests(unittest.TestCase):
                     user_message_id=self.PREVIEW_MESSAGE_ID,
                 )
 
+    def test_threads_topic_tag_and_spoilers_reach_webhook(self):
+        content = "FDE가 줄인 건 회의 시간이었다.\n결론은 현장이다."
+        plan = self.runtime.preview(
+            channel="threads", operation="publish",
+            payload={"content": content, "topic_tag": " #AI Threads ", "spoilers": ["회의 시간", "현장"]},
+            topic="demo-tag", note_path="40_Channel_Packs/Threads/Threads - demo-tag.md",
+            session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
+        )
+        self.assertEqual("AI Threads", plan["preview"]["topic_tag"])
+        entities = plan["preview"]["spoiler_entities"]
+        self.assertEqual([content[e["offset"]:e["offset"] + e["length"]] for e in entities], ["회의 시간", "현장"])
+        result = self.approve_and_dispatch(plan)
+        self.assertEqual("completed", result["status"])
+        webhook = [r for r in FakeApiHandler.requests if r[1] == "/webhook/sns-pub-threads"]
+        sent = webhook[0][3] if isinstance(webhook[0][3], dict) else json.loads(webhook[0][3])
+        self.assertEqual("AI Threads", sent["topic_tag"])
+        self.assertNotIn("spoilers", sent)
+        self.assertEqual(entities, sent["text_entities"])
+
+    def test_threads_topic_tag_and_spoiler_validation(self):
+        def preview(payload):
+            return self.runtime.preview(
+                channel="threads", operation="publish", payload=payload,
+                topic="bad", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
+            )
+        for bad in [
+            {"content": "hello", "topic_tag": "a.b"},
+            {"content": "hello", "topic_tag": "R&D"},
+            {"content": "hello", "topic_tag": "x" * 51},
+            {"content": "hello", "topic_tag": "  "},
+            {"content": "hello", "spoilers": ["nope"]},
+            {"content": "hello", "spoilers": ["hel", "ell"]},
+            {"content": "hello", "spoilers": []},
+            {"content": "hello 🙂", "spoilers": ["hello"]},
+            {"content": "hello", "spoilers": ["l"] * 11},
+        ]:
+            with self.assertRaises(self.module.ValidationError, msg=str(bad)):
+                preview(bad)
+        repeated = preview({"content": "a b a", "spoilers": ["a", "a"]})
+        self.assertEqual([0, 4], [e["offset"] for e in repeated["preview"]["spoiler_entities"]])
+
     def test_stateless_preview_does_not_issue_a_receipt(self):
         result = self.runtime.preview(
             channel="threads", operation="publish", payload={"content": "hello"},
