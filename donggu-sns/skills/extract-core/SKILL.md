@@ -38,7 +38,8 @@ description: Use after a post is published (or the user says 코어 뽑아줘/�
 - Vault: `~/Library/Application Support/obsidian/obsidian.json`에서 `open` 볼트를 찾는다 (현재 `.../iCloud~md~obsidian/Documents/ontology`). 그 아래 `Personal Branding/`.
 - 스키마 정본: `Personal Branding/_GUIDES/RULES.md` (먼저 읽는다).
 - 원천: `40_Channel_Packs/<채널>/<채널> - <제목>.md`의 발행 본문 (`## 본문` / `# 발행 원고` / 옛 노트는 `## Draft`·`## 발행`). `## 편집 메모`는 근거로 쓰지 않는다.
-- 비교 대상: `20_Core/CORE - <완성 문장>.md` 전체 제목 + 축이 가까운 노트 본문.
+- 비교 대상: `20_Core/CORE - <완성 문장>.md` 전체 제목 + 축이 가까운 노트 본문. 같은 축의 `30_Foundations/FOUND - *`, `10_Sources/SOURCE - *`, `80_Cases/CASE - *`도 제목으로 훑어 근거 링크 후보를 찾는다.
+- 토폴로지(노드·엣지·배선): `references/topology.md`. 작업 전에 읽는다.
 - iCloud 파일이 비어 읽히면(dataless) `brctl download <file>` 후 다시 읽는다.
 
 ## Atomicity score (10점)
@@ -59,7 +60,7 @@ description: Use after a post is published (or the user says 코어 뽑아줘/�
 ## Workflow
 
 1. 원천을 읽는다. 작성 단계면 방금 확정한 초안, 발행 단계면 발행 본문만 대상으로 하고 편집 메모·전략 섹션은 근거로 쓰지 않는다.
-2. `20_Core/`를 제목·본문으로 검색해 같은 축의 기존 CORE를 찾고 가까운 2~3개를 끝까지 읽는다.
+2. `20_Core/`를 제목·본문으로 검색해 같은 축의 기존 CORE를 찾고 가까운 2~3개를 끝까지 읽는다. 같은 축 FOUND·SOURCE·CASE가 있으면 근거 링크 후보로 적어 둔다 (FOUND가 같은 구조를 이미 설명하면 CORE는 결론만 소유).
 3. 주장마다 결과 하나를 정한다.
    - `LINK`: 기존 CORE가 이미 그 주장을 가진다 → 연결만
    - `NEW`: 새 원자 CORE
@@ -70,6 +71,7 @@ description: Use after a post is published (or the user says 코어 뽑아줘/�
    1. NEW · 9/10 · "X는 Y다"  ← 추천
       근거: 본문 속 동구 문장 인용 한 줄
       인접: [[CORE - …]] — 결이 다른 이유 한 줄
+      근거·MOC: [[FOUND/SOURCE/CASE - …]] · [[MOC - …]] (있을 때)
    2. LINK · [[CORE - …]] — 이미 같은 주장
    ```
    추천 하나를 먼저 둔다. `NEW`면 완성 문장 제목 후보를 2~3개까지 함께 준다.
@@ -78,13 +80,7 @@ description: Use after a post is published (or the user says 코어 뽑아줘/�
    - `NEW`: 아래 CORE 노트 형식으로 `20_Core/CORE - <완성 문장>.md` 생성
    - `MERGE`: 기존 CORE의 근거·적용·연결된 콘텐츠에 이 글을 추가 (기존 문장은 고치지 않음)
    - `LINK`: 새 노트 없이 아래 링크만
-   - 링크 배선 (현재 볼트 방식):
-     ① 원천 채널 노트 본문 `## 연결` 섹션에 `- CORE: [[CORE - …]]` (섹션이 없으면 `## 편집 메모` 위에 만든다. 인접 CORE는 `- 인접 CORE:` 줄)
-     ② CORE `## 📂 연결`에 `- 출고: [[<채널> - …]]` + `- Related: [[CORE - …]] — 관계 한 줄`
-     ③ 인접 CORE의 연결 섹션에도 새 CORE를 Related로 추가 (양방향)
-     ④ 관련 기존 MOC(`50_MOCs/`)의 맞는 섹션에 한 줄 추가. 맞는 섹션이 없으면 섹션 하나는 만들 수 있지만 새 MOC 파일은 만들지 않는다
-   - 레거시 필드: 채널 노트에 이미 `core_principle` frontmatter나 `## 부품` 표가 있으면 같은 링크로 갱신만 한다. 새 노트에는 추가하지 않는다.
-   - 같은 주제의 파생 채널 노트(Blog/Threads/Maily)에도 같은 `## 연결` 줄을 단다.
+   - 링크 배선: **`references/topology.md`의 역방향 배선 표를 그대로 따른다** (채널 노트 `## 연결`, 관련 CORE 양방향, 근거로 쓴 SOURCE·FOUND·CASE, MOC 1~2개). 레거시 필드는 갱신만 하고 새로 만들지 않는다.
 7. 다시 읽어 확인하고, 만든/고친 파일 목록만 짧게 보고한다.
 
 ## CORE note shape
@@ -121,10 +117,12 @@ created: YYYY-MM-DD
 
 ---
 
-## 📂 연결
+## 근거와 연결
 
+- 객관 구조: [[FOUND - …]]
+- 출처: [[SOURCE - …]]
 - 출고: [[<채널> - …]]
-- Related: [[CORE - …]] — 관계 한 줄
+- 관련: [[CORE - …]] — 관계 한 줄
 - MOC: [[MOC - …]]
 ```
 

@@ -26,7 +26,8 @@ description: Use when the user marks a finished post as canon (정전, 이건 �
 2. **먼저 검색**:
    - `20_Core/`: 이미 그 주장을 가진 CORE가 있으면 `LINK`가 우선
    - `60_Projects/Teaching/PARTS - *.md`: 기존 강의 부품 (읽기 전용)
-   - `50_MOCs/`: 기존 허브. 새 MOC는 만들지 않는다
+   - `50_MOCs/Topics/`: 기존 허브. 새 MOC는 만들지 않는다
+   - `30_Foundations/`·`10_Sources/`·`80_Cases/`: 근거 링크 후보 (노드·엣지는 `extract-core/references/topology.md`)
 3. **후보 만들기 (쓰기 없음)**:
    - **CORE**: `extract-core`의 원자성 점수 5기준으로 채점. 글 하나에 1~2개
    - **강의 부품**: Hook / Closing / Confession / Demo. 본문 문장 그대로. 재사용성·자기완결성·목소리·겹침을 본다
@@ -40,7 +41,7 @@ description: Use when the user marks a finished post as canon (정전, 이건 �
    ```
    사용자가 번호를 고를 때까지 아무것도 쓰지 않는다.
 6. **고른 것만 적용**:
-   - CORE: `extract-core`의 적용 단계와 CORE 노트 형식을 그대로 따른다 (생성·MERGE·LINK + `## 연결` 배선).
+   - CORE: `extract-core`의 적용 단계와 CORE 노트 형식을 그대로 따른다 (생성·MERGE·LINK + `extract-core/references/topology.md` 역방향 배선).
    - 강의 부품: 기본은 원천 채널 노트의 `## 부품` 표에 행으로 기록한다. `60_Projects/Teaching/PARTS - *.md`에는 사용자가 명시할 때만 추가한다.
    - 정전 지정: 사용자가 원하면 해당 채널 `VOICE - <채널>.md`의 `canon:` 목록에 추가한다 (채널 노트 frontmatter에 `canon` 필드를 만들지 않는다).
 7. 다시 읽어 확인하고, 바뀐 파일 목록만 보고한다.
