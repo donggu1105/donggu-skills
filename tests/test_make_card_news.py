@@ -316,12 +316,12 @@ class VaultHandoffTest(unittest.TestCase):
         vault = tmp / "vault"
         area = vault / "FDE 커뮤니티 (Beyond Deploy)"
         (area / "Content" / "Instagram").mkdir(parents=True)
-        (area / "Attachments").mkdir()
+        (area / "Content" / "CardNews").mkdir()
         (area / "Content" / "INDEX - Content.md").write_text("---\ntype: index\nupdated: 2026-10-21\n---\n\n# Beyond Deploy 콘텐츠\n\n## 연결\n\n[[x]]\n", encoding="utf-8")
+        (area / "Content" / "CardNews" / "INDEX - CardNews.md").write_text(
+            "---\ntype: index\nupdated: 2026-10-25\n---\n\n# 카드뉴스\n\n## 세트\n\n- a\n\n## 원고 탐색\n\n```base\nx\n```\n", encoding="utf-8")
         (area / "Content" / "Instagram" / "INDEX - Instagram.md").write_text(
             "---\ntype: index\nupdated: 2026-09-08\n---\n\n# 인스타그램\n\n## 케이스 토크 01\n\n- a\n\n## 원고 탐색\n\n```base\nx\n```\n", encoding="utf-8")
-        (area / "Attachments" / "INDEX - Attachments.md").write_text(
-            "---\ntype: index\nupdated: 2026-10-18\n---\n\n# INDEX — Attachments\n\n## 현재 근거 자료\n\n- a\n\n## 공식 콘텐츠 자료\n\n- 연결 기획: x\n\n## 연결\n\n[[y]]\n", encoding="utf-8")
         return vault
 
     def test_handoff_files_assets_note_and_index_lines(self):
@@ -332,41 +332,46 @@ class VaultHandoffTest(unittest.TestCase):
             spec_path, out = self._fake_render(tmp)
             vault = self._fake_vault(tmp)
             res = vh.handoff(spec_path=spec_path, out_dir=out, vault=vault, area="FDE 커뮤니티 (Beyond Deploy)",
-                             channel="instagram", title="4번의 모임, 100여 명의 FDE를 만나며 알게 된 것들",
+                             channels=["instagram", "linkedin"], title="4번의 모임, 100여 명의 FDE를 만나며 알게 된 것들",
                              date="2026-10-25", source_url="https://beyonddeploy.kr/field-notes/four-rounds-hundred-fdes",
                              caption="캡션 초안", consent_note="정장·조끼 두 분 동의 미확인",
                              extra_sources=[], dry_run=False)
             area = vault / "FDE 커뮤니티 (Beyond Deploy)"
-            att = area / "Attachments" / "2026-10-25 - 4번의 모임, 100여 명의 FDE를 만나며 알게 된 것들 (카드뉴스)"
-            self.assertTrue(att.is_dir(), res)
-            # assets: every PNG, the PDF, the editable spec with assets, a manifest with sha256 for each file
-            for f in ("01.png", "08.png", "cards.pdf", "cards.json", "MANIFEST.md"):
-                self.assertTrue((att / f).is_file(), f)
-            self.assertTrue((att / "assets" / "lounge-wide.jpg").is_file())
-            manifest = (att / "MANIFEST.md").read_text(encoding="utf-8")
-            self.assertIn(hashlib.sha256((att / "01.png").read_bytes()).hexdigest(), manifest)
+            # one folder per set: note + PNGs + PDF + editable spec + assets + manifest, all side by side
+            folder = area / "Content" / "CardNews" / "2026-10-25 - 4번의 모임, 100여 명의 FDE를 만나며 알게 된 것들"
+            self.assertTrue(folder.is_dir(), res)
+            for f in ("01.png", "08.png", "cards.pdf", "cards.json", "MANIFEST.md",
+                      "CardNews - 4번의 모임, 100여 명의 FDE를 만나며 알게 된 것들.md"):
+                self.assertTrue((folder / f).is_file(), f)
+            self.assertTrue((folder / "assets" / "lounge-wide.jpg").is_file())
+            self.assertFalse((area / "Attachments").exists())           # nothing scattered into Attachments
+            self.assertFalse(list((area / "Content" / "Instagram").glob("Instagram - 4번의 모임*")))
+            manifest = (folder / "MANIFEST.md").read_text(encoding="utf-8")
+            self.assertIn(hashlib.sha256((folder / "01.png").read_bytes()).hexdigest(), manifest)
             self.assertNotIn("supabase.co", manifest)                  # no signed URLs leak into the vault
-            note = area / "Content" / "Instagram" / "Instagram - 4번의 모임, 100여 명의 FDE를 만나며 알게 된 것들.md"
-            self.assertTrue(note.is_file())
-            body = note.read_text(encoding="utf-8")
-            self.assertIn("type: channel_pack", body); self.assertIn("channel: instagram", body)
-            self.assertIn("status: draft", body); self.assertIn("area: fde-community", body)
+            body = (folder / "CardNews - 4번의 모임, 100여 명의 FDE를 만나며 알게 된 것들.md").read_text(encoding="utf-8")
+            fm = body.split("---")[1]
+            self.assertIn("type: channel_pack", fm); self.assertIn("format: card-news", fm)
+            self.assertIn("channels: [instagram, linkedin]", fm)
+            self.assertIn("status: draft", fm); self.assertIn("area: fde-community", fm)
+            self.assertNotIn("published_at:", fm)                     # draft: no publish fields invented
             self.assertIn("FDE는 어디까지", body)                        # per-card copy is in the note
-            self.assertIn("![[FDE 커뮤니티 (Beyond Deploy)/Attachments/2026-10-25 - 4번의 모임, 100여 명의 FDE를 만나며 알게 된 것들 (카드뉴스)/01.png]]", body)
+            self.assertIn("![[01.png]]", body)                        # same-folder embeds, no long paths
+            self.assertIn("[[MANIFEST]]", body)
             self.assertIn("make-card-news", body)                     # points at the skill, doesn't restate its rules
             self.assertIn("동의 미확인", body)
-            self.assertNotIn("published_at:", body.split("---")[1])     # draft: no publish fields invented in frontmatter
-            for idx in ("Content/INDEX - Content.md", "Content/Instagram/INDEX - Instagram.md", "Attachments/INDEX - Attachments.md"):
+            for idx in ("Content/INDEX - Content.md", "Content/CardNews/INDEX - CardNews.md"):
                 txt = (area / idx).read_text(encoding="utf-8")
                 self.assertIn("4번의 모임", txt, idx)
                 self.assertIn("updated: 2026-10-25", txt, idx)
+            self.assertNotIn("4번의 모임", (area / "Content" / "Instagram" / "INDEX - Instagram.md").read_text(encoding="utf-8"))
             # idempotent: second run with the same inputs changes nothing and refuses to overwrite the note silently
             res2 = vh.handoff(spec_path=spec_path, out_dir=out, vault=vault, area="FDE 커뮤니티 (Beyond Deploy)",
-                              channel="instagram", title="4번의 모임, 100여 명의 FDE를 만나며 알게 된 것들",
+                              channels=["instagram"], title="4번의 모임, 100여 명의 FDE를 만나며 알게 된 것들",
                               date="2026-10-25", source_url="https://beyonddeploy.kr/x", caption="캡션 초안",
                               consent_note="x", extra_sources=[], dry_run=False)
             self.assertEqual(res2["note"]["status"], "exists")
-            self.assertEqual((area / "Content" / "INDEX - Content.md").read_text(encoding="utf-8").count("[[FDE 커뮤니티 (Beyond Deploy)/Content/Instagram/Instagram - 4번의 모임"), 1)
+            self.assertEqual((area / "Content" / "INDEX - Content.md").read_text(encoding="utf-8").count("CardNews - 4번의 모임"), 1)
 
     def test_handoff_refuses_a_set_that_failed_qa_or_lacks_pngs(self):
         import vault_handoff as vh
@@ -377,9 +382,9 @@ class VaultHandoffTest(unittest.TestCase):
             qa = json.loads((out / "qa.json").read_text(encoding="utf-8")); qa["problems"] = [{"card": 2, "kind": "overflow"}]
             (out / "qa.json").write_text(json.dumps(qa), encoding="utf-8")
             with self.assertRaises(vh.HandoffError):
-                vh.handoff(spec_path=spec_path, out_dir=out, vault=vault, area="FDE 커뮤니티 (Beyond Deploy)", channel="instagram",
+                vh.handoff(spec_path=spec_path, out_dir=out, vault=vault, area="FDE 커뮤니티 (Beyond Deploy)", channels=["instagram"],
                            title="t", date="2026-10-25", source_url="", caption="", consent_note="", extra_sources=[], dry_run=True)
-            self.assertFalse(any((vault / "FDE 커뮤니티 (Beyond Deploy)" / "Attachments").glob("2026-*")))
+            self.assertFalse(any((vault / "FDE 커뮤니티 (Beyond Deploy)" / "Content" / "CardNews").glob("2026-*")))
 
 
 class RenderTest(unittest.TestCase):

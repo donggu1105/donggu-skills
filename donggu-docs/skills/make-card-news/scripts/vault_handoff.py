@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """File a rendered card-news set into the Obsidian vault.
 
-    vault_handoff.py SPEC.json --out OUT_DIR --title "제목" --channel instagram
+    vault_handoff.py SPEC.json --out OUT_DIR --title "제목" [--channel instagram --channel linkedin]
                      [--area "FDE 커뮤니티 (Beyond Deploy)"] [--vault PATH] [--date YYYY-MM-DD]
                      [--source-url URL] [--source "[[wikilink]]" ...] [--caption-file F]
                      [--consent "…"] [--dry-run]
@@ -9,12 +9,12 @@
 What it does, in the order the vault's AGENTS.md demands (assets first, then the note that links them):
 
   1. refuses unless OUT_DIR/qa.json says problems == [] and every PNG exists
-  2. copies PNGs + cards.pdf + the spec (as cards.json) + its assets/ into
-       <area>/Attachments/<date> - <title> (카드뉴스)/        with MANIFEST.md (sha256 per file)
-  3. writes one channel note
-       <area>/Content/<Channel>/<Channel> - <title>.md        type: channel_pack · status: draft
-     holding the per-card copy, the caption draft, consent status, editorial notes, and embeds of the PNGs
-  4. adds one line to Content/INDEX, the channel INDEX and Attachments/INDEX and bumps their `updated`
+  2. makes ONE folder per set
+       <area>/Content/CardNews/<date> - <title>/
+         CardNews - <title>.md   type: channel_pack · format: card-news · status: draft
+         01.png … NN.png · cards.pdf · cards.json (+assets/) · MANIFEST.md (sha256 per file)
+     the note holds the per-card copy, caption draft, consent status, editorial notes and same-folder embeds
+  3. adds one line to Content/CardNews/INDEX and Content/INDEX and bumps their `updated`
 
 It never overwrites an existing note (reports "exists"), never sets published fields, never touches
 anything outside those folders, and never writes signed URLs. Publishing is a separate approval (publish-sns).
@@ -164,12 +164,14 @@ def write_index_line(path: Path, heading: str, line: str, day: str, dry_run: boo
     return "updated"
 
 
-def handoff(*, spec_path: Path, out_dir: Path, vault: Path, area: str, channel: str, title: str, date: str | None,
+def handoff(*, spec_path: Path, out_dir: Path, vault: Path, area: str, channels: list[str], title: str, date: str | None,
             source_url: str, caption: str, consent_note: str, extra_sources: list[str], dry_run: bool) -> dict:
+    """One folder per set: <area>/Content/CardNews/<date> - <title>/ holding the note, PNGs, PDF, cards.json, assets/, MANIFEST.md."""
     day = date or _date.today().isoformat()
-    channel = channel.lower()
-    if channel not in CHANNEL_DIR:
-        raise HandoffError(f"channel {channel!r} not in {sorted(CHANNEL_DIR)}")
+    channels = [c.lower() for c in channels] or ["instagram"]
+    bad = [c for c in channels if c not in CHANNEL_DIR]
+    if bad:
+        raise HandoffError(f"channels {bad} not in {sorted(CHANNEL_DIR)}")
     area_dir = vault / area
     if not area_dir.is_dir():
         raise HandoffError(f"area folder not found: {area_dir}")
@@ -189,24 +191,24 @@ def handoff(*, spec_path: Path, out_dir: Path, vault: Path, area: str, channel: 
         raise HandoffError("spec/caption contains a signed URL — strip it; the vault keeps public URLs only")
 
     stitle = safe_title(title)
-    att_dir = area_dir / "Attachments" / f"{day} - {stitle} (카드뉴스)"
-    ch_dir = area_dir / "Content" / CHANNEL_DIR[channel]
-    note_path = ch_dir / f"{CHANNEL_DIR[channel]} - {stitle}.md"
-    rel_att = f"{area}/Attachments/{att_dir.name}"
-    rel_note = f"{area}/Content/{CHANNEL_DIR[channel]}/{note_path.stem}"
-    result = {"attachments": str(att_dir), "note": {"path": str(note_path), "status": "planned"}, "index": {}, "dry_run": dry_run}
+    set_dir = area_dir / "Content" / "CardNews" / f"{day} - {stitle}"
+    note_path = set_dir / f"CardNews - {stitle}.md"
+    rel_set = f"{area}/Content/CardNews/{set_dir.name}"
+    rel_note = f"{rel_set}/{note_path.stem}"
+    result = {"folder": str(set_dir), "note": {"path": str(note_path), "status": "planned"}, "index": {}, "dry_run": dry_run}
 
-    # 1) assets first
+    # 1) files first (the vault rule: assets before the note that links them)
     copied: list[tuple[str, Path]] = []
     if not dry_run:
-        att_dir.mkdir(parents=True, exist_ok=True)
-        (att_dir / "assets").mkdir(exist_ok=True)
+        set_dir.mkdir(parents=True, exist_ok=True)
+        (set_dir / "assets").mkdir(exist_ok=True)
     for p in pngs + [out_dir / "cards.pdf"]:
         if p.is_file():
             copied.append((p.name, p))
     spec_copy = dict(spec)
     spec_copy["source"] = SIGNED_URL.sub("[signed url removed]", str(spec.get("source", "")))
-    for card in spec_copy.get("cards", []):
+    spec_copy["cards"] = [dict(c) for c in spec_copy.get("cards", [])]
+    for card in spec_copy["cards"]:
         if card.get("image"):
             card["image"] = dict(card["image"], src=f"assets/{Path(card['image']['src']).name}")
     if spec_copy.get("backdrop"):
@@ -215,71 +217,72 @@ def handoff(*, spec_path: Path, out_dir: Path, vault: Path, area: str, channel: 
                   for c in cards if c.get("image")}
     if spec.get("backdrop"):
         asset_srcs[Path(spec["backdrop"]["src"]).name] = render_cards.resolve_image(spec["backdrop"]["src"], spec_path.parent)
-    manifest = [f"# MANIFEST — {stitle} (카드뉴스)", "", f"- 적재일: {day}", f"- 제작: 스킬 `make-card-news` (donggu-skills)",
+    manifest = [f"# MANIFEST — {stitle}", "", f"- 적재일: {day}", "- 제작: 스킬 `make-card-news` (donggu-skills)",
                 f"- 출처: {source_url or '(미기재)'}", "", "| 파일 | SHA-256 | 바이트 |", "|---|---|---|"]
     if not dry_run:
         for name, src in copied:
-            shutil.copy2(src, att_dir / name)
+            shutil.copy2(src, set_dir / name)
         for name, src in asset_srcs.items():
-            shutil.copy2(src, att_dir / "assets" / name)
-        (att_dir / "cards.json").write_text(json.dumps(spec_copy, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        for f in sorted(att_dir.rglob("*")):
-            if f.is_file() and f.name != "MANIFEST.md":
-                manifest.append(f"| {f.relative_to(att_dir)} | {sha256(f)} | {f.stat().st_size} |")
-        (att_dir / "MANIFEST.md").write_text("\n".join(manifest) + "\n", encoding="utf-8")
+            shutil.copy2(src, set_dir / "assets" / name)
+        (set_dir / "cards.json").write_text(json.dumps(spec_copy, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        for f in sorted(set_dir.rglob("*")):
+            if f.is_file() and f.name != "MANIFEST.md" and f.suffix != ".md":
+                manifest.append(f"| {f.relative_to(set_dir)} | {sha256(f)} | {f.stat().st_size} |")
+        (set_dir / "MANIFEST.md").write_text("\n".join(manifest) + "\n", encoding="utf-8")
         try:
             import subprocess
-            subprocess.run(["xattr", "-dr", "com.apple.quarantine", str(att_dir)], capture_output=True)
+            subprocess.run(["xattr", "-dr", "com.apple.quarantine", str(set_dir)], capture_output=True)
         except Exception:
             pass
     result["files"] = [n for n, _ in copied] + ["cards.json", "MANIFEST.md"] + [f"assets/{n}" for n in asset_srcs]
 
-    # 2) the channel note
+    # 2) the note, next to the files
+    ch_names = [CHANNEL_DIR[c] for c in channels]
     if note_path.is_file():
         result["note"]["status"] = "exists"
     else:
         sources = [f'  - "{s}"' for s in extra_sources]
         if source_url:
             sources.insert(0, f'  - "{source_url}"')
-        fm = ["---", "type: channel_pack", f"channel: {channel}", f"area: {AREA_KEY.get(area, 'fde-community')}",
-              "status: draft", "visibility: internal", f"created: {day}", f"updated: {day}",
-              "topics: [beyond-deploy, case-talk, content, card-news]", "format: card-news", f"cards: {len(cards)}"]
+        fm = ["---", "type: channel_pack", "format: card-news", f"channels: [{', '.join(channels)}]",
+              f"area: {AREA_KEY.get(area, 'fde-community')}", "status: draft", "visibility: internal",
+              f"created: {day}", f"updated: {day}", f"cards: {len(cards)}",
+              "topics: [beyond-deploy, case-talk, content, card-news]"]
         if sources:
             fm += ["sources:"] + sources
         fm.append("---")
         body = [f"# {title}", "",
-                f"> [!note] 카드뉴스 {len(cards)}장 · 미게시", 
-                f"> 제작은 스킬 `make-card-news`(donggu-skills), 편집 원본은 `{rel_att}/cards.json`. 게시 뒤에 `status: published`와 `published_at`·`published_url`을 남긴다. 게시는 별도 승인(`publish-sns`).", "",
+                f"> [!note] 카드뉴스 {len(cards)}장 · 미게시",
+                f"> 이 폴더가 세트의 전부다: 이 노트(카피·캡션·동의·편집 판단) + `01~{len(cards):02d}.png` + `cards.pdf`(링크드인 문서용) + `cards.json`(편집 원본) + `assets/`(사진) + `MANIFEST.md`(파일별 SHA-256). 제작·재렌더는 스킬 `make-card-news`. 게시는 별도 승인(`publish-sns`) 뒤 `status: published`와 `published_at`·`published_url`을 남긴다.", "",
                 "## 장별 카피", ""]
         for i, card in enumerate(cards, 1):
             body.append(f"### {i:02d} · {card['type']}")
-            body.append(f"![[{rel_att}/{i:02d}.png]]")
+            body.append(f"![[{i:02d}.png]]")
             body += card_lines(card)
             body.append("")
-        body += ["## 캡션 초안", "", caption.strip() if caption.strip() else "(미작성 — `writing-social-content`로 작성)", "",
+        body += [f"## 캡션 초안 ({' · '.join(ch_names)})", "", caption.strip() if caption.strip() else "(미작성 — `writing-social-content`로 작성)", "",
                  "## 사진과 동의", "",
-                 consent_note.strip() if consent_note.strip() else "(확인 전)", "",
-                 f"- 사진 원본·해시: [[{rel_att}/MANIFEST|MANIFEST]]", "",
+                 consent_note.strip() if consent_note.strip() else "(확인 전 — 스킬 `content-rights-clearance`로 판정하고 결과를 여기 적는다)", "",
+                 "- 사진 원본·해시: [[MANIFEST]]", "",
                  "## 편집 판단", "",
-                 "- 디자인: 표지 톤(사진 전면 + 어두운 그라데이션 + 흰 글자)을 전 장에 적용, 선·라벨·페이지 번호 없음 — 2026-10-25 호스트 선택.",
+                 "- 디자인: 표지 톤(사진 전면 + 어두운 그라데이션 + 흰 글자)을 전 장에 적용, 선·라벨·페이지 번호 없음.",
                  "- 이미지 안에 링크·버튼을 넣지 않음(인스타 캐러셀·링크드인 문서 PDF는 이미지 내 링크가 동작하지 않음). 링크는 캡션·첫 댓글·프로필.",
                  "- 수치·사실은 출처 글에서 그대로 가져왔고 새 사실을 더하지 않음.", "",
                  "## 연결", "",
-                 f"[[{area}/Content/{CHANNEL_DIR[channel]}/INDEX - {CHANNEL_DIR[channel]}|{CHANNEL_DIR[channel]}]] · "
-                 f"[[{area}/Content/INDEX - Content|콘텐츠]] · [[{rel_att}/MANIFEST|첨부 자료]]", ""]
+                 f"[[{area}/Content/CardNews/INDEX - CardNews|카드뉴스]] · " +
+                 " · ".join(f"[[{area}/Content/{n}/INDEX - {n}|{n}]]" for n in ch_names) +
+                 f" · [[{area}/Content/INDEX - Content|콘텐츠]]", ""]
         if not dry_run:
             note_path.write_text("\n".join(fm + [""] + body), encoding="utf-8")
         result["note"]["status"] = "created"
 
-    # 3) index lines
+    # 3) index lines: the CardNews folder index + Content index. Channel indexes are left alone (one home per set).
     note_link = f"[[{rel_note}|{title}]]"
     key = f"[[{rel_note}|"
-    result["index"]["channel"] = write_index_line(ch_dir / f"INDEX - {CHANNEL_DIR[channel]}.md", "## 카드뉴스",
-                                                 f"- {note_link} — {len(cards)}장, {day} 제작, 미게시", day, dry_run, key)
+    result["index"]["cardnews"] = write_index_line(area_dir / "Content" / "CardNews" / "INDEX - CardNews.md", "## 세트",
+                                                  f"- {note_link} · {len(cards)}장 · {' · '.join(ch_names)} · `draft` ({day})", day, dry_run, key)
     result["index"]["content"] = write_index_line(area_dir / "Content" / "INDEX - Content.md", "## 카드뉴스",
-                                                 f"- {note_link} — {CHANNEL_DIR[channel]}, {len(cards)}장, {day}. 제작 절차는 스킬 `make-card-news`", day, dry_run, key)
-    result["index"]["attachments"] = write_index_line(area_dir / "Attachments" / "INDEX - Attachments.md", "## 공식 콘텐츠 자료",
-                                                     f"- `{att_dir.name}/` — 카드뉴스 PNG {len(cards)}장·PDF·편집 원본 cards.json·사진 {len(asset_srcs)}장 (해시는 MANIFEST). 원고: {note_link}", day, dry_run, key)
+                                                 f"- {note_link} — {len(cards)}장, {day}, 미게시", day, dry_run, key)
     return result
 
 
@@ -288,7 +291,8 @@ def main(argv=None) -> int:
     ap.add_argument("spec", type=Path)
     ap.add_argument("--out", type=Path, required=True, help="render output dir (PNGs, cards.pdf, qa.json)")
     ap.add_argument("--title", required=True)
-    ap.add_argument("--channel", default="instagram", choices=sorted(CHANNEL_DIR))
+    ap.add_argument("--channel", action="append", default=[], choices=sorted(CHANNEL_DIR),
+                    help="target channel, repeatable (default instagram)")
     ap.add_argument("--area", default="FDE 커뮤니티 (Beyond Deploy)")
     ap.add_argument("--vault", default=None)
     ap.add_argument("--date", default=None)
@@ -301,8 +305,8 @@ def main(argv=None) -> int:
     try:
         vault = resolve_vault(a.vault)
         caption = a.caption_file.read_text(encoding="utf-8") if a.caption_file else ""
-        res = handoff(spec_path=a.spec, out_dir=a.out, vault=vault, area=a.area, channel=a.channel, title=a.title,
-                      date=a.date, source_url=a.source_url, caption=caption, consent_note=a.consent,
+        res = handoff(spec_path=a.spec, out_dir=a.out, vault=vault, area=a.area, channels=a.channel or ["instagram"],
+                      title=a.title, date=a.date, source_url=a.source_url, caption=caption, consent_note=a.consent,
                       extra_sources=a.source, dry_run=a.dry_run)
     except (HandoffError, render_cards.SpecError, OSError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
