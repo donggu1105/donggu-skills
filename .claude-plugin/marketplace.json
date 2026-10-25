@@ -20,7 +20,7 @@
       "name": "donggu-sns",
       "source": "./donggu-sns",
       "description": "SNS and YouTube editorial operations — portable channel-native text authoring, AI-image generation, YouTube planning, and gated publishing.",
-      "version": "2.11.1",
+      "version": "2.11.2",
       "strict": false
     },
     {

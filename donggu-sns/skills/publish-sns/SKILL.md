@@ -18,7 +18,7 @@ Content *formats* are NOT defined here. Text drafts are owned by `writing-social
 
 ### Post-publication review boundary
 
-성공한 실발행 결과가 `published_posts`에 저장되면 existing DB trigger가 **발행 완료 이벤트**를 생성한다. 이 이벤트를 소비하는 자동 파이프라인은 2026-10에 은퇴했다. `publish-sns`는 CORE/Snippet/MOC를 직접 생성하거나 후보를 적용하지 않는다. 대신 실발행과 장부 확인이 끝난 같은 턴에서 **`extract-core`로 넘겨** CORE 후보를 제안한다 (사용자가 LinkedIn 등을 직접 올렸다고 말한 경우도 같다). 같은 주제의 다른 채널이 이미 환류됐으면 그 CORE에 `core_principle`만 맞춘다. webhook 실패, 장부 저장 실패, preview, `dry-run`, reconciliation은 실발행이 아니므로 넘기지 않는다.
+성공한 실발행 결과가 `published_posts`에 저장되면 existing DB trigger가 **발행 완료 이벤트**를 생성한다. 이 이벤트를 소비하는 자동 파이프라인은 2026-10에 은퇴했다. `publish-sns`는 CORE/Snippet/MOC를 직접 생성하거나 후보를 적용하지 않는다. 대신 실발행과 장부 확인이 끝난 같은 턴에서 **`extract-core` 발행 단계로 넘긴다** (작성 단계에서 이미 CORE가 연결된 글이면 논지 변화 확인과 파생 채널 연결만, 아니면 CORE 후보 제안) (사용자가 LinkedIn 등을 직접 올렸다고 말한 경우도 같다). 같은 주제의 다른 채널이 이미 환류됐으면 그 CORE에 `core_principle`만 맞춘다. webhook 실패, 장부 저장 실패, preview, `dry-run`, reconciliation은 실발행이 아니므로 넘기지 않는다.
 
 ## Flow
 

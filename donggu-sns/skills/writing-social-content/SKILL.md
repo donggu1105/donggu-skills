@@ -140,6 +140,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 - 파일 저장 요청: 확정 본문을 target-native 파일 도구에 넘긴다. 이 스킬은 경로·schema·frontmatter를 소유하지 않는다.
 - 이미지 요청: 사용자 제공 스크린샷·사진·자산을 우선하고, 적합한 자산이 없으면 `get-ai-image`로 넘긴다.
 - 영상 요청: YouTube 기획만 `youtube`로 넘긴다. Instagram 카드·캐러셀 구성과 완성 영상 제작은 이 스킬 밖이다.
+- **CORE 리뷰 (항상)**: 초안을 확정해 보여 줄 때 같은 응답 끝에 `extract-core`의 작성 단계 리뷰를 붙인다. 저장·게시 여부와 무관하고 authoring-only여도 한다 (리뷰는 제안만 하고 쓰기는 사용자가 고른 뒤에만 한다). 사용자가 CORE 후보를 고르면 그 문장으로 채널별 논지를 다시 잠그고 초안을 다듬을 수 있다.
 - 게시 요청: `publish-sns`의 preview·approval 절차로 넘긴다. LinkedIn·Threads 초안의 외부 URL은 제거하고 본문 계약을 다시 검수한다. 이 스킬은 게시하지 않는다.
 
 ## Common Mistakes
@@ -160,6 +161,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 | 개인 경험을 생생하게 만들려고 장면 추가 | 사용자가 직접 말한 사실만 1인칭으로 쓴다. |
 | 글자 제한·제목/부제목을 추정 | 채널 reference 계약을 기계적으로 검수한다. |
 | 이미지·저장·게시까지 한 스킬에서 처리 | 텍스트 확정 뒤 전용 스킬로 넘긴다. |
+| 초안만 주고 CORE 리뷰를 빠뜨림 | 확정 초안 응답마다 `extract-core` 작성 단계 리뷰를 붙인다. |
 
 ## 경계
 
@@ -175,6 +177,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 - 이미지: 사용자 제공 자산 · `get-ai-image`
 - YouTube 기획: `youtube`
 - 게시: `publish-sns`
+- CORE 리뷰·환류: `extract-core` (정전 역분해는 `decompose-canon`)
 
 ## 태그
 
