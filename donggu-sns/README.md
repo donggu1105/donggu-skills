@@ -3,7 +3,7 @@
 > Portable SNS authoring and gated publishing — part of [`donggu-skills`](../) marketplace.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
-[![Skills](https://img.shields.io/badge/skills-4-green)](#-skills)
+[![Skills](https://img.shields.io/badge/skills-6-green)](#-skills)
 
 Blog·LinkedIn·Threads·Maily 텍스트 작성, AI 이미지 생성, YouTube 기획, 외부 채널 발행을 역할별 스킬로 분리한다.
 
@@ -16,6 +16,8 @@ writing-social-content   = 말        — 글자만 작성
 get-ai-image             = 이미지    — 사용자 제공 이미지가 없을 때 생성
 youtube                  = 영상 기획  — Longform + Shorts 후보 Pack
 publish-sns              = 발행      — 승인 뒤 확정 텍스트·이미지 반영
+extract-core             = 환류      — 발행 글에서 CORE 후보 제안·선택 반영
+decompose-canon          = 역분해    — 정전 글의 CORE·강의 부품 추출
 ```
 
 ## Skills
@@ -26,6 +28,8 @@ publish-sns              = 발행      — 승인 뒤 확정 텍스트·이미�
 | **youtube** | YouTube Longform + Shorts 후보 기획·회고 | 영상 Pack |
 | **publish-sns** | tistory·maily·threads·linkedin·instagram 발행·삭제 | 발행 결과 + ledger |
 | **get-ai-image** | 사용자 이미지가 없을 때 대표이미지·삽화 생성 | 이미지 파일 |
+| **extract-core** | 발행 직후·"코어 환류" — CORE 후보 채점·제안, 고른 것만 생성·연결 | CORE 노트 + 링크 |
+| **decompose-canon** | "정전"으로 고른 글의 깊은 역분해 | CORE·부품 후보 |
 
 ---
 

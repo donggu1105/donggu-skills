@@ -71,7 +71,9 @@ class PackagingTest(unittest.TestCase):
 
 class SpecAndHtmlTest(unittest.TestCase):
     def setUp(self):
-        self.spec = json.loads((SKILL / "examples" / "sample-bd.json").read_text(encoding="utf-8"))
+        self.sample = json.loads((SKILL / "examples" / "sample-bd.json").read_text(encoding="utf-8"))
+        # classic-layout contracts are checked against a classic copy; the sample itself ships cinematic
+        self.spec = {k: v for k, v in self.sample.items() if k != "layout"}
         self.theme = render_cards.load_theme("beyond-deploy", SKILL)
 
     def test_sample_spec_validates_and_covers_every_card_type(self):
@@ -105,7 +107,7 @@ class SpecAndHtmlTest(unittest.TestCase):
         self.assertIn('data-qa="cta"', html)
         self.assertNotRegex(html, r"\.cta\s*\{[^}]*border-radius:\s*999px")  # not drawn as a button
         # the sample set must follow the rule too
-        closing = [c for c in self.spec["cards"] if c["type"] == "closing"]
+        closing = [c for c in self.sample["cards"] if c["type"] == "closing"]
         self.assertTrue(closing)
         for c in closing:
             self.assertNotRegex(c.get("cta", ""), r"https?://|\.kr|\.com|클릭|눌러|탭")
@@ -136,10 +138,9 @@ class SpecAndHtmlTest(unittest.TestCase):
         self.assertIn(self.theme["accent"], html)
         self.assertIn('data-qa-result', html)  # QA probe script is embedded
 
-    def test_sample_uses_images_in_every_mode_and_ships_the_files(self):
-        cards = render_cards.validate_spec(self.spec)
-        modes = {c["image"].get("mode", "band") for c in cards if c.get("image")}
-        self.assertTrue({"full", "band"} <= modes, modes)
+    def test_sample_ships_its_photos(self):
+        cards = render_cards.validate_spec(self.sample)
+        self.assertTrue(all(c.get("image") for c in cards), "every sample card carries a photo")
         spec_dir = SKILL / "examples"
         for c in cards:
             if c.get("image"):
@@ -218,10 +219,55 @@ class SpecAndHtmlTest(unittest.TestCase):
         bare = render_cards.build_card_html({"type": "point", "title": "t", "body": "b", "wash": False},
                                             index=1, total=1, spec=spec, theme=self.theme, spec_dir=SKILL / "examples")
         self.assertNotIn('class="wash"', bare)
-        # sample ships with a backdrop so the set is continuous out of the box
-        self.assertIn("backdrop", self.spec)
+        # sample ships with a backdrop (cinematic: photo fallback; classic: wash)
+        self.assertIn("backdrop", self.sample)
         with self.assertRaises(render_cards.SpecError):
             render_cards.validate_spec({"backdrop": {"src": "x.gif"}, "cards": [{"type": "point", "title": "t", "body": "b"}]})
+
+
+class CinematicLayoutTest(unittest.TestCase):
+    """`layout: "cinematic"` — the cover treatment on every card: photo + dark gradient + white type,
+    no rules, no pills, no page counter. Chosen by the user over the chrome-heavy default."""
+
+    def setUp(self):
+        self.spec = json.loads((SKILL / "examples" / "sample-bd.json").read_text(encoding="utf-8"))
+        self.theme = render_cards.load_theme("beyond-deploy", SKILL)
+        self.img = SKILL / "examples" / "assets" / "lounge-wide.jpg"
+
+    def _html(self, card, spec=None):
+        spec = dict(spec or self.spec, layout="cinematic")
+        return render_cards.build_card_html(card, index=2, total=8, spec=spec, theme=self.theme, spec_dir=SKILL / "examples")
+
+    def test_sample_ships_cinematic_and_every_card_has_a_photo(self):
+        self.assertEqual(self.spec.get("layout"), "cinematic")
+        for c in render_cards.validate_spec(self.spec):
+            self.assertTrue(c.get("image") or self.spec.get("backdrop"), f"{c['type']}: cinematic cards need a photo (own image or set backdrop)")
+
+    def test_cinematic_has_no_chrome(self):
+        html = self._html({"type": "point", "title": "t", "body": "b", "image": {"src": str(self.img)}})
+        body = html[html.index("<body>"):]
+        self.assertNotIn('class="meta"', body)          # no series pill
+        self.assertNotIn("02 / 08", body)               # no page counter
+        self.assertNotIn('class="footer"', body)        # no footer rule
+        self.assertIn('class="bg"', body)               # photo fills the card
+        self.assertIn("layout-cinematic", body)
+        self.assertNotRegex(html, r"\.layout-cinematic[^{]*\{[^}]*border-top")
+
+    def test_cinematic_falls_back_to_backdrop_when_card_has_no_image(self):
+        spec = dict(self.spec, backdrop={"src": str(self.img)})
+        html = self._html({"type": "point", "title": "t", "body": "b"}, spec)
+        self.assertIn('class="bg"', html)
+        self.assertIn(self.img.as_uri(), html)
+        with self.assertRaises(render_cards.SpecError):   # no photo anywhere → refuse, don't render a black card
+            render_cards.validate_spec({"layout": "cinematic", "cards": [{"type": "point", "title": "t", "body": "b"}]})
+
+    def test_unknown_layout_rejected_and_default_still_classic(self):
+        with self.assertRaises(render_cards.SpecError):
+            render_cards.validate_spec({"layout": "neon", "cards": [{"type": "point", "title": "t", "body": "b"}]})
+        spec = {k: v for k, v in self.spec.items() if k != "layout"}
+        html = render_cards.build_card_html({"type": "point", "title": "t", "body": "b"}, index=1, total=1, spec=spec, theme=self.theme)
+        self.assertIn('class="meta"', html)
+        self.assertIn("01 / 01", html)
 
 
 class RenderTest(unittest.TestCase):
