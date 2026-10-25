@@ -14,7 +14,7 @@ One JSON file per card set. Top level:
 
 Examples: `examples/sample-bd.json` (cinematic, the default look) and `examples/sample-bd-classic.json` (classic, kept as a regression fixture).
 
-`vault_handoff.py` copies the spec into the set folder (`Content/CardNews/<date> - <title>/cards.json`) with `image.src`/`backdrop.src` rewritten to `assets/<file>` and any signed URL in `source` removed — edit that copy and re-render from there.
+`vault_handoff.py` copies the spec into the vault as `cards.json` with `image.src`/`backdrop.src` rewritten to `assets/<file>` and any signed URL in `source` removed.
 
 ## Card types
 
