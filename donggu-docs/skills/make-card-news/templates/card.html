@@ -7,6 +7,7 @@
   :root {
     --bg: {{BG}}; --ink: {{INK}}; --muted: {{MUTED}}; --accent: {{ACCENT}};
     --accent-soft: {{ACCENT_SOFT}}; --line: {{LINE}}; --surface: {{SURFACE}};
+    --accent-on-dark: {{ACCENT_ON_DARK}};  /* accent that reads on a dark photo (cinematic layout) */
     --pad: 84px;            /* ≈ 7.8 % side margin */
     --safe-bottom: 135px;   /* bottom 10 %: platform UI overlays — nothing important here */
     --band-h: 500px;        /* image band height (mode: band) */
@@ -30,7 +31,6 @@
     word-break: keep-all; overflow-wrap: anywhere; line-break: strict;
   }
   .card { position: relative; width: {{W}}px; height: {{H}}px; padding: var(--pad) var(--pad) calc(var(--safe-bottom) + 96px); display: flex; flex-direction: column; overflow: hidden; }
-  .card::before { content: ""; position: absolute; left: 0; top: 0; width: 100%; height: 14px; background: var(--accent); z-index: 3; }
 
   /* ---------- images ---------- */
   .bg, .band { position: absolute; left: 0; top: 0; width: {{W}}px; overflow: hidden; z-index: 1; }
@@ -46,7 +46,6 @@
   .wash::before { content: ""; position: absolute; inset: 0; z-index: 1; background: var(--accent); mix-blend-mode: color; opacity: 0.55; } /* pull every leaked hue toward the brand */
   /* tint toward the brand, never neutral grey: grey over a photo reads as dirt, a warm/green cast reads as light */
   .wash::after { content: ""; position: absolute; inset: 0; z-index: 2; background: color-mix(in srgb, var(--bg) 82%, var(--accent-soft)); opacity: var(--wash-tint); }
-  .has-wash .footer { border-top-color: rgba(0,0,0,0.14); }
   /* band → page: the band itself goes transparent over its own blurred copy (ease-in, ~250 px) */
   .band { --f0: calc(var(--fade) * 100%); --fr: calc(100% - var(--fade) * 100%);
           -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 var(--f0), rgba(0,0,0,0.9) calc(var(--f0) + var(--fr) * 0.3), rgba(0,0,0,0.55) calc(var(--f0) + var(--fr) * 0.62), rgba(0,0,0,0.18) calc(var(--f0) + var(--fr) * 0.86), rgba(0,0,0,0) 100%);
@@ -58,14 +57,14 @@
   .meta { position: relative; z-index: 3; display: flex; justify-content: flex-start; align-items: center; font-size: 26px; font-weight: 800; letter-spacing: 0.01em; }
   .meta .series { color: #fff; background: var(--accent); padding: 12px 24px; border-radius: 999px; }
   .meta .page { display: none; }
-  .footer { position: absolute; z-index: 3; left: var(--pad); right: var(--pad); bottom: var(--safe-bottom); display: flex; justify-content: space-between; align-items: center; font-size: 26px; color: var(--muted); border-top: 2px solid var(--line); padding-top: 22px; }
+  .footer { position: absolute; z-index: 3; left: var(--pad); right: var(--pad); bottom: var(--safe-bottom); display: flex; justify-content: space-between; align-items: center; font-size: 26px; color: var(--muted); padding-top: 22px; }
   .footer .handle { font-weight: 700; }
   .main { position: relative; z-index: 2; flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-start; padding: 170px 0 0; min-height: 0; }
   .mode-text.type-closing .main { padding-top: 36px; justify-content: center; }
 
   /* over an image: white type, pill labels */
   .mode-full .meta .series { background: var(--accent); box-shadow: 0 0 0 3px rgba(255,255,255,0.9); }
-  .mode-full .footer { color: rgba(255,255,255,0.85); border-top-color: rgba(255,255,255,0.3); }
+  .mode-full .footer { color: rgba(255,255,255,0.85); }
   .mode-full .main { justify-content: flex-end; padding-bottom: 8px; }
   .mode-full .kicker { margin-bottom: 26px; }
   .mode-full .title, .mode-full .body, .mode-full .quote, .mode-full .items li, .mode-full .col-body { color: #fff; }
@@ -133,18 +132,47 @@
   .mode-band .stat-label { font-size: var(--title-size-band); }
 
   /* CTA is a sentence, not a button: nothing in the image can be tapped, so it must not look tappable */
+  /* ---------- layout: cinematic — the cover treatment on every card ---------- */
+  .layout-cinematic .main { position: absolute; left: var(--pad); right: var(--pad); bottom: 200px; padding: 0; justify-content: flex-end; flex: none; z-index: 1; }
+  .layout-cinematic .main::before { content: ""; position: absolute; z-index: -1; left: calc(var(--pad) * -1); right: calc(var(--pad) * -1); top: -300px; bottom: -200px;
+    background: linear-gradient(to bottom, rgba(8,12,8,0) 0, rgba(8,12,8,calc(var(--overlay) * 0.86)) 300px, rgba(8,12,8,var(--overlay)) 100%); }
+  .layout-cinematic.type-cover .main::before { display: none; }   /* the cover keeps its own gradient untouched */
+  .layout-cinematic.type-cover .main { bottom: 239px; }   /* same text position as the cover the user picked */
+  .layout-cinematic .kicker { display: block; background: none; padding: 0; margin: 0 0 26px; color: var(--accent-on-dark); font-size: 30px; font-weight: 700; letter-spacing: 0.03em; }
+  .layout-cinematic .title, .layout-cinematic .quote, .layout-cinematic .stat-label, .layout-cinematic .items li, .layout-cinematic .body, .layout-cinematic .col-body { color: #fff; }
+  .layout-cinematic .quote { font-size: 100px; margin-left: -0.42em; padding-left: 0.42em; text-indent: -0.42em; overflow: visible; max-height: none; }
+  .layout-cinematic .sub, .layout-cinematic .who, .layout-cinematic .lead, .layout-cinematic .foot, .layout-cinematic .stat-context { color: rgba(255,255,255,0.9); }
+  .layout-cinematic .stat-source { color: rgba(255,255,255,0.78); font-size: 36px; }
+  .layout-cinematic .stat-num { font-size: 260px; }
+  .layout-cinematic .stat-unit { font-size: 84px; }
+  .layout-cinematic .em { color: var(--accent-on-dark); background: none; }
+  .layout-cinematic .stat-value { color: var(--accent-on-dark); }
+  .layout-cinematic .quote-wrap { border-left: none; padding-left: 0; }
+  .layout-cinematic .qmark { display: none; }
+  .layout-cinematic .items .dot { background: var(--accent-on-dark); }
+  .layout-cinematic .items .num { background: transparent; color: var(--accent-on-dark); border: 3px solid var(--accent-on-dark); font-size: 40px; }
+  .layout-cinematic .compare { gap: 40px; }
+  .layout-cinematic .col { background: rgba(8,12,8,0.78); border: 2px solid rgba(255,255,255,0.18); padding: 40px 36px; justify-content: flex-start; }
+  .layout-cinematic .col.r { background: rgba(8,12,8,0.78); border-color: var(--accent-on-dark); }
+  .layout-cinematic .col-body { font-size: 46px; }
+  .layout-cinematic .foot { margin-top: 44px; }
+  .layout-cinematic .col-title { color: var(--accent-on-dark); } .layout-cinematic .col.l .col-title { color: rgba(255,255,255,0.84); }
+  .layout-cinematic .cta { color: var(--accent-on-dark); }
+  .layout-cinematic .footer { left: var(--pad); right: var(--pad); padding: 0; color: rgba(255,255,255,0.62); font-size: 26px; }
+  .layout-cinematic .body { max-height: none; }
+
   .type-closing .cta { margin: 44px 0 0; display: flex; align-items: center; gap: 18px; color: var(--accent); font-size: 42px; font-weight: 800; line-height: 1.3; }
   .type-closing .cta::before { content: "→"; flex: 0 0 auto; font-weight: 800; }
   .mode-full.type-closing .cta { color: #fff; }
 </style>
 </head>
 <body>
-<div class="card type-{{TYPE}} mode-{{MODE}} {{WASH_CLASS}}">
+<div class="card type-{{TYPE}} mode-{{MODE}} layout-{{LAYOUT}} {{WASH_CLASS}}">
   {{WASH_BLOCK}}
   {{IMAGE_BLOCK}}
-  <div class="meta" data-qa="meta"><span class="series">{{SERIES}}</span><span class="page">{{PAGE}}</span></div>
+  {{META_BLOCK}}
   <div class="main">{{CONTENT}}</div>
-  <div class="footer" data-qa="footer"><span class="handle">{{HANDLE}}</span><span class="page">{{PAGE}}</span></div>
+  {{FOOTER_BLOCK}}
 </div>
 <script>
   // Layout QA probe: read by the renderer from --dump-dom. Reports overflow, bounds, overlaps, image load state.

@@ -252,6 +252,16 @@ class CinematicLayoutTest(unittest.TestCase):
         self.assertIn('class="bg"', body)               # photo fills the card
         self.assertIn("layout-cinematic", body)
         self.assertNotRegex(html, r"\.layout-cinematic[^{]*\{[^}]*border-top")
+        self.assertNotIn("beyonddeploy.kr", body)        # middle cards carry no handle either
+
+    def test_cinematic_handle_only_on_first_and_last_card_without_page_counter(self):
+        spec = dict(self.spec, layout="cinematic")
+        for idx in (1, 8):
+            html = render_cards.build_card_html({"type": "point", "title": "t", "body": "b", "image": {"src": str(self.img)}},
+                                                index=idx, total=8, spec=spec, theme=self.theme, spec_dir=SKILL / "examples")
+            body = html[html.index("<body>"):]
+            self.assertIn("beyonddeploy.kr", body)
+            self.assertNotIn(f"{idx:02d} / 08", body)
 
     def test_cinematic_falls_back_to_backdrop_when_card_has_no_image(self):
         spec = dict(self.spec, backdrop={"src": str(self.img)})
@@ -260,6 +270,17 @@ class CinematicLayoutTest(unittest.TestCase):
         self.assertIn(self.img.as_uri(), html)
         with self.assertRaises(render_cards.SpecError):   # no photo anywhere → refuse, don't render a black card
             render_cards.validate_spec({"layout": "cinematic", "cards": [{"type": "point", "title": "t", "body": "b"}]})
+
+    def test_cinematic_accent_comes_from_the_theme(self):
+        donggu = render_cards.load_theme("donggu", SKILL)
+        html = render_cards.build_card_html({"type": "point", "title": "t", "body": "b", "image": {"src": str(self.img)}},
+                                            index=2, total=8, spec=dict(self.spec, layout="cinematic"), theme=donggu,
+                                            spec_dir=SKILL / "examples")
+        self.assertIn(f"--accent-on-dark: {donggu['accent_on_dark']}", html)
+        self.assertNotIn("#cfe8a9", html)   # BD green must not leak into other themes
+        with self.assertRaises(render_cards.SpecError):
+            render_cards.validate_spec({"layout": "cinematic", "backdrop": {"src": "a.jpg", "overlay": 3},
+                                        "cards": [{"type": "point", "title": "t", "body": "b"}]})
 
     def test_unknown_layout_rejected_and_default_still_classic(self):
         with self.assertRaises(render_cards.SpecError):
@@ -320,6 +341,18 @@ class RenderTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
             qa = json.loads((out / "qa.json").read_text(encoding="utf-8"))
             self.assertTrue(any(p["kind"] == "overflow" for p in qa["problems"]), qa)
+
+    def test_classic_layout_still_renders_clean_without_the_lines(self):
+        # the older white/wash/band look stays supported; its top bar and footer rule are gone (user: "줄있는거부터가 별로")
+        template = (SKILL / "templates" / "card.html").read_text(encoding="utf-8")
+        self.assertNotRegex(template, r"\.card::before\s*\{[^}]*background")
+        self.assertNotRegex(template, r"\.footer\s*\{[^}]*border-top")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            proc = subprocess.run([sys.executable, str(RENDERER), str(SKILL / "examples" / "sample-bd-classic.json"),
+                                   "--out", str(out), "--no-pdf"], capture_output=True, text=True, timeout=240)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertEqual(json.loads((out / "qa.json").read_text(encoding="utf-8"))["problems"], [])
 
     def test_broken_image_is_reported_not_silently_blank(self):
         with tempfile.TemporaryDirectory() as tmp:

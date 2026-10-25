@@ -1,0 +1,70 @@
+{
+  "theme": "beyond-deploy",
+  "series": "Beyond Deploy · 필드노트",
+  "handle": "beyonddeploy.kr",
+  "backdrop": { "src": "assets/lounge-wide.jpg", "tint": 0.68 },
+  "source": "https://beyonddeploy.kr/field-notes/four-rounds-hundred-fdes (호스트 강동현, 2026-10-14). 사진 4장: 케이스 토크 4회차 현장, 같은 필드노트에 게재된 공개분 (창가 라운지 컷은 2·5번에 다른 크롭으로 재사용)",
+  "cards": [
+    {
+      "type": "cover",
+      "kicker": "케이스 토크 1~4회차 회고",
+      "title": "4번의 모임,\n100여\u00a0명의 FDE를 만나며 알게 된 것들",
+      "subtitle": "주제도 업종도 달랐는데,\n꺼내 놓는 고민은 놀라울 만큼 비슷했습니다.",
+      "image": { "src": "assets/room-presenter.jpg", "mode": "full", "focus": "50% 70%", "overlay": 0.84, "alt": "케이스 토크 4회차, 긴 테이블에 둘러앉아 앞에 선 참가자의 이야기를 듣는 모습" }
+    },
+    {
+      "type": "quote",
+      "quote": "FDE는 어디까지 커버해야 하나요?",
+      "who": "네 번의 케이스 토크에서 가장 자주 들은 질문",
+      "image": { "src": "assets/lounge-wide.jpg", "mode": "band", "focus": "50% 40%", "alt": "창가 라운지에서 서로의 이야기를 듣는 소그룹" }
+    },
+    {
+      "type": "stat",
+      "kicker": "케이스 토크 4회차 동안",
+      "value": "100",
+      "unit": "여 명",
+      "label": "FDE와 AX 실무자를\n만났습니다",
+      "context": "두 FDE의 도메인 사례로 시작해, 경영진 설득과 조직 확산, 제조 특집까지.",
+      "source": "기준: beyonddeploy.kr 필드노트 (2026.10)"
+    },
+    {
+      "type": "list",
+      "title": "FDE의 정의는\n여전히 모두의 숙제",
+      "lead": "고민은 대부분 세 가지 질문으로 모였습니다.",
+      "items": [
+        "어디까지 커버해야 하는가",
+        "구체적으로 무엇을 하는 사람인가",
+        "SI 중심 한국 시장의\n**한국형 FDE**는 무엇인가"
+      ]
+    },
+    {
+      "type": "point",
+      "title": "피로는 도구보다\n사람 사이에서 왔습니다",
+      "body": "AI 도구가 들어올수록\n일하는 방식을 바꿔야 하고,\n그 과정은 결국 **동료를 설득하는 일**입니다.",
+      "image": { "src": "assets/lounge-close.jpg", "mode": "band", "focus": "0% 6%", "zoom": 1.34, "fade": 0.8, "alt": "원형 테이블을 둘러싸고 소그룹 대화를 나누는 참가자들" }
+    },
+    {
+      "type": "compare",
+      "title": "배포로 일이\n끝나지 않습니다",
+      "left": { "title": "배포까지", "body": "도구를 붙이고 동작을 확인한다. 하루면 된다." },
+      "right": { "title": "조직의 일이 되기까지", "body": "일하는 방식을 바꾸자고 사람을 움직인다. 여기가 FDE의 몫이다." },
+      "footer": "그래서 FDE에게 변화 관리가 핵심 역량입니다."
+    },
+    {
+      "type": "steps",
+      "title": "그래서 서로의 사례가\n기준이 됐습니다",
+      "items": [
+        "한 사람이 자기 사례를 이야기한다",
+        "공통점과 차이점을 찾아 묻는다",
+        "가져갈 것과 걸러 낼 것을 고른다"
+      ],
+      "image": { "src": "assets/window-talk.jpg", "mode": "band", "focus": "35% 0%", "zoom": 1.06, "fade": 0.86, "alt": "창가 테이블에서 노트북을 앞에 두고 이야기를 나누는 참가자들" }
+    },
+    {
+      "type": "closing",
+      "title": "혼자 붙잡고 있던 질문,\n다음 자리에 들고 와 주세요",
+      "body": "다음 모임 일정과 신청 오픈 소식은\n뉴스레터로 가장 먼저 보내 드립니다.",
+      "cta": "뉴스레터 링크는 프로필과 첫 댓글에"
+    }
+  ]
+}

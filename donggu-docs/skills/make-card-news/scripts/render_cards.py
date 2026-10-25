@@ -41,6 +41,7 @@ LIMITS = {"items": 5, "title_chars": 60, "stat_value_chars": 6}
 # document PDFs. A URL or a click/tap verb in the CTA is a fake button → rejected at validation.
 FAKE_CTA = re.compile(r"https?://|www\.|\.(?:kr|com|io|net|org|ai|app|dev)(?:/|\b)|클릭|눌러|누르|탭하|터치|click|tap\b", re.IGNORECASE)
 IMAGE_MODES = ("full", "band", "inline")
+LAYOUTS = ("classic", "cinematic")  # cinematic: cover treatment on every card — photo + gradient + white type, no chrome
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 CHROME_CANDIDATES = (
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -60,12 +61,21 @@ def validate_spec(spec: dict) -> list[dict]:
     cards = spec.get("cards")
     if not isinstance(cards, list) or not cards:
         raise SpecError("spec.cards must be a non-empty list")
+    layout = spec.get("layout", "classic")
+    if layout not in LAYOUTS:
+        raise SpecError(f"spec.layout {layout!r} not in {LAYOUTS}")
     bd = spec.get("backdrop")
+    if layout == "cinematic":
+        for i, card in enumerate(cards, 1):
+            if isinstance(card, dict) and not card.get("image") and not bd:
+                raise SpecError(f"card {i}: layout 'cinematic' needs a photo on every card — add image.src or a set-level backdrop")
     if bd is not None:
         if not isinstance(bd, dict) or not bd.get("src"):
             raise SpecError("spec.backdrop must be an object with 'src'")
         if not str(bd["src"]).lower().endswith(IMAGE_EXTS):
             raise SpecError(f"spec.backdrop.src must be one of {IMAGE_EXTS}")
+        if "overlay" in bd and not (isinstance(bd["overlay"], (int, float)) and 0 <= float(bd["overlay"]) <= 1):
+            raise SpecError("spec.backdrop.overlay must be a number between 0 and 1")
         tint = bd.get("tint", 0.86)
         if not isinstance(tint, (int, float)) or not 0.5 <= float(tint) <= 1.0:
             raise SpecError("spec.backdrop.tint must be a number between 0.5 and 1 (how much of the theme bg shows through)")
@@ -193,12 +203,17 @@ def card_body_html(card: dict) -> str:
     raise SpecError(f"unhandled type {t}")
 
 
-def image_block(card: dict, spec_dir: Path | None) -> tuple[str, str, str, str, str]:
-    """Returns (mode, outer_block_html, inline_html, focus, overlay, zoom, fade) for the card's image, if any."""
+def image_block(card: dict, spec_dir: Path | None, spec: dict | None = None) -> tuple[str, str, str, str, str]:
+    """Returns (mode, outer_block_html, inline_html, focus, overlay, zoom, fade) for the card's image, if any.
+    In the cinematic layout every card is `full`: its own image, else the set backdrop."""
+    cinematic = (spec or {}).get("layout") == "cinematic"
     img = card.get("image")
+    if not img and cinematic and (spec or {}).get("backdrop"):
+        bd = spec["backdrop"]
+        img = {"src": bd["src"], "focus": bd.get("focus", "50% 50%"), "overlay": bd.get("overlay", 0.84), "alt": ""}
     if not img:
         return "text", "", "", "50% 50%", "0.72", "1.0", "0.42"
-    mode = img.get("mode", "band")
+    mode = "full" if cinematic else img.get("mode", "band")
     src = img["src"]
     if spec_dir is not None:
         src = resolve_image(src, spec_dir).as_uri()
@@ -244,8 +259,9 @@ def build_card_html(card: dict, index: int, total: int, spec: dict, theme: dict,
                     template_path: Path | None = None, spec_dir: Path | None = None) -> str:
     template = (template_path or SKILL_DIR / "templates" / "card.html").read_text(encoding="utf-8")
     font_stack = ", ".join(f'"{f}"' for f in theme["fonts"]) + ", sans-serif"
-    mode, outer, inline, focus, overlay, zoom, fade = image_block(card, spec_dir)
+    mode, outer, inline, focus, overlay, zoom, fade = image_block(card, spec_dir, spec)
     wash, wash_cls, wash_tint = wash_block(card, mode, spec, spec_dir)
+    layout = spec.get("layout", "classic")
     content = card_body_html(card)
     if inline:
         # inline image sits after the title (list/steps/point) or after the body (closing/cover/quote)
@@ -262,12 +278,21 @@ def build_card_html(card: dict, index: int, total: int, spec: dict, theme: dict,
         "FONT_CHECK": theme["fonts"][0],
         "BG": theme["bg"], "INK": theme["ink"], "MUTED": theme["muted"],
         "ACCENT": theme["accent"], "ACCENT_SOFT": theme["accent_soft"], "LINE": theme["line"],
+        "ACCENT_ON_DARK": theme.get("accent_on_dark", theme["accent_soft"]),
         "SURFACE": theme["surface"],
         "SERIES": html.escape(spec.get("series", "")),
         "HANDLE": html.escape(spec.get("handle", theme.get("handle", ""))),
         "PAGE": f"{index:02d} / {total:02d}",
+        "META_BLOCK": "" if layout == "cinematic" else
+            f'<div class="meta" data-qa="meta"><span class="series">{html.escape(spec.get("series", ""))}</span>'
+            f'<span class="page">{index:02d} / {total:02d}</span></div>',
+        "FOOTER_BLOCK": (f'<div class="footer" data-qa="footer"><span class="handle">{html.escape(spec.get("handle", theme.get("handle", "")))}</span></div>'
+                         if index in (1, total) else "") if layout == "cinematic" else
+            f'<div class="footer" data-qa="footer"><span class="handle">{html.escape(spec.get("handle", theme.get("handle", "")))}</span>'
+            f'<span class="page">{index:02d} / {total:02d}</span></div>',
         "TYPE": card["type"],
         "MODE": mode,
+        "LAYOUT": layout,
         "IMAGE_BLOCK": outer,
         "WASH_BLOCK": wash,
         "WASH_CLASS": wash_cls,

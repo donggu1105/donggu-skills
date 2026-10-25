@@ -7,6 +7,7 @@
   "muted": "#5f6470",
   "accent": "#1f4fd8",
   "accent_soft": "#e4ebff",
+  "accent_on_dark": "#b9cbff",
   "line": "#e4e2dc",
   "surface": "#f3f1ec",
   "handle": "@100x.donggu",

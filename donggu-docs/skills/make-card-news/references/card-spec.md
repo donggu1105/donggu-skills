@@ -5,11 +5,14 @@ One JSON file per card set. Top level:
 | Key | Required | Meaning |
 |---|---|---|
 | `theme` | no (default `donggu`) | theme name in `themes/` or a path to a `.json` |
-| `series` | no | header label, e.g. `Beyond Deploy · 필드노트` |
-| `handle` | no (theme default) | footer label, e.g. `beyonddeploy.kr`, `@100x.donggu` |
+| `layout` | no (default `classic`; samples use `cinematic`) | `cinematic` = every card is a full-bleed photo with a dark scrim behind the copy and white type; no top bar, footer rule, series pill or page counter; the handle shows small on the first and last card only. Every card needs `image` or a set `backdrop`. `classic` = the older white/wash/band look with header pill and footer |
+| `series` | no | header pill label (classic only), e.g. `Beyond Deploy · 필드노트` |
+| `handle` | no (theme default) | footer label (classic: every card; cinematic: first and last card), e.g. `beyonddeploy.kr`, `@100x.donggu` |
 | `source` | no | where the copy came from (kept for provenance, not rendered) |
 | `cards` | yes | ordered list, 1–20 cards (6–8 recommended) |
-| `backdrop` | no | `{src, tint}` — a photo (usually the cover's or the warmest frame) rendered as a heavily blurred, brand-tinted wash behind every text card, so the set keeps one atmosphere after the cover instead of dropping to flat white. `tint` 0.5–1 = how much theme bg covers it (0.68 ≈ clearly green at phone size, 0.86 ≈ barely there). Band cards wash with their own photo; `full` cards never wash; a card can opt out with `"wash": false` |
+| `backdrop` | no | cinematic: `{src, focus?, overlay?}` — the photo used for any card without its own `image`. classic: `{src, tint}` — a photo (usually the cover's or the warmest frame) rendered as a heavily blurred, brand-tinted wash behind every text card, so the set keeps one atmosphere after the cover instead of dropping to flat white. `tint` 0.5–1 = how much theme bg covers it (0.68 ≈ clearly green at phone size, 0.86 ≈ barely there). Band cards wash with their own photo; `full` cards never wash; a card can opt out with `"wash": false` |
+
+Examples: `examples/sample-bd.json` (cinematic, the default look) and `examples/sample-bd-classic.json` (classic, kept as a regression fixture).
 
 ## Card types
 
@@ -50,11 +53,12 @@ The probe records `images[]` (loaded, natural size) and flags `image` (failed to
 ## Sizes baked into the template (do not shrink to fit — cut copy instead)
 
 - Canvas 1080×1350, side padding 84 px (~7.8 %), footer sits on the 90 % line; nothing below it.
+- Cinematic: copy stack bottom-anchored 200 px above the bottom edge (cover keeps its approved position), cover title 88 px, other titles/quotes 100 px, stat number 260 px + unit 84 px, compare body 46 px, step numerals 40 px, kicker 30 px in `accent_on_dark`.
 - Tokens in `card.html`: `--title-size` 88 px (`--title-size-band` 78 px on `band` cards), `--body-size` 58 px (52 on band), `--item-size` 56 px (46 on band), `--sub-size` 46 px for lead/sub/closing line/stat context; compare column body 44 px; stat number 300 px + unit 92 px (220/72 on band), stat label = `--title-size`; series pill 26 px; footer 26 px. Lead, sub and closing lines are set in ink, not grey — body copy is meant to read as big and as dark as a headline.
 - White cards start their content at a fixed line (170 px under the pill) so the set keeps one rhythm; `full` cards bottom-anchor the text above the footer; `band` cards start right under the pill below the photo.
 - Body boxes cap at 400–700 px tall and clip (`overflow: hidden`); the QA probe reports `overflow` when that happens — shorten the text, never the type.
 
 ## Themes (`themes/<name>.json`)
 
-`fonts` (first = QA-checked), `bg`, `ink`, `muted`, `accent`, `accent_soft`, `line`, `surface`, `handle`, optional `lang`.
+`fonts` (first = QA-checked), `bg`, `ink`, `muted`, `accent`, `accent_soft`, `line`, `surface`, `handle`, optional `accent_on_dark` (accent used on photos in `cinematic`; falls back to `accent_soft`), optional `lang`.
 `beyond-deploy` mirrors the BD mail design (white, olive `#4d7c0f`, ink `#1e2b21`); `donggu` is the personal-channel look. Add a theme instead of overriding colors in a spec.
