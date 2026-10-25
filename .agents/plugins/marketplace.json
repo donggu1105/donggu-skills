@@ -10,7 +10,7 @@
         "source": "local",
         "path": "./donggu-sns"
       },
-      "version": "2.11.0",
+      "version": "2.11.1",
       "policy": {
         "installation": "AVAILABLE",
         "authentication": "ON_INSTALL"

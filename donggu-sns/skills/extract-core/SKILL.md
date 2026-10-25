@@ -14,7 +14,7 @@ description: Use after a post is published (or the user says 코어 뽑아줘/�
 - `publish-sns`로 실발행이 끝난 직후 (스레드·티스토리·메일리, 장부 기록 확인 후)
 - 사용자가 LinkedIn 등을 직접 올렸다고 말한 직후 ("발행했어")
 - 사용자가 "코어 뽑아줘", "환류", "코어 환류", "디콤포즈 스킬로 코어 환류"라고 할 때
-- 밀린 발행 글을 한꺼번에 점검할 때 (`core_principle`이 비었거나 `## 부품`이 없는 published 노트)
+- 밀린 발행 글을 한꺼번에 점검할 때 (`status: published`인데 본문 `## 연결`에 `CORE:` 줄이 없는 노트. 옛 노트는 `core_principle`도 확인)
 
 ## When NOT to use
 
@@ -27,7 +27,7 @@ description: Use after a post is published (or the user says 코어 뽑아줘/�
 
 - Vault: `~/Library/Application Support/obsidian/obsidian.json`에서 `open` 볼트를 찾는다 (현재 `.../iCloud~md~obsidian/Documents/ontology`). 그 아래 `Personal Branding/`.
 - 스키마 정본: `Personal Branding/_GUIDES/RULES.md` (먼저 읽는다).
-- 원천: `40_Channel_Packs/<채널>/<채널> - <제목>.md`의 발행 본문 (`## Draft` / `## 발행` / `## 본문`).
+- 원천: `40_Channel_Packs/<채널>/<채널> - <제목>.md`의 발행 본문 (`## 본문` / `# 발행 원고` / 옛 노트는 `## Draft`·`## 발행`). `## 편집 메모`는 근거로 쓰지 않는다.
 - 비교 대상: `20_Core/CORE - <완성 문장>.md` 전체 제목 + 축이 가까운 노트 본문.
 - iCloud 파일이 비어 읽히면(dataless) `brctl download <file>` 후 다시 읽는다.
 
@@ -68,54 +68,58 @@ description: Use after a post is published (or the user says 코어 뽑아줘/�
    - `NEW`: 아래 CORE 노트 형식으로 `20_Core/CORE - <완성 문장>.md` 생성
    - `MERGE`: 기존 CORE의 근거·적용·연결된 콘텐츠에 이 글을 추가 (기존 문장은 고치지 않음)
    - `LINK`: 새 노트 없이 아래 링크만
-   - 링크 배선 4곳: ① CORE `## 📂 연결된 콘텐츠`에 원천 채널 노트 ② 채널 노트 frontmatter `core_principle: "[[CORE - …]]"` ③ 채널 노트 `## 부품`의 Core 후보 행에 `→ YYYY-MM-DD 환류로 [[CORE - …]] 생성/연결` (부품 섹션이 없으면 만든다) ④ 인접 CORE들의 `인접 Core:` 줄에 새 CORE를 양방향으로 추가
-   - 같은 주제의 파생 채널 노트(Blog/Threads/Maily)도 `core_principle`을 같은 링크로 맞춘다.
+   - 링크 배선 (현재 볼트 방식):
+     ① 원천 채널 노트 본문 `## 연결` 섹션에 `- CORE: [[CORE - …]]` (섹션이 없으면 `## 편집 메모` 위에 만든다. 인접 CORE는 `- 인접 CORE:` 줄)
+     ② CORE `## 📂 연결`에 `- 출고: [[<채널> - …]]` + `- Related: [[CORE - …]] — 관계 한 줄`
+     ③ 인접 CORE의 연결 섹션에도 새 CORE를 Related로 추가 (양방향)
+     ④ 관련 기존 MOC(`50_MOCs/`)의 맞는 섹션에 한 줄 추가. 맞는 섹션이 없으면 섹션 하나는 만들 수 있지만 새 MOC 파일은 만들지 않는다
+   - 레거시 필드: 채널 노트에 이미 `core_principle` frontmatter나 `## 부품` 표가 있으면 같은 링크로 갱신만 한다. 새 노트에는 추가하지 않는다.
+   - 같은 주제의 파생 채널 노트(Blog/Threads/Maily)에도 같은 `## 연결` 줄을 단다.
 7. 다시 읽어 확인하고, 만든/고친 파일 목록만 짧게 보고한다.
 
 ## CORE note shape
 
-현재 살아 있는 CORE 노트 구조를 그대로 따른다. 2026-08 이전 노트의 폐지 필드(`persona`, `pillar`, `audience`)는 복사하지 않는다.
+2026-10 기준 살아 있는 형식. 스키마 정본은 `_GUIDES/RULES.md`(필수 frontmatter는 `type` 하나, 선택 `topics`·`created`). 폐지 필드(`persona`, `pillar`, `audience`, `arc`, `track`, `core_action`, `core_targets`, `lead_label`)는 새 노트에 쓰지 않는다. 기존 노트의 폐지 필드는 지우지 않는다.
 
 ```markdown
 ---
 type: core
-title: <완성 문장>
-topics: [ ... ]
-channels: [linkedin, ...]
-tone: direct
-status: evergreen
+topics: [FDE, AX, ...]
+status: draft
 created: YYYY-MM-DD
 ---
 
 # CORE - <완성 문장>
 
 ## 💡 핵심 믿음
-> **<한 문장>**
+
+> **"<동구가 원천 글에 실제로 쓴 문장, 또는 그 압축>"**
 
 <2~3줄 보충>
 
+---
+
 ## 🤔 왜 이렇게 믿게 되었나
-- 관찰·경험 (원천 글의 사실)
-- *외부 개념을 확장한 부분은 "나의 해석이다"라고 구분한다.*
 
-## 📖 <대비 표 제목>
-| 이 원칙이 없을 때 | 있을 때 |
-|---|---|
+관찰·경험 (원천 글의 사실). 외부 개념을 확장한 부분은 "나의 해석"으로 구분한다.
 
-## 🎯 이 원칙의 적용
-### <실제 업무 영역>
+---
 
-## 📂 연결된 콘텐츠
-- [[LinkedIn - …]] · [[Blog - …]]
-- 인접 Core: [[CORE - …]]
+## 💬 자주 쓰는 표현
 
-## 🎤 활용 시나리오
-- 면접: "…"
-- LinkedIn 한 줄: "…"
+- "<원천 글의 실제 문장>"
 
-## 태그
-#core #philosophy #<topic>
+---
+
+## 📂 연결
+
+- 출고: [[<채널> - …]]
+- Related: [[CORE - …]] — 관계 한 줄
+- MOC: [[MOC - …]]
 ```
+
+- 새 CORE는 `status: draft`로 만든다. 다른 글에서 다시 쓰여 검증되면 사용자가 `evergreen`으로 올린다.
+- 선택 섹션 (원천 글에 재료가 있을 때만): `📖 <A> vs <B>` 대비 표, `🎯 이 원칙의 적용`(또는 글이 준 질문 목록), `🎤 활용 시나리오`. 재료 없이 칸을 채우지 않는다.
 
 ## Never
 

@@ -22,7 +22,7 @@ description: Use when the user marks a finished post as canon (정전, 이건 �
 
 ## Workflow
 
-1. **정전 본문 읽기**: `## Draft` / `## 발행` / `## 본문`과 기존 `## 부품`을 읽는다. Vault 경로·iCloud 처리·스키마는 `extract-core`의 Paths를 따른다.
+1. **정전 본문 읽기**: 발행 본문(`## 본문` / `# 발행 원고` / 옛 `## Draft`)과 기존 `## 연결`·`## 부품`을 읽는다. 정전 목록은 `40_Channel_Packs/<채널>/_anchors/VOICE - <채널>.md`의 `canon:`이다. Vault 경로·iCloud 처리·스키마는 `extract-core`의 Paths를 따른다.
 2. **먼저 검색**:
    - `20_Core/`: 이미 그 주장을 가진 CORE가 있으면 `LINK`가 우선
    - `60_Projects/Teaching/PARTS - *.md`: 기존 강의 부품 (읽기 전용)
@@ -40,9 +40,9 @@ description: Use when the user marks a finished post as canon (정전, 이건 �
    ```
    사용자가 번호를 고를 때까지 아무것도 쓰지 않는다.
 6. **고른 것만 적용**:
-   - CORE: `extract-core`의 적용 단계와 CORE 노트 형식을 그대로 따른다 (생성·MERGE·LINK + 링크 배선 4곳).
-   - 강의 부품: 원천 채널 노트의 `## 부품` 표에 행으로 기록한다. `60_Projects/Teaching/` 파일은 사용자가 명시할 때만 고친다.
-   - 원천 채널 노트 frontmatter에 `canon: true`를 사용자가 원할 때만 추가한다.
+   - CORE: `extract-core`의 적용 단계와 CORE 노트 형식을 그대로 따른다 (생성·MERGE·LINK + `## 연결` 배선).
+   - 강의 부품: 기본은 원천 채널 노트의 `## 부품` 표에 행으로 기록한다. `60_Projects/Teaching/PARTS - *.md`에는 사용자가 명시할 때만 추가한다.
+   - 정전 지정: 사용자가 원하면 해당 채널 `VOICE - <채널>.md`의 `canon:` 목록에 추가한다 (채널 노트 frontmatter에 `canon` 필드를 만들지 않는다).
 7. 다시 읽어 확인하고, 바뀐 파일 목록만 보고한다.
 
 ## Common mistakes
