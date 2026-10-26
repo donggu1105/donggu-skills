@@ -102,6 +102,7 @@ LinkedIn·Threads의 외부 URL은 본문에 넣지 않는다. 작성 결과와 
 - Maily 실제 발송은 별도 2차 확인이 필요하다.
 - native preview는 Threads 500자 초과·해시태그·명백한 본문 URL 문자열과 LinkedIn의 명백한 본문 URL 문자열을 거부한다.
 - LinkedIn·Threads 게시 payload는 URL 없는 본문만 허용한다.
+- Instagram payload는 `publish-sns/prepare_instagram.py`가 채널 노트에서 만든다 — 임베드 순서 → `image_urls`, 캡션 섹션 → `caption`, 동의 고지·재발행 게이트.
 - 외부 결과는 ledger read-back까지 확인한다.
 
 ---

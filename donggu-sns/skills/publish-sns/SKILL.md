@@ -170,7 +170,7 @@ reconciliation이 아니다. 그런데도 reconciliation이 걸렸다면 발행�
 | maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is — **blog-image prep first if it has `![[embeds]]`** | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
 | threads | `## 발행` text until the next `##` = `content`; `![[image]]` embeds → `image_urls`; frontmatter `topic_tag` → `topic_tag`; frontmatter `spoilers` → `spoilers` | ≤500 chars, 0 hashtags, 0 body URLs; native preview rejects overlength, hashtags, and unambiguous URL strings. `topic_tag` 1개(1–50자, `.`·`&` 금지), `spoilers` = 본문에 그대로 있는 부분 문자열 1–10개 | **writing-social-content** |
 | linkedin | `## Draft` final version until the next `##` | `content` only, 0 body URLs; native preview rejects unambiguous URL strings | writing-social-content |
-| instagram | finalized caption + finalized local image files → `upload_images.py` → `image_urls` | 1 img=single, 2–10=carousel | finalized caption and images |
+| instagram | 노트 `## 장별 카피` 임베드 순서 → `image_urls`, `## 캡션` → `caption`; `python3 <skill>/prepare_instagram.py "<note>"` 가 payload JSON 출력 | 1 img=single, 2–10=carousel | finalized caption and images |
 
 ### Topic tag · spoilers (threads)
 
@@ -247,6 +247,8 @@ browser lookup.
 - **Ordered upload**: run `python3 <skill>/upload_images.py <channel> <topic-slug> <bucket> file1 ...`. The input file order is preserved in the returned `image_urls`. The script reads credentials from the environment and does not place expanded service keys in argv.
 - **Instagram no-images gate — STOP**: If 1–10 finalized image files are absent, STOP; obtain user-provided assets first or `get-ai-image` when appropriate, then rebuild and re-preview. Instagram must never publish text-only. Require a finalized caption as well. Factual real-world imagery requires a supplied or verified asset. This skill uploads and publishes finalized files; it does not create a card deck or video.
 
+**Instagram payload = `prepare_instagram.py`.** 인스타는 PNG를 손으로 골라 `upload_images.py`에 넣지 않는다. 채널 노트 하나를 넘기면 `## 장별 카피` 임베드 순서대로 이미지를 검증·업로드하고 `## 캡션`(첫 단락~마지막 해시태그 줄)을 붙여 payload JSON을 낸다. 먼저 `python3 <skill>/prepare_instagram.py "<Instagram - 제목.md>" --dry-run`으로 모양을 확인하고, 플래그 없이 다시 돌린 출력의 `payload`·`topic`·`note_path`를 그대로 native preview에 넣는다(`dry-run://` URL로는 프리뷰를 만들지 않는다). 종료코드: 0=성공 · 1=업로드 실패 · 2=노트·캡션·이미지 규격 위반(캡션 2,200자·해시태그 30개·임베드 1–10장·JPEG/PNG·8 MB·`MANIFEST.md` 해시) · 3=확장자와 실제 바이트 불일치 · **4=동의 고지 미완료** — `## 사진과 동의`가 `고지 후 게시 가능`인데 연결된 `[[KakaoTalk - …]]` 고지 노트가 아직 `status: published`가 아니다. 고지를 먼저 게시한다 · **5=이미 게시됨** — 노트가 `status: published`라 재발행을 막았다. `--force-consent`·`--force-republish`는 사용자가 명시적으로 지시했을 때만 쓰고, 우회 사실을 프리뷰에 적는다. 프리뷰에는 `image_count`, 캡션 첫 줄(`caption_first_line`), 해시태그 수(`hashtags`), `warnings`를 보여주고 승인받는다.
+
 ## Transport reference
 
 Diagnostic contract only. The runtime owns endpoints, headers, redirects, and ledger writes;
@@ -303,6 +305,7 @@ Delete flow: adapter preview resolves the latest active ledger row → show topi
   "어떤 문장을 뒷받침하나"를 먼저 답하고, 답이 없으면 그 슬롯은 만들지 않는다.
 - About to send a Threads post text-only without explicit confirmation → STOP, confirm that no images are intended.
 - About to send an Instagram post without 1–10 finalized `image_urls` → STOP, obtain finalized images, then rebuild and re-preview.
+- `prepare_instagram.py`를 거치지 않은 `image_urls`로 인스타 프리뷰를 만들려 함 → STOP, 노트에서 `prepare_instagram.py`로 payload를 다시 만든다.
 - About to POST tistory/maily content that still contains `![[…]]` wikilinks → STOP, you skipped `prepare_blog_images.py`; the images will break in the published post.
 - Tistory preview has no exact tag list, fewer than 4 public tags, more than 7 without a stated reason, duplicate tags, or any namespaced tag containing `/` → STOP and rebuild the public tag set.
 
