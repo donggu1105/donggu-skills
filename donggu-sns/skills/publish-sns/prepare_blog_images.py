@@ -79,6 +79,13 @@ def verify_bytes_match_extension(paths):
     return problems
 
 
+def mismatch_fix(base, fmt, ext):
+    """확장자 불일치 파일을 고치는 명령(사람이 그대로 실행할 문구)."""
+    if ext in {".jpg", ".jpeg"}:
+        return f"sips -s format jpeg -s formatOptions 92 '{base}' --out '{base}'"
+    return f"확장자를 실제 포맷({fmt})에 맞추거나 해당 포맷으로 재인코딩"
+
+
 def log(obj):
     sys.stderr.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
@@ -100,6 +107,16 @@ def load_env():
             k = k.strip()
             if k in need and not os.environ.get(k):
                 os.environ[k] = v.strip().strip('"').strip("'")
+
+
+def find_vault_root(start_dir):
+    """start_dir에서 위로 올라가며 .obsidian 보유 폴더(vault 루트)를 찾는다. 없으면 None."""
+    p = start_dir
+    while p != os.path.dirname(p):
+        if os.path.isdir(os.path.join(p, ".obsidian")):
+            return p
+        p = os.path.dirname(p)
+    return None
 
 
 def find_file(basename, search_roots):
@@ -149,13 +166,7 @@ def main():
     note = os.path.abspath(a.note)
     content = open(note, encoding="utf-8").read()
     note_dir = os.path.dirname(note)
-    vault_root = None
-    p = note_dir
-    while p != os.path.dirname(p):  # vault 루트: .obsidian 보유 폴더
-        if os.path.isdir(os.path.join(p, ".obsidian")):
-            vault_root = p
-            break
-        p = os.path.dirname(p)
+    vault_root = find_vault_root(note_dir)
     search_roots = [note_dir, vault_root]
 
     embeds = list(dict.fromkeys(EMBED_RE.findall(content)))  # 순서보존 중복제거
@@ -199,11 +210,7 @@ def main():
                 "real_format": fmt or "unrecognized",
                 "extension": ext,
                 "magic": head.hex(),
-                "fix": (
-                    f"sips -s format jpeg -s formatOptions 92 '{base}' --out '{base}'"
-                    if ext in {".jpg", ".jpeg"} else
-                    f"확장자를 실제 포맷({fmt})에 맞추거나 해당 포맷으로 재인코딩"
-                ),
+                "fix": mismatch_fix(base, fmt, ext),
             })
         log({
             "error": (
