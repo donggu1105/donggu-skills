@@ -3,7 +3,7 @@
 > Portable SNS authoring and gated publishing — part of [`donggu-skills`](../) marketplace.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
-[![Skills](https://img.shields.io/badge/skills-6-green)](#-skills)
+[![Skills](https://img.shields.io/badge/skills-7-green)](#-skills)
 
 Blog·LinkedIn·Threads·Maily 텍스트 작성, AI 이미지 생성, YouTube 기획, 외부 채널 발행을 역할별 스킬로 분리한다.
 
@@ -14,6 +14,7 @@ Blog·LinkedIn·Threads·Maily 텍스트 작성, AI 이미지 생성, YouTube �
 ```text
 writing-social-content   = 말        — 글자만 작성
 get-ai-image             = 이미지    — 사용자 제공 이미지가 없을 때 생성
+make-card-news           = 카드뉴스  — 확정 원고를 1080×1350 이미지 세트(+PDF)로 렌더
 youtube                  = 영상 기획  — Longform + Shorts 후보 Pack
 publish-sns              = 발행      — 승인 뒤 확정 텍스트·이미지 반영
 extract-core             = 환류      — 발행 글에서 CORE 후보 제안·선택 반영
@@ -28,6 +29,7 @@ decompose-canon          = 역분해    — 정전 글의 CORE·강의 부품 �
 | **youtube** | YouTube Longform + Shorts 후보 기획·회고 | 영상 Pack |
 | **publish-sns** | tistory·maily·threads·linkedin·instagram 발행·삭제 | 발행 결과 + ledger |
 | **get-ai-image** | 사용자 이미지가 없을 때 대표이미지·삽화 생성 | 이미지 파일 |
+| **make-card-news** | 확정 원고 → 인스타·링크드인·쓰레드 카드뉴스/캐러셀 (JSON 스펙 → PNG 세트 + PDF, 레이아웃 QA, 볼트 적재) | `01..NN.png` + `cards.pdf` + `cards.json` + `qa.json` |
 | **extract-core** | 발행 직후·"코어 환류" — CORE 후보 채점·제안, 고른 것만 생성·연결 | CORE 노트 + 링크 |
 | **decompose-canon** | "정전"으로 고른 글의 깊은 역분해 | CORE·부품 후보 |
 
@@ -123,6 +125,7 @@ codex plugin add donggu-sns@donggu-skills
 - 텍스트 작성: 추가 런타임 의존성 없음
 - YouTube research: `baoyu-youtube-transcript`; thumbnail design/QA: `youtube-thumbnail-design`
 - AI 이미지: 선택한 `get-ai-image` backend의 기존 환경변수 또는 로컬 ComfyUI
+- 카드뉴스: 로컬 Chrome/Chromium(헤드리스 렌더), Python 3 표준 라이브러리만. 외부 SaaS 없음. 사람 사진은 `content-rights-clearance` 판정 뒤 사용
 - publishing adapter: `PUBLISHER_API_TOKEN`(Tistory·Maily loopback API), `SNS_WEBHOOK_TOKEN`(나머지 채널), `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 
 ---

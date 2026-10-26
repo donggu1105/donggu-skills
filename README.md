@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin%20Marketplace-8B5CF6)](https://claude.com/claude-code)
-[![Plugins](https://img.shields.io/badge/plugins-6-blue)](#-plugins)
+[![Plugins](https://img.shields.io/badge/plugins-5-blue)](#-plugins)
 [![Skills](https://img.shields.io/badge/skills-11-green)](#-plugins)
 
 Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되어 `donggu-<domain>:<skill>` 형식으로 호출.
@@ -27,20 +27,23 @@ Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되
 
 ## 🧩 Plugins
 
-### 🎬 `donggu-docs` — Document & deck authoring
+### 📣 `donggu-sns` — SNS & YouTube editorial operations
 
-강의·세미나·워크샵·런칭 발표용 **단일 HTML 덱** 빌드 시스템. 22개 잠긴 레이아웃(S01~S22) + 4개 컬러 테마 + 정규식 검증기 기반으로 매번 같은 톤이 자동 보장. 원본은 [bytonylee/future-slide-skill](https://github.com/bytonylee/future-slide-skill)의 `tightened-slide`, 본 plugin은 강의 톤으로 재작성한 donggu 버전 (Apache-2.0 → MIT derivative).
+채널별 텍스트 작성 → (필요 시) 이미지 → 승인 뒤 발행 → CORE 환류까지. 자세한 경계와 절차는 [`donggu-sns/README.md`](donggu-sns/README.md).
 
 | Skill | 호출 | 용도 | Time budget |
 |---|---|---|---|
-| `make-ppt-slide` | `donggu-docs:make-ppt-slide` | 강의·세미나·워크샵 단일 HTML 덱 빌드 (`index.html` + `images/`) | 30-90분 |
-| `make-card-news` | `donggu-docs:make-card-news` | 확정 원고 → 카드뉴스/캐러셀 세트 (1080×1350 PNG + 링크드인용 PDF + 편집용 JSON, 시네마틱 사진 레이아웃, 레이아웃 QA, 옵시디언 볼트 적재) | 10-30분 |
+| `writing-social-content` | `donggu-sns:writing-social-content` | Blog·LinkedIn·Threads·Maily 텍스트 작성·변환 | 10-30분 |
+| `make-card-news` | `donggu-sns:make-card-news` | 확정 원고 → 카드뉴스/캐러셀 세트 (1080×1350 PNG + 링크드인용 PDF + 편집용 JSON, 시네마틱 사진 레이아웃, 레이아웃 QA, 옵시디언 볼트 적재) | 10-30분 |
+| `get-ai-image` | `donggu-sns:get-ai-image` | 사용자 이미지가 없을 때 대표이미지·삽화 생성 | 5-15분 |
+| `youtube` | `donggu-sns:youtube` | YouTube Longform + Shorts 후보 기획·회고 | 30-60분 |
+| `publish-sns` | `donggu-sns:publish-sns` | tistory·maily·threads·linkedin·instagram 발행·삭제 (승인 게이트) | 5-10분 |
+| `extract-core` / `decompose-canon` | `donggu-sns:extract-core` | 발행 글 CORE 환류 · 정전 역분해 | 10-30분 |
 
 **자연어 트리거 예시**:
-- "강의 덱 만들어줘"
-- "세미나용 8페이지 한국어 발표 자료 만들어줘"
-- "PPT 대신 HTML 슬라이드로 빌드해줘"
+- "이 글 링크드인용으로 바꿔줘"
 - "이 글 카드뉴스로 만들어줘" / "링크드인 캐러셀로 뽑아줘"
+- "쓰레드에 올려줘" (승인 뒤 발행)
 
 ---
 
@@ -128,11 +131,10 @@ donggu-skills/                       ← marketplace repo
 │   └── marketplace.json             ← Claude Code 전체 plugin catalog
 ├── .agents/plugins/marketplace.json      ← Codex manifest-ready subset catalog
 ├── donggu-sns/.codex-plugin/plugin.json  ← Codex plugin manifest
-├── donggu-docs/                     ← plugin (namespace: donggu-docs:)
-│   ├── .claude-plugin/
-│   │   └── plugin.json
+├── donggu-sns/                      ← plugin (namespace: donggu-sns:)
+│   ├── .claude-plugin/plugin.json · plugin.yaml (Hermes native tools)
 │   ├── skills/
-│   │   ├── make-ppt/                ← SKILL.md, viewport-base.css, html-template.md, STYLE_PRESETS.md, scripts/
+│   │   ├── writing-social-content/ · get-ai-image/ · youtube/ · publish-sns/ · extract-core/ · decompose-canon/
 │   │   └── make-card-news/
 │   │       ├── SKILL.md
 │   │       ├── scripts/render_cards.py   ← JSON spec → PNG set + PDF + qa.json (headless Chrome)
@@ -177,7 +179,7 @@ donggu-skills/                       ← marketplace repo
 
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
-| **donggu-docs** | ✅ `v1.3.0` | 2 | Document & deck authoring (HTML slide decks, card-news / carousel sets with cinematic layout + vault handoff) |
+| **donggu-sns** | ✅ `v2.14.0` | 7 | SNS & YouTube editorial ops (text, AI image, card-news / carousel sets, YouTube pack, gated publishing, CORE loop) |
 | **donggu-research** | ✅ `v1.3.0` | 1 | Beginner-friendly AX industry change and profit learning |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |
