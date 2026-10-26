@@ -543,6 +543,13 @@ class PublishingRuntimeTests(unittest.TestCase):
         self.assertNotIn("spoilers", sent)
         self.assertEqual(entities, sent["text_entities"])
 
+    def test_channel_name_prefixed_approval_is_accepted(self):
+        for text in ["스레드 발행해", "쓰레드 발행해줘", "티스토리 발행해", "인스타그램 올려줘"]:
+            self.assertTrue(self.module._APPROVAL_RE.search(text), text)
+        for text in ["스레드 발행해 볼까?", "스레드 발행하지 마"]:
+            with self.assertRaises(self.module.ApprovalError, msg=text):
+                self.module._require_operation_approval(text, "publish")
+
     def test_threads_topic_tag_and_spoiler_validation(self):
         def preview(payload):
             return self.runtime.preview(
