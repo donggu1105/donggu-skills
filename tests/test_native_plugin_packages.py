@@ -74,7 +74,7 @@ class NativePluginPackageTests(unittest.TestCase):
         hermes = package / "plugin.yaml"
         self.assertEqual("donggu-sns", claude["name"])
         self.assertEqual(claude["name"], manifest_scalar(hermes, "name"))
-        self.assertEqual("2.13.0", claude["version"])
+        self.assertEqual("2.14.0", claude["version"])
         self.assertEqual(claude["version"], manifest_scalar(hermes, "version"))
 
     def test_codex_marketplace_exposes_only_sns_from_existing_domain_path(self):
@@ -86,7 +86,7 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertEqual(["donggu-sns"], [item["name"] for item in marketplace["plugins"]])
         entry = marketplace["plugins"][0]
         self.assertEqual({"source": "local", "path": "./donggu-sns"}, entry["source"])
-        self.assertEqual("2.13.0", entry["version"])
+        self.assertEqual("2.14.0", entry["version"])
         self.assertEqual(
             {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
             entry["policy"],
@@ -128,7 +128,7 @@ class NativePluginPackageTests(unittest.TestCase):
         )
         self.assertEqual("donggu-sns", codex["name"])
         self.assertEqual("./skills/", codex["skills"])
-        self.assertEqual("2.13.0", codex["version"])
+        self.assertEqual("2.14.0", codex["version"])
         self.assertEqual(codex["version"], claude["version"])
         self.assertEqual(codex["version"], manifest_scalar(package / "plugin.yaml", "version"))
         self.assertEqual(codex["version"], marketplace["plugins"][0]["version"])
@@ -137,6 +137,7 @@ class NativePluginPackageTests(unittest.TestCase):
                 "decompose-canon",
                 "extract-core",
                 "get-ai-image",
+                "make-card-news",
                 "publish-sns",
                 "writing-social-content",
                 "youtube",
@@ -171,8 +172,6 @@ class NativePluginPackageTests(unittest.TestCase):
             (package / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         retired_keywords = {
-            "card-news",
-            "카드뉴스",
             "stock-image",
             "unsplash",
             "pexels",
@@ -182,7 +181,7 @@ class NativePluginPackageTests(unittest.TestCase):
         self.assertTrue(retired_keywords.isdisjoint(claude["keywords"]))
 
         readme = (package / "README.md").read_text(encoding="utf-8")
-        self.assertIn("skills-6", readme)
+        self.assertIn("skills-7", readme)
         self.assertIn("사용자 제공 이미지", readme)
         self.assertIn("get-ai-image", readme)
 
@@ -191,7 +190,7 @@ class NativePluginPackageTests(unittest.TestCase):
         uploader_text = uploader.read_text(encoding="utf-8")
         self.assertIn("SUPABASE_URL", uploader_text)
         self.assertIn("image_urls", uploader_text)
-        self.assertNotIn("card-news", uploader_text)
+        self.assertNotIn("make-insta-card-news", uploader_text)
 
     def test_sns_image_routes_split_instagram_gate_and_prefer_user_assets(self):
         package = ROOT / "donggu-sns"

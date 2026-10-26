@@ -10,17 +10,10 @@
   },
   "plugins": [
     {
-      "name": "donggu-docs",
-      "source": "./donggu-docs",
-      "description": "Document & deck authoring — zero-dependency single-HTML slide decks (make-ppt) and card-news / carousel sets rendered to PNG + PDF from an editable JSON spec, cinematic photo layout, Obsidian vault handoff (make-card-news).",
-      "version": "1.3.0",
-      "strict": false
-    },
-    {
       "name": "donggu-sns",
       "source": "./donggu-sns",
-      "description": "SNS and YouTube editorial operations — portable channel-native text authoring, AI-image generation, YouTube planning, and gated publishing.",
-      "version": "2.13.0",
+      "description": "SNS and YouTube editorial operations — portable channel-native text authoring, AI-image generation, card-news / carousel sets (PNG + PDF from a JSON spec, vault handoff), YouTube planning, and gated publishing.",
+      "version": "2.14.0",
       "strict": false
     },
     {

@@ -1,7 +1,7 @@
 {
   "name": "donggu-sns",
-  "version": "2.13.0",
-  "description": "SNS and YouTube editorial operations — portable channel-native text authoring, AI-image generation, Longform + Shorts-candidate planning, and gated publishing. Boundary: writing = words, image = optional generation, youtube = editorial pack, publish = finalized text and images.",
+  "version": "2.14.0",
+  "description": "SNS and YouTube editorial operations — portable channel-native text authoring, AI-image generation, card-news / carousel sets, Longform + Shorts-candidate planning, and gated publishing. Boundary: writing = words, image = optional generation, card-news = rendered image set, youtube = editorial pack, publish = finalized text and images.",
   "author": {
     "name": "강동현 (donggu)",
     "url": "https://github.com/donggu1105"
@@ -30,6 +30,10 @@
     "ai-image",
     "comfyui",
     "flux",
-    "image-generation"
+    "image-generation",
+    "card-news",
+    "carousel",
+    "linkedin-document",
+    "instagram-carousel"
   ]
 }

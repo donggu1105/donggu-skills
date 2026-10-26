@@ -1,4 +1,4 @@
-"""Contracts for donggu-docs:make-card-news.
+"""Contracts for donggu-sns:make-card-news.
 
 Pure checks always run. The render check needs a headless Chrome/Chromium and is
 skipped when none is installed (the renderer itself reports that case clearly).
@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / "donggu-docs"
+PACKAGE = ROOT / "donggu-sns"
 SKILL = PACKAGE / "skills" / "make-card-news"
 RENDERER = SKILL / "scripts" / "render_cards.py"
 sys.path.insert(0, str(SKILL / "scripts"))
@@ -51,23 +51,16 @@ class PackagingTest(unittest.TestCase):
             with self.subTest(path=required.relative_to(ROOT)):
                 self.assertTrue(required.is_file())
 
-    def test_docs_plugin_version_bumped_everywhere(self):
-        claude = json.loads((PACKAGE / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    def test_card_news_is_published_through_the_sns_plugin(self):
+        # donggu-docs was retired (2026-10-26); make-card-news now ships inside donggu-sns.
+        self.assertFalse((ROOT / "donggu-docs").exists())
         marketplace = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
-        entry = next(item for item in marketplace["plugins"] if item["name"] == "donggu-docs")
-        self.assertEqual(claude["version"], entry["version"])
-        self.assertEqual("1.3.0", claude["version"])
+        self.assertNotIn("donggu-docs", [item["name"] for item in marketplace["plugins"]])
         readme = (PACKAGE / "README.md").read_text(encoding="utf-8")
-        self.assertIn("skills-2", readme)
         self.assertIn("make-card-news", readme)
         root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("donggu-docs:make-card-news", root_readme)
-        self.assertIn("v1.3.0", root_readme)
-
-    def test_sns_package_still_free_of_card_news(self):
-        # The SNS domain retired its card-news skill on purpose; the new skill lives in docs.
-        for path in (PACKAGE.parent / "donggu-sns").rglob("*.md"):
-            self.assertNotIn("make-card-news", path.read_text(encoding="utf-8"), path)
+        self.assertIn("donggu-sns:make-card-news", root_readme)
+        self.assertNotIn("donggu-docs", root_readme)
 
 
 class SpecAndHtmlTest(unittest.TestCase):
