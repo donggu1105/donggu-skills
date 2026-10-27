@@ -108,6 +108,7 @@ _ENDPOINTS = {
     ("threads", "delete"): "sns-del-threads",
     ("linkedin", "publish"): "sns-pub-linkedin",
     ("instagram", "publish"): "sns-pub-instagram",
+    ("instagram", "story"): "sns-pub-instagram",
 }
 
 _LOCAL_ENDPOINTS = {
@@ -130,6 +131,9 @@ _CONTRACTS = {
     ("linkedin", "publish"): ({"content"}, set()),
     # account: 어느 계정에 올릴지. 기본값 없음 — 빠지면 엉뚱한 계정에 올라가므로 거부한다.
     ("instagram", "publish"): ({"image_urls", "caption", "account"}, set()),
+    # story: 이미지 1장(JPEG)·캡션 없음. 스티커(링크 포함)는 API로 못 붙이고 앱에서만 된다.
+    # 웹훅의 media_type=STORIES는 어댑터가 붙인다 — payload로 받지 않는다.
+    ("instagram", "story"): ({"image_url", "account"}, set()),
     ("tistory", "delete"): (set(), set()),
     ("threads", "delete"): (set(), set()),
 }
@@ -235,6 +239,7 @@ _OPERATION_INTENT_RE = {
     "delete": re.compile(r"삭제|내려", re.IGNORECASE),
     "reply": re.compile(r"답글|댓글|리플", re.IGNORECASE),
 }
+_APPROVAL_OPERATION_ALIASES = {"story": "publish"}
 _MAILY_CONFIRM_RE = re.compile(
     r"^\s*(?:(?:네|예)[\s,:]*)?(?:메일리|maily|메일)"
     r"(?:\s*(?:뉴스레터|메일))?\s*최종\s*(?:발송|전송|보내기)\s*"
@@ -359,6 +364,8 @@ def _require_explicit_approval(value: Any) -> str:
 
 def _require_operation_approval(value: Any, operation: str) -> str:
     text = _require_explicit_approval(value)
+    # story는 publish의 한 형태다 — 승인 동사("올려줘")와 의도어 충돌 규칙을 publish와 같이 쓴다.
+    operation = _APPROVAL_OPERATION_ALIASES.get(operation, operation)
     expected = _OPERATION_APPROVAL_RE.get(operation)
     if expected is None or expected.search(text) is None:
         raise ApprovalError("the approval message does not match the receipt operation")
@@ -707,6 +714,14 @@ def _validate_payload(
                 )
                 for item in value
             ]
+        elif field == "image_url":
+            url = _validate_image_url(
+                value, allowed_hosts=allowed_image_hosts, resolve_dns=resolve_image_hosts,
+            )
+            # Graph API 스토리는 JPEG만 받는다.
+            if not urlparse(url).path.lower().endswith((".jpg", ".jpeg")):
+                raise ValidationError("story image must be a JPEG url")
+            clean[field] = url
         elif field == "topic_tag":
             clean[field] = _validate_threads_topic_tag(value)
         elif field == "spoilers":
@@ -1449,7 +1464,7 @@ class PublishingRuntime:
             allowed_image_hosts=self.image_allowed_hosts,
             resolve_image_hosts=self.resolve_image_hosts,
         )
-        if operation in {"publish", "update", "reply"}:
+        if operation in {"publish", "update", "reply", "story"}:
             note_path = _nonempty(note_path, "note_path")
         elif not isinstance(note_path, str):
             raise ValidationError("note_path must be a string")
@@ -1501,9 +1516,16 @@ class PublishingRuntime:
         inline_images = _extract_markdown_images(clean.get("content", ""))
         image_urls = list(clean.get("image_urls", []))
         image_urls.extend(image["url"] for image in inline_images)
+        if "image_url" in clean:
+            image_urls.append(clean["image_url"])
         preview["image_count"] = len(dict.fromkeys(image_urls))
         if inline_images:
             preview["inline_images"] = inline_images
+        if operation == "story":
+            # 승인 전에 보여 줄 것: 이미지 한 장만 올라가고 24시간 뒤 사라진다(수정·삭제 API 없음).
+            preview["image_url"] = clean["image_url"]
+            preview["media_type"] = "STORIES"
+            preview["lifetime"] = "24h"
         if resolved:
             preview["current_url"] = resolved.get("url")
             preview["post_id"] = resolved.get("post_id")
@@ -1841,10 +1863,12 @@ class PublishingRuntime:
         webhook_payload = dict(receipt["payload"])
         # 본문과 함께 승인된 답글. 본문 웹훅에는 싣지 않고 장부 완료 뒤 따로 보낸다.
         bundled_reply = webhook_payload.pop("reply", None)
-        real_publish = operation == "publish" and not (
-            channel == "maily" and webhook_payload.get("dry_run") is True
-        )
-        external_operation = operation in {"publish", "update", "delete", "reply"}
+        real_publish = (
+            operation == "publish" and not (
+                channel == "maily" and webhook_payload.get("dry_run") is True
+            )
+        ) or operation == "story"
+        external_operation = operation in {"publish", "update", "delete", "reply", "story"}
 
         def require_reconciliation(
             error: str, *, url: Optional[str] = None, post_id: Optional[str] = None,
@@ -1930,6 +1954,9 @@ class PublishingRuntime:
                 webhook_payload["reply_to_id"] = _nonempty(
                     receipt["resolved"].get("post_id"), "approved reply parent post_id",
                 )
+            if operation == "story":
+                # 같은 웹훅이 피드/스토리를 가른다. 계약이 닫혀 있어 클라이언트는 이 값을 못 보낸다.
+                webhook_payload["media_type"] = "STORIES"
             if channel == "threads" and "spoilers" in webhook_payload:
                 webhook_payload["text_entities"] = _threads_spoiler_entities(
                     webhook_payload["content"], webhook_payload.pop("spoilers"),
@@ -1977,12 +2004,12 @@ class PublishingRuntime:
                 if isinstance(remote_error, str) and remote_error.strip()
                 else "publisher reported failure"
             )
-            if operation in {"publish", "update", "delete", "reply"}:
+            if operation in {"publish", "update", "delete", "reply", "story"}:
                 external_url = None
                 external_post_id = None
                 external_job_id = _optional_job_id(response.get("job_id"))
                 has_external_identifiers = external_job_id is not None
-                if operation in {"publish", "update", "reply"}:
+                if operation in {"publish", "update", "reply", "story"}:
                     try:
                         external_url = _validate_url(response.get("url"), "publisher url")
                         has_external_identifiers = True
@@ -2022,7 +2049,20 @@ class PublishingRuntime:
             "post_id": response.get("post_id"),
             "job_id": _optional_job_id(response.get("job_id")),
         }
-        if operation != "delete":
+        if operation == "story":
+            # 스토리는 permalink가 없을 수 있다. post_id만 필수, url은 있으면 검증한다.
+            try:
+                result["post_id"] = _nonempty(response.get("post_id"), "publisher post_id")
+                result["url"] = (
+                    _validate_url(response.get("url"), "publisher url")
+                    if response.get("url") else None
+                )
+            except ValidationError:
+                result["status"] = "reconciliation_required"
+                result["error"] = "external mutation succeeded but required identifiers are missing or invalid"
+                self.store.transition(receipt, "reconciliation_required", result=result, payload=None)
+                return result
+        elif operation != "delete":
             try:
                 result["url"] = _validate_url(response.get("url"), "publisher url")
                 if channel in {"tistory", "threads"}:
@@ -2061,7 +2101,8 @@ class PublishingRuntime:
             return result
 
         try:
-            if operation == "publish":
+            # story도 새 행이다. 피드 글과는 topic("<제목> (스토리 N)")으로 갈리고 url은 None일 수 있다.
+            if operation in {"publish", "story"}:
                 self.ledger.record_publish(
                     topic=receipt["topic"],
                     channel=channel,

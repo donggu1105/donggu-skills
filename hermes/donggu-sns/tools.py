@@ -155,7 +155,7 @@ PREVIEW_SCHEMA = {
         "type": "object",
         "properties": {
             "channel": {"type": "string", "enum": ["tistory", "maily", "threads", "linkedin", "instagram"]},
-            "operation": {"type": "string", "enum": ["publish", "update", "delete", "reply"]},
+            "operation": {"type": "string", "enum": ["publish", "update", "delete", "reply", "story"]},
             "payload": {
                 "type": "object",
                 "description": (
@@ -166,7 +166,10 @@ PREVIEW_SCHEMA = {
                     "— a link reply posted under the body right after the ledger row "
                     "lands, under the same single approval. "
                     "Instagram requires `account` (`donggu` or `beyonddeploy`) — "
-                    "the target account; there is no default."
+                    "the target account; there is no default. "
+                    "Instagram story: operation=story, payload {image_url (JPEG, 1080×1920), "
+                    "account}; the API posts the image only — no caption, no stickers, no link; "
+                    "24 h lifetime."
                 ),
             },
             "topic": {"type": "string"},

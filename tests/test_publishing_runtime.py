@@ -45,6 +45,7 @@ class FakeApiHandler(BaseHTTPRequestHandler):
     malformed_local_maily_status = False
     oversized_local_maily_header = False
     forced_update_response: object = None
+    forced_instagram_response: object = None
     active_posts_enabled = False
     duplicate_active_posts = False
     active_post = {"id": 41, "post_id": "existing-post", "url": "https://example.test/existing", "note_path": "note.md"}
@@ -127,7 +128,9 @@ class FakeApiHandler(BaseHTTPRequestHandler):
             self._send(200, {"success": True, "url": "https://maily.test/post/1", "post_id": None})
             return
         if parsed.path == "/webhook/sns-pub-instagram":
-            self._send(200, {"success": True, "url": "https://www.instagram.com/p/ig-1/", "post_id": "ig-1"})
+            self._send(200, type(self).forced_instagram_response or {
+                "success": True, "url": "https://www.instagram.com/p/ig-1/", "post_id": "ig-1",
+            })
             return
         if parsed.path == "/publish-sync/tistory":
             if type(self).publisher_uncertain_without_identifiers:
@@ -298,6 +301,7 @@ class PublishingRuntimeTests(unittest.TestCase):
         FakeApiHandler.oversized_local_maily_header = False
         ProxyCaptureHandler.requests = []
         FakeApiHandler.forced_update_response = None
+        FakeApiHandler.forced_instagram_response = None
         FakeApiHandler.active_posts_enabled = False
         FakeApiHandler.active_post = {
             "id": 41,
@@ -774,6 +778,131 @@ class PublishingRuntimeTests(unittest.TestCase):
         status = self.runtime.receipt_status(plan["receipt_id"])
         self.assertEqual("completed", status["state"])
         self.assertEqual("beyonddeploy", status["account"])
+
+    STORY_URL = "https://img.test/story/01.jpg"
+
+    def preview_instagram_story(self, payload, *, issue_receipt=True, topic="demo-ig (스토리 1)"):
+        return self.runtime.preview(
+            channel="instagram", operation="story", payload=payload,
+            topic=topic, note_path="40_Channel_Packs/Instagram/Instagram - demo-ig.md",
+            session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN,
+            user_message_id=self.PREVIEW_MESSAGE_ID if issue_receipt else None,
+            issue_receipt=issue_receipt,
+        )
+
+    def test_instagram_story_contract_requires_single_jpeg_and_account(self):
+        for bad in [
+            {"image_url": "https://img.test/story/01.png", "account": "donggu"},
+            # 쿼리 문자열로 확장자를 흉내 내도 경로가 JPEG이어야 한다.
+            {"image_url": "https://img.test/story/01.png?f=.jpg", "account": "donggu"},
+            # 스토리는 한 장 — 피드 계약의 image_urls는 받지 않는다.
+            {"image_urls": [self.STORY_URL], "account": "donggu"},
+            {"image_url": self.STORY_URL, "image_urls": [self.STORY_URL], "account": "donggu"},
+            # 캡션 없음, 클라이언트가 media_type을 정하지 못한다.
+            {"image_url": self.STORY_URL, "caption": "hello", "account": "donggu"},
+            {"image_url": self.STORY_URL, "media_type": "REELS", "account": "donggu"},
+            {"image_url": self.STORY_URL},
+            {"image_url": self.STORY_URL, "account": "x"},
+            {"image_url": "http://127.0.0.1/story.jpg", "account": "donggu"},
+        ]:
+            with self.subTest(payload=bad), self.assertRaises(self.module.ValidationError):
+                self.preview_instagram_story(bad, issue_receipt=False)
+        with self.assertRaisesRegex(self.module.ValidationError, "story image must be a JPEG url"):
+            self.preview_instagram_story(
+                {"image_url": "https://img.test/story/01.png", "account": "donggu"}, issue_receipt=False,
+            )
+        # 노트 경로도 publish처럼 필수다.
+        with self.assertRaises(self.module.ValidationError):
+            self.runtime.preview(
+                channel="instagram", operation="story",
+                payload={"image_url": self.STORY_URL, "account": "donggu"},
+                topic="demo-ig (스토리 1)", note_path="", session_id="s", turn_id="t", issue_receipt=False,
+            )
+        ok = self.preview_instagram_story(
+            {"image_url": "https://img.test/story/01.JPEG", "account": "donggu"}, issue_receipt=False,
+        )
+        self.assertEqual("preview", ok["status"])
+        self.assertEqual([], FakeApiHandler.requests)
+
+    def test_instagram_story_dispatch_adds_media_type_and_records_ledger_without_url(self):
+        FakeApiHandler.forced_instagram_response = {"success": True, "post_id": "st1", "url": None}
+        plan = self.preview_instagram_story({"image_url": self.STORY_URL, "account": "beyonddeploy"})
+        self.assertEqual("planned", plan["status"])
+        preview = plan["preview"]
+        self.assertEqual("beyonddeploy", preview["account"])
+        self.assertEqual(self.STORY_URL, preview["image_url"])
+        self.assertEqual("STORIES", preview["media_type"])
+        self.assertEqual("24h", preview["lifetime"])
+        self.assertNotIn("media_type", preview["payload"])
+        # 스토리 승인 동사는 publish와 같고, 다른 동작 동사는 섞이면 거부한다.
+        for text in ["삭제해줘", "업데이트 적용해줘", "답글 올려줘"]:
+            with self.subTest(text=text), self.assertRaises(self.module.ApprovalError):
+                self.module._require_operation_approval(text, "story")
+        result = self.approve_and_dispatch(plan, text="인스타그램 올려줘")
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("st1", result["post_id"])
+        self.assertIsNone(result["url"])
+        webhook = [r for r in FakeApiHandler.requests if r[1] == "/webhook/sns-pub-instagram"]
+        self.assertEqual(1, len(webhook))
+        sent = webhook[0][3]
+        self.assertEqual(
+            {"image_url": self.STORY_URL, "account": "beyonddeploy", "media_type": "STORIES"}, sent,
+        )
+        # 재발행 preflight: 같은 계정·스토리 topic의 활성 행만 본다.
+        lookups = [r for r in FakeApiHandler.requests if r[0] == "GET" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(1, len(lookups))
+        self.assertIn("account=eq.beyonddeploy", lookups[0][4])
+        inserts = [r for r in FakeApiHandler.requests if r[0] == "POST" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(1, len(inserts))
+        row = inserts[0][3]
+        self.assertIsNone(row["url"])
+        self.assertEqual("st1", row["post_id"])
+        self.assertEqual("beyonddeploy", row["account"])
+        self.assertEqual("demo-ig (스토리 1)", row["topic"])
+        self.assertEqual("instagram", row["channel"])
+        self.assertEqual("completed", self.runtime.receipt_status(plan["receipt_id"])["state"])
+
+    def test_instagram_story_without_post_id_requires_reconciliation(self):
+        FakeApiHandler.forced_instagram_response = {"success": True, "post_id": None, "url": None}
+        plan = self.preview_instagram_story({"image_url": self.STORY_URL, "account": "donggu"})
+        result = self.approve_and_dispatch(plan, text="올려줘")
+        self.assertEqual("reconciliation_required", result["status"])
+        inserts = [r for r in FakeApiHandler.requests if r[0] == "POST" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual([], inserts)
+        self.assertEqual(
+            "reconciliation_required", self.runtime.receipt_status(plan["receipt_id"])["state"],
+        )
+
+    def test_instagram_publish_contract_unchanged_by_story(self):
+        payload = {"image_urls": ["https://img.test/1.png"], "caption": "hello", "account": "donggu"}
+        plan = self.preview_instagram(payload)
+        self.assertEqual(payload, plan["preview"]["payload"])
+        self.assertNotIn("media_type", plan["preview"])
+        self.assertNotIn("lifetime", plan["preview"])
+        # 피드 계약은 스토리 키를 받지 않는다.
+        with self.assertRaises(self.module.ValidationError):
+            self.preview_instagram({**payload, "image_url": self.STORY_URL}, issue_receipt=False)
+        result = self.approve_and_dispatch(plan, text="인스타그램 올려줘")
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("https://www.instagram.com/p/ig-1/", result["url"])
+        webhook = [r for r in FakeApiHandler.requests if r[1] == "/webhook/sns-pub-instagram"]
+        self.assertEqual(payload, webhook[0][3])
+        self.assertNotIn("media_type", webhook[0][3])
+        # 피드 글은 url 없이 완료되지 않는다(스토리 완화가 새지 않는다).
+        FakeApiHandler.requests = []
+        FakeApiHandler.forced_instagram_response = {"success": True, "post_id": "ig-2", "url": None}
+        plan = self.runtime.preview(
+            channel="instagram", operation="publish", payload=payload,
+            topic="demo-ig-2", note_path="note.md", session_id=self.SESSION_ID,
+            turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
+        )
+        approved = self.runtime.approve(
+            plan["receipt_id"], approval_text="올려줘", session_id=self.SESSION_ID,
+            turn_id="turn-approval-2", user_message_id=self.APPROVAL_MESSAGE_ID + 1,
+        )
+        self.assertEqual("approved", approved["status"])
+        result = self.runtime.dispatch(plan["receipt_id"], session_id=self.SESSION_ID)
+        self.assertEqual("reconciliation_required", result["status"])
 
     def test_ledger_lookup_and_delete_filter_by_account_when_given(self):
         FakeApiHandler.active_posts_enabled = True
