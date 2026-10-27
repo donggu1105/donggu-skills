@@ -1,6 +1,6 @@
 {
   "name": "donggu-sns",
-  "version": "2.14.0",
+  "version": "2.14.1",
   "description": "SNS and YouTube editorial operations — portable channel-native text authoring, AI-image generation, card-news / carousel sets, Longform + Shorts-candidate planning, and gated publishing. Boundary: writing = words, image = optional generation, card-news = rendered image set, youtube = editorial pack, publish = finalized text and images.",
   "author": {
     "name": "강동현 (donggu)",

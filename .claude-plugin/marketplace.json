@@ -13,7 +13,7 @@
       "name": "donggu-sns",
       "source": "./donggu-sns",
       "description": "SNS and YouTube editorial operations — portable channel-native text authoring, AI-image generation, card-news / carousel sets (PNG + PDF from a JSON spec, vault handoff), YouTube planning, and gated publishing.",
-      "version": "2.14.0",
+      "version": "2.14.1",
       "strict": false
     },
     {
@@ -41,7 +41,7 @@
       "name": "donggu-ppt",
       "source": "./donggu-ppt",
       "description": "Presentation decks — single-file HTML decks on donggu's style contract (type scale, motion grammar, color-role tokens) with a component showcase (donggu-deck).",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "strict": false
     }
   ]

@@ -1,0 +1,37 @@
+{
+  "name": "donggu-ppt",
+  "version": "1.0.1",
+  "description": "Single-file HTML presentation decks on donggu's style contract — type scale, motion grammar, color-role tokens and a component showcase.",
+  "author": {
+    "name": "강동현 (donggu)",
+    "url": "https://github.com/donggu1105"
+  },
+  "repository": "https://github.com/donggu1105/donggu-skills",
+  "license": "MIT",
+  "keywords": [
+    "presentation",
+    "slides",
+    "deck",
+    "html-deck",
+    "ppt",
+    "style-contract",
+    "korean"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Donggu PPT",
+    "shortDescription": "스타일 계약 기반 단일 HTML 발표 덱 제작",
+    "longDescription": "발표 자료·덱·장표 요청을 단일 HTML 파일 하나로 만듭니다. 검증된 타이포 스케일·모션 문법·색 역할 토큰과 부품 전시장 14종이 고정 출력이라 어떤 레퍼런스를 가져와도 '내 덱' 스타일로 나옵니다.",
+    "developerName": "강동현 (donggu)",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Shell"
+    ],
+    "defaultPrompt": [
+      "이 자료를 동구 스타일 덱으로 만들어줘.",
+      "장별 한 줄 흐름부터 제안하고 확정 뒤 HTML 덱으로 빌드해줘."
+    ]
+  }
+}

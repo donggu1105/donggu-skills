@@ -1,6 +1,6 @@
 {
   "name": "donggu-ppt",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Presentation decks — single-file HTML decks built on donggu's style contract (type scale, motion grammar, color-role tokens) and a component showcase (donggu-deck).",
   "author": {
     "name": "강동현 (donggu)",

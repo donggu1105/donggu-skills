@@ -102,7 +102,7 @@ claude plugin install donggu-sns@donggu-skills
 /donggu-sns:writing-social-content
 ```
 
-### Codex — 현재 `donggu-sns` 지원
+### Codex — 현재 `donggu-sns`·`donggu-ppt` 지원
 
 ```bash
 codex plugin marketplace add donggu1105/donggu-skills
@@ -116,7 +116,7 @@ codex plugin marketplace upgrade donggu-skills
 codex plugin add donggu-sns@donggu-skills
 ```
 
-설치·업데이트된 skill 목록은 새 thread에서 다시 로드한다. 현재 Codex catalog에는 `donggu-sns`만 등록되어 있으며 나머지 domain plugin은 현재 Codex catalog에 미등록이다.
+설치·업데이트된 skill 목록은 새 thread에서 다시 로드한다. 현재 Codex catalog에는 `donggu-sns`와 `donggu-ppt`가 등록되어 있으며 나머지 domain plugin은 현재 Codex catalog에 미등록이다.
 
 ---
 
@@ -196,9 +196,9 @@ donggu-skills/                       ← marketplace repo
 
 | Plugin | Status | Skills | Description |
 |---|---|---|---|
-| **donggu-sns** | ✅ `v2.14.0` | 7 | SNS & YouTube editorial ops (text, AI image, card-news / carousel sets, YouTube pack, gated publishing, CORE loop) |
+| **donggu-sns** | ✅ `v2.14.1` | 7 | SNS & YouTube editorial ops (text, AI image, card-news / carousel sets, YouTube pack, gated publishing, CORE loop) |
 | **donggu-research** | ✅ `v1.3.0` | 1 | Beginner-friendly AX industry change and profit learning |
-| **donggu-ppt** | ✅ `v1.0.0` | 1 | Presentation decks — single-file HTML on donggu's style contract (donggu-deck) |
+| **donggu-ppt** | ✅ `v1.0.1` | 1 | Presentation decks — single-file HTML on donggu's style contract (donggu-deck) |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |
 | 🔲 donggu-ax | planned | — | AI 도입·AX 컨설팅·임원 자료 |
