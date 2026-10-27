@@ -155,7 +155,7 @@ PREVIEW_SCHEMA = {
         "type": "object",
         "properties": {
             "channel": {"type": "string", "enum": ["tistory", "maily", "threads", "linkedin", "instagram"]},
-            "operation": {"type": "string", "enum": ["publish", "update", "delete"]},
+            "operation": {"type": "string", "enum": ["publish", "update", "delete", "reply"]},
             "payload": {
                 "type": "object",
                 "description": (

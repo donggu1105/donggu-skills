@@ -550,6 +550,72 @@ class PublishingRuntimeTests(unittest.TestCase):
             with self.assertRaises(self.module.ApprovalError, msg=text):
                 self.module._require_operation_approval(text, "publish")
 
+    def test_threads_reply_resolves_parent_from_ledger_and_reaches_webhook(self):
+        # 답글은 같은 topic의 장부 활성 글(root post)을 부모로 삼는다. 부모 id는
+        # 호출자가 넘기지 않고 장부에서 해석한다 — 대화 메모리의 post_id 금지.
+        FakeApiHandler.active_posts_enabled = True
+        FakeApiHandler.active_post = {
+            "id": 7, "post_id": "17864853690693150",
+            "url": "https://www.threads.com/@100x.donggu/post/root", "note_path": "note.md",
+        }
+        plan = self.runtime.preview(
+            channel="threads", operation="reply",
+            payload={"content": "https://fdethon.beyonddeploy.kr"},
+            topic="demo-reply", note_path="40_Channel_Packs/Threads/Threads - demo-reply.md",
+            session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
+        )
+        self.assertEqual("planned", plan["status"])
+        self.assertEqual("17864853690693150", plan["preview"]["reply_to_id"])
+        self.assertEqual("https://www.threads.com/@100x.donggu/post/root", plan["preview"]["parent_url"])
+        self.assertEqual(1, plan["preview"]["content_chars"] > 0)
+        result = self.approve_and_dispatch(plan, text="답글 올려줘")
+        self.assertEqual("completed", result["status"])
+        webhook = [r for r in FakeApiHandler.requests if r[1] == "/webhook/sns-pub-threads"]
+        sent = webhook[0][3] if isinstance(webhook[0][3], dict) else json.loads(webhook[0][3])
+        self.assertEqual("17864853690693150", sent["reply_to_id"])
+        self.assertEqual("https://fdethon.beyonddeploy.kr", sent["content"])
+        # 답글은 장부에 새 활성 글로 INSERT하지 않는다 — 같은 topic의 root가 유일한 활성 행이어야
+        # 다음 update/delete가 root를 가리킨다.
+        inserts = [r for r in FakeApiHandler.requests if r[0] == "POST" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual([], inserts)
+
+    def test_threads_reply_requires_active_parent_and_rejects_caller_supplied_parent(self):
+        FakeApiHandler.active_posts_enabled = False
+        with self.assertRaises(self.module.ValidationError):
+            self.runtime.preview(
+                channel="threads", operation="reply", payload={"content": "x"},
+                topic="orphan", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
+            )
+        FakeApiHandler.active_posts_enabled = True
+        with self.assertRaises(self.module.ValidationError):
+            self.runtime.preview(
+                channel="threads", operation="reply",
+                payload={"content": "x", "reply_to_id": "123"},
+                topic="demo", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
+            )
+        # 답글 승인 동사는 publish와 같되, 본문 발행 영수증을 답글 승인으로 소비하지 못하게
+        # 'reply' 전용 의도어("답글")가 있어야 한다.
+        with self.assertRaises(self.module.ApprovalError):
+            self.module._require_operation_approval("올려줘", "reply")
+        self.assertTrue(self.module._require_operation_approval("답글 올려줘", "reply"))
+        with self.assertRaises(self.module.ApprovalError):
+            self.module._require_operation_approval("답글 올려줘", "publish")
+
+    def test_threads_reply_allows_urls_but_keeps_length_and_hashtag_rules(self):
+        FakeApiHandler.active_posts_enabled = True
+        ok = self.runtime.preview(
+            channel="threads", operation="reply",
+            payload={"content": "행사 소개·참가 신청 👉 https://fdethon.beyonddeploy.kr"},
+            topic="demo", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
+        )
+        self.assertEqual("preview", ok["status"])
+        for bad in ["#태그 https://x.test", "x" * 501]:
+            with self.assertRaises(self.module.ValidationError):
+                self.runtime.preview(
+                    channel="threads", operation="reply", payload={"content": bad},
+                    topic="demo", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
+                )
+
     def test_threads_topic_tag_and_spoiler_validation(self):
         def preview(payload):
             return self.runtime.preview(

@@ -169,6 +169,7 @@ reconciliation이 아니다. 그런데도 reconciliation이 걸렸다면 발행�
 | tistory | first line = title, markdown body as-is — **but run blog-image prep first** (see below) | `category`? (default 프로덕트 엔지니어), **required public `tags` 4–7** | vault `TEMPLATE - Blog 발행 틀` |
 | maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is — **blog-image prep first if it has `![[embeds]]`** | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
 | threads | `## 발행` text until the next `##` = `content`; `![[image]]` embeds → `image_urls`; frontmatter `topic_tag` → `topic_tag`; frontmatter `spoilers` → `spoilers` | ≤500 chars, 0 hashtags, 0 body URLs; native preview rejects overlength, hashtags, and unambiguous URL strings. `topic_tag` 1개(1–50자, `.`·`&` 금지), `spoilers` = 본문에 그대로 있는 부분 문자열 1–10개 | **writing-social-content** |
+| threads **reply** (`operation: reply`) | 노트 `### 댓글·답글용 링크` 아래 한 줄(또는 사용자가 준 답글 본문) = `content` | ≤500자, 해시태그 0 — **URL 허용**(링크 답글이 용도). 부모는 payload에 넣지 않는다: 어댑터가 같은 `topic`의 장부 활성 글(root)을 `reply_to_id`로 해석해 프리뷰에 `reply_to_id`·`parent_url`로 보여준다. root가 장부에 없으면 프리뷰가 거부된다 → 본문을 먼저 발행하고 장부 완료를 확인한 뒤 답글. 승인 문구는 `답글 올려줘`처럼 **'답글/댓글' + 발행 동사** — `올려줘`만으로는 답글 영수증이 승인되지 않고, `답글 올려줘`는 본문 발행 영수증을 승인하지 못한다. 답글은 장부에 새 활성 행을 만들지 않는다(root가 유일한 활성 행으로 남아 update/delete가 root를 가리킨다) | 게시 순서: 본문 preview→승인→execute→장부 확인 → 답글 preview→승인→execute |
 | linkedin | `## Draft` final version until the next `##` | `content` only, 0 body URLs; native preview rejects unambiguous URL strings | writing-social-content |
 | instagram | 노트 `## 장별 카피` 임베드 순서 → `image_urls`, `## 캡션` → `caption`; `python3 <skill>/prepare_instagram.py "<note>"` 가 payload JSON 출력 | 1 img=single, 2–10=carousel | finalized caption and images |
 
@@ -263,7 +264,7 @@ agents must never call mutation endpoints directly or print token values.
 
 | Other SNS webhook (`https://n8n.donggu.site/webhook/…`, `X-SNS-Token`) | Body |
 |---|---|
-| `sns-pub-threads` | `{content, image_urls?, topic_tag?, text_entities?}` (런타임이 `spoilers`를 `text_entities`로 변환) |
+| `sns-pub-threads` | `{content, image_urls?, topic_tag?, text_entities?, reply_to_id?}` (런타임이 `spoilers`를 `text_entities`로 변환; `reply_to_id`는 reply 영수증의 장부 부모 id — n8n '준비' 노드가 숫자 id만 받아 컨테이너 form에 `&reply_to_id=`로 실음. 토큰 스코프 `threads_manage_replies`는 2026-10-27 실측 보유) |
 | `sns-pub-linkedin` | `{content}` |
 | `sns-pub-instagram` | `{image_urls, caption}` |
 | `sns-del-threads` | `{post_id}` |

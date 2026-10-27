@@ -104,6 +104,7 @@ _ENDPOINTS = {
     ("tistory", "delete"): "sns-del-tistory",
     ("maily", "publish"): "sns-pub-maily",
     ("threads", "publish"): "sns-pub-threads",
+    ("threads", "reply"): "sns-pub-threads",
     ("threads", "delete"): "sns-del-threads",
     ("linkedin", "publish"): "sns-pub-linkedin",
     ("instagram", "publish"): "sns-pub-instagram",
@@ -121,6 +122,9 @@ _CONTRACTS = {
     ("tistory", "update"): ({"title", "content", "tags"}, {"category", "cover_image"}),
     ("maily", "publish"): ({"title", "content", "subtitle"}, {"tags", "dry_run"}),
     ("threads", "publish"): ({"content"}, {"image_urls", "topic_tag", "spoilers"}),
+    # reply: 같은 topic의 장부 활성 글(root)에 다는 답글. 부모 id는 장부에서만 해석하므로
+    # payload에 reply_to_id를 받지 않는다. 본문 URL 허용(링크 답글이 용도).
+    ("threads", "reply"): ({"content"}, {"image_urls"}),
     ("linkedin", "publish"): ({"content"}, set()),
     ("instagram", "publish"): ({"image_urls", "caption"}, set()),
     ("tistory", "delete"): (set(), set()),
@@ -164,7 +168,7 @@ _DENIAL_RE = re.compile(
 )
 _APPROVAL_RE = re.compile(
     r"^\s*(?:(?:네|예|그대로|이대로|지금|최종|계속|블로그|티스토리|스레드|쓰레드|"
-    r"링크드인|인스타(?:그램)?|메일리|게시물|"
+    r"링크드인|인스타(?:그램)?|메일리|게시물|답글|댓글|리플|"
     r"포스트|이\s*글|해당\s*글|기존\s*글|업데이트|수정|삭제|발행|게시|"
     r"내용|초안|post\s*\d+)(?:을|를|에|으로|로|은|는)?[\s,:]*){0,6}(?:"
     r"승인(?:해\s*(?:줘|주세요)|합니다|할게|함)?|"
@@ -193,6 +197,15 @@ _OPERATION_APPROVAL_RE = {
         r"(?:승인|진행|적용)(?:해\s*(?:줘|주세요)|합니다|할게|함)?)",
         re.IGNORECASE,
     ),
+    # reply: publish 동사 앞에 '답글/댓글' 의도어가 있어야 한다. 본문 발행 승인 한 마디가
+    # 답글 영수증까지 소비하지 못하게 한다.
+    "reply": re.compile(
+        r"(?:답글|댓글|리플)(?:을|를|로|으로)?\s*(?:[^\s]+\s*){0,2}?"
+        r"(?:올려\s*(?:줘|주세요)|게시해\s*(?:줘|주세요)|달아\s*(?:줘|주세요)|"
+        r"발행해(?:\s*(?:줘|주세요))?|(?:발행|게시)\s*"
+        r"(?:승인|진행|적용)(?:해\s*(?:줘|주세요)|합니다|할게|함)?)",
+        re.IGNORECASE,
+    ),
 }
 
 # 재조정(reconciliation) 해소 전용 승인 문구. 발행/수정/삭제 동사와 겹치지 않아야
@@ -212,6 +225,7 @@ _OPERATION_INTENT_RE = {
     "publish": re.compile(r"올려|발행|게시(?!물)", re.IGNORECASE),
     "update": re.compile(r"업데이트|수정", re.IGNORECASE),
     "delete": re.compile(r"삭제|내려", re.IGNORECASE),
+    "reply": re.compile(r"답글|댓글|리플", re.IGNORECASE),
 }
 _MAILY_CONFIRM_RE = re.compile(
     r"^\s*(?:(?:네|예)[\s,:]*)?(?:메일리|maily|메일)"
@@ -307,14 +321,15 @@ def _threads_spoiler_entities(content: str, spoilers: Any) -> list:
 
 
 def _validate_content_contract(channel: str, operation: str, content: str) -> str:
-    if operation != "publish":
+    if operation not in {"publish", "reply"}:
         return content
     if channel == "threads":
         if len(content) > 500:
             raise ValidationError("threads content must not exceed 500 characters")
         if _HASHTAG_RE.search(_CODE_LANGUAGE_RE.sub("", content)):
             raise ValidationError("threads content must not contain hashtags")
-        if _URLISH_RE.search(content):
+        # 답글은 링크를 다는 자리라 URL을 허용한다. 본문(publish)은 그대로 금지.
+        if operation == "publish" and _URLISH_RE.search(content):
             raise ValidationError("threads content must not contain URLs")
     elif channel == "linkedin" and _URLISH_RE.search(content):
         raise ValidationError("linkedin content must not contain URLs")
@@ -339,8 +354,11 @@ def _require_operation_approval(value: Any, operation: str) -> str:
     expected = _OPERATION_APPROVAL_RE.get(operation)
     if expected is None or expected.search(text) is None:
         raise ApprovalError("the approval message does not match the receipt operation")
+    # reply 승인은 publish 동사("올려줘")를 포함하는 것이 정상이다 — publish 의도어는
+    # reply와 충돌로 보지 않는다. 반대 방향(publish 영수증에 "답글 …")은 여전히 거부한다.
+    compatible = {"publish"} if operation == "reply" else set()
     if any(
-        other != operation and pattern.search(text) is not None
+        other != operation and other not in compatible and pattern.search(text) is not None
         for other, pattern in _OPERATION_INTENT_RE.items()
     ):
         raise ApprovalError("the approval message mixes different publishing operations")
@@ -1375,12 +1393,13 @@ class PublishingRuntime:
             allowed_image_hosts=self.image_allowed_hosts,
             resolve_image_hosts=self.resolve_image_hosts,
         )
-        if operation in {"publish", "update"}:
+        if operation in {"publish", "update", "reply"}:
             note_path = _nonempty(note_path, "note_path")
         elif not isinstance(note_path, str):
             raise ValidationError("note_path must be a string")
         resolved = None
-        if operation in {"update", "delete"}:
+        if operation in {"update", "delete", "reply"}:
+            # reply: 같은 topic의 활성 root 글이 부모. 없으면 답글을 달 곳이 없다.
             resolved = self.ledger.find_active(topic, channel)
         binding = {
             "channel": channel,
@@ -1425,6 +1444,9 @@ class PublishingRuntime:
         if resolved:
             preview["current_url"] = resolved.get("url")
             preview["post_id"] = resolved.get("post_id")
+        if operation == "reply" and resolved:
+            preview["reply_to_id"] = resolved.get("post_id")
+            preview["parent_url"] = resolved.get("url")
         result = {
             "status": "planned" if receipt is not None else "preview",
             "channel": channel,
@@ -1547,7 +1569,7 @@ class PublishingRuntime:
             raise ReceiptError("receipt payload binding mismatch")
 
     def _verify_current_target(self, receipt: Dict[str, Any]) -> None:
-        if receipt.get("operation") not in {"update", "delete"}:
+        if receipt.get("operation") not in {"update", "delete", "reply"}:
             return
         approved = receipt.get("resolved")
         if not isinstance(approved, dict):
@@ -1749,7 +1771,7 @@ class PublishingRuntime:
         real_publish = operation == "publish" and not (
             channel == "maily" and webhook_payload.get("dry_run") is True
         )
-        external_operation = operation in {"publish", "update", "delete"}
+        external_operation = operation in {"publish", "update", "delete", "reply"}
 
         def require_reconciliation(
             error: str, *, url: Optional[str] = None, post_id: Optional[str] = None,
@@ -1828,6 +1850,11 @@ class PublishingRuntime:
         else:
             if operation in {"update", "delete"}:
                 webhook_payload["post_id"] = receipt["resolved"]["post_id"]
+            if operation == "reply":
+                # 부모는 프리뷰 때 장부에서 해석해 영수증에 묶인 값만 쓴다.
+                webhook_payload["reply_to_id"] = _nonempty(
+                    receipt["resolved"].get("post_id"), "approved reply parent post_id",
+                )
             if channel == "threads" and "spoilers" in webhook_payload:
                 webhook_payload["text_entities"] = _threads_spoiler_entities(
                     webhook_payload["content"], webhook_payload.pop("spoilers"),
@@ -1875,12 +1902,12 @@ class PublishingRuntime:
                 if isinstance(remote_error, str) and remote_error.strip()
                 else "publisher reported failure"
             )
-            if operation in {"publish", "update", "delete"}:
+            if operation in {"publish", "update", "delete", "reply"}:
                 external_url = None
                 external_post_id = None
                 external_job_id = _optional_job_id(response.get("job_id"))
                 has_external_identifiers = external_job_id is not None
-                if operation in {"publish", "update"}:
+                if operation in {"publish", "update", "reply"}:
                     try:
                         external_url = _validate_url(response.get("url"), "publisher url")
                         has_external_identifiers = True
