@@ -252,6 +252,8 @@ browser lookup.
 
 **계정(`account`)** — 노트 frontmatter `account: donggu|beyonddeploy`가 정본이다(`donggu`=개인 `@100x.donggu`, `beyonddeploy`=Beyond Deploy). 없거나 허용값 밖이면 `prepare_instagram.py`가 종료코드 2로 멈춘다 — 폴더나 vault 위치로 추정하지 않는다. `--account`는 교차 확인용이라 frontmatter와 다르면 종료코드 2다(frontmatter에 없을 때만 그 값을 쓰고 `account_from_cli_only` 경고를 남긴다 — 이때는 노트에 `account:`를 적어 두는 것이 원칙). 값은 payload에 실려 n8n `sns-pub-instagram`이 그 계정의 토큰을 고르고, 장부(`published_posts.account`)도 계정별로 기록·조회한다. native preview가 `preview.account`로 계정을 따로 보여주므로 **노트의 계정과 같은지 사용자에게 확인받은 뒤** 승인받는다.
 
+**Instagram 스토리 = `prepare_story.py` + `operation: story`.** 스토리는 피드 글과 다른 연산이다: 이미지 **1장(JPEG, 1080×1920)**, 캡션 없음, 24시간 뒤 소멸, 수정·삭제 API 없음, 그리고 **스티커(링크·멘션·게시물 공유)는 API로 못 붙인다**. 프레임은 `make-story-image`가 만든 출력 폴더(`NN.jpg` + `qa.json`)에서 온다: `python3 <skill>/prepare_story.py "<Instagram - 제목.md>" --frames <OUT_DIR> [--frame N] --dry-run` → 프레임마다 payload 하나(`{image_url, account}`, topic `"<제목> (스토리 N)"`), 플래그 없이 다시 돌린 출력을 그대로 native preview(`operation: story`)에 넣는다. 종료코드: 0 · 1=업로드 실패 · 2=QA 문제·프레임 수 불일치·account 없음·`channel` 불일치 · 3=`NN.jpg`가 JPEG 바이트가 아님. 승인 동사는 publish와 같다("올려줘"). 프리뷰에는 `account`, `image_url`, `media_type: STORIES`, `lifetime: 24h`가 보인다. **링크가 필요한 프레임(참가 신청 등)은 API로 올리지 않는다** — 호스트가 앱에서 링크 스티커를 붙여 올리도록 `NN.jpg`를 전달하고 그렇게 적는다. API 스토리는 링크 없이도 되는 프레임(리마인드·요약)에만 쓴다. 같은 노트의 피드 글이 `status: published`여도 스토리는 막지 않는다(2차 게시).
+
 ## Transport reference
 
 Diagnostic contract only. The runtime owns endpoints, headers, redirects, and ledger writes;
@@ -309,6 +311,7 @@ Delete flow: adapter preview resolves the latest active ledger row → show topi
 - About to send a Threads post text-only without explicit confirmation → STOP, confirm that no images are intended.
 - About to send an Instagram post without 1–10 finalized `image_urls` → STOP, obtain finalized images, then rebuild and re-preview.
 - `prepare_instagram.py`를 거치지 않은 `image_urls`로 인스타 프리뷰를 만들려 함 → STOP, 노트에서 `prepare_instagram.py`로 payload를 다시 만든다.
+- 링크 스티커가 필요한 스토리 프레임(신청·등록 CTA)을 `operation: story`로 올리려 함 → STOP, API 스토리에는 링크가 없다. `NN.jpg`를 호스트에게 넘겨 앱에서 스티커와 함께 올리게 한다.
 - instagram 프리뷰에 `account`가 없거나 노트 frontmatter `account`와 다른 계정 → STOP, 승인받지 않는다. 노트의 `account:`를 확인하고 `prepare_instagram.py`부터 다시 돌린다.
 - About to POST tistory/maily content that still contains `![[…]]` wikilinks → STOP, you skipped `prepare_blog_images.py`; the images will break in the published post.
 - Tistory preview has no exact tag list, fewer than 4 public tags, more than 7 without a stated reason, duplicate tags, or any namespaced tag containing `/` → STOP and rebuild the public tag set.
