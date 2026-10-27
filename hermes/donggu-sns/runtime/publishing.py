@@ -121,9 +121,11 @@ _CONTRACTS = {
     ("tistory", "publish"): ({"title", "content", "tags"}, {"category", "cover_image"}),
     ("tistory", "update"): ({"title", "content", "tags"}, {"category", "cover_image"}),
     ("maily", "publish"): ({"title", "content", "subtitle"}, {"tags", "dry_run"}),
-    ("threads", "publish"): ({"content"}, {"image_urls", "topic_tag", "spoilers"}),
+    ("threads", "publish"): ({"content"}, {"image_urls", "topic_tag", "spoilers", "reply"}),
     # reply: 같은 topic의 장부 활성 글(root)에 다는 답글. 부모 id는 장부에서만 해석하므로
     # payload에 reply_to_id를 받지 않는다. 본문 URL 허용(링크 답글이 용도).
+    # publish 안의 `reply` 객체는 같은 계약의 부분집합(content, image_urls)이며, 본문 발행
+    # 직후 그 post_id를 부모로 한 번 더 웹훅을 호출한다(승인 한 번).
     ("threads", "reply"): ({"content"}, {"image_urls"}),
     ("linkedin", "publish"): ({"content"}, set()),
     ("instagram", "publish"): ({"image_urls", "caption"}, set()),
@@ -700,6 +702,16 @@ def _validate_payload(
             if type(value) is not bool:
                 raise ValidationError("dry_run must be boolean")
             clean[field] = value
+        elif field == "reply":
+            # 본문과 함께 올릴 답글. threads publish에서만 허용되며 reply 계약으로 재검증한다.
+            if channel != "threads" or operation != "publish":
+                raise ValidationError("reply is only accepted with a threads publish")
+            if not isinstance(value, dict):
+                raise ValidationError("reply must be an object")
+            clean[field] = _validate_payload(
+                "threads", "reply", value,
+                allowed_image_hosts=allowed_image_hosts, resolve_image_hosts=resolve_image_hosts,
+            )
         else:  # exact-key validation above makes this defensive only
             raise ValidationError("unsupported payload field")
     if "spoilers" in clean:
@@ -1447,6 +1459,12 @@ class PublishingRuntime:
         if operation == "reply" and resolved:
             preview["reply_to_id"] = resolved.get("post_id")
             preview["parent_url"] = resolved.get("url")
+        if isinstance(clean.get("reply"), dict):
+            preview["reply"] = {
+                "content": clean["reply"]["content"],
+                "content_chars": len(clean["reply"]["content"]),
+                "image_count": len(clean["reply"].get("image_urls", [])),
+            }
         result = {
             "status": "planned" if receipt is not None else "preview",
             "channel": channel,
@@ -1768,6 +1786,8 @@ class PublishingRuntime:
         channel = receipt["channel"]
         operation = receipt["operation"]
         webhook_payload = dict(receipt["payload"])
+        # 본문과 함께 승인된 답글. 본문 웹훅에는 싣지 않고 장부 완료 뒤 따로 보낸다.
+        bundled_reply = webhook_payload.pop("reply", None)
         real_publish = operation == "publish" and not (
             channel == "maily" and webhook_payload.get("dry_run") is True
         )
@@ -2005,5 +2025,57 @@ class PublishingRuntime:
             result["error"] = "external mutation succeeded but ledger completion failed"
             self.store.transition(receipt, "reconciliation_required", result=result, payload=None)
             return result
+        if isinstance(bundled_reply, dict) and operation == "publish" and channel == "threads":
+            # 본문·장부가 끝난 뒤에만 답글. 답글 실패는 본문 완료를 뒤집지 않는다 — 결과에만
+            # 남기고 영수증은 completed로 닫는다(본문은 이미 공개·기록된 사실).
+            result["reply"] = self._dispatch_bundled_reply(
+                receipt_id=receipt_id,
+                parent_post_id=result.get("post_id"),
+                reply_payload=bundled_reply,
+            )
         self.store.transition(receipt, "completed", result=result, payload=None)
         return result
+
+    def _dispatch_bundled_reply(
+        self, *, receipt_id: str, parent_post_id: Any, reply_payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        try:
+            parent = _nonempty(parent_post_id, "published parent post_id")
+        except ValidationError as exc:
+            return {"status": "failed", "error": str(exc), "reply_to_id": None}
+        body = dict(reply_payload)
+        body["reply_to_id"] = parent
+        headers = {
+            "Content-Type": "application/json",
+            "X-SNS-Token": self.webhook_token,
+            "X-Idempotency-Key": receipt_id + ":reply",
+            "User-Agent": _PUBLISHER_USER_AGENT,
+        }
+        try:
+            response = _request_json(
+                "POST",
+                self.webhook_base_url + "/" + _ENDPOINTS[("threads", "reply")],
+                headers=headers, body=body, timeout=self.timeout, disable_proxy=False,
+            )
+        except TransportError as exc:
+            return {
+                "status": "reconciliation_required" if exc.uncertain else "failed",
+                "error": str(exc)[:1000], "reply_to_id": parent,
+            }
+        if not isinstance(response, dict) or response.get("success") is not True:
+            remote_error = response.get("error") if isinstance(response, dict) else None
+            return {
+                "status": "failed",
+                "error": (remote_error[:1000] if isinstance(remote_error, str) and remote_error.strip()
+                          else "publisher reported failure"),
+                "reply_to_id": parent,
+            }
+        out: Dict[str, Any] = {"status": "completed", "reply_to_id": parent,
+                               "url": response.get("url"), "post_id": response.get("post_id")}
+        try:
+            out["url"] = _validate_url(response.get("url"), "reply url")
+            out["post_id"] = _nonempty(response.get("post_id"), "reply post_id")
+        except ValidationError:
+            out["status"] = "reconciliation_required"
+            out["error"] = "reply was posted but identifiers are missing or invalid"
+        return out

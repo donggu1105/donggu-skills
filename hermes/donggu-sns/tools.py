@@ -161,8 +161,10 @@ PREVIEW_SCHEMA = {
                 "description": (
                     "Channel payload. Use `content_file` (absolute path) plus optional "
                     "`content_sha256` in place of `content` to load the body from disk. "
-                    "Threads also accepts `topic_tag` (one, 1-50 chars) and `spoilers` "
-                    "(verbatim body substrings to hide, max 10)."
+                    "Threads also accepts `topic_tag` (one, 1-50 chars), `spoilers` "
+                    "(verbatim body substrings to hide, max 10) and `reply` ({content}) "
+                    "— a link reply posted under the body right after the ledger row "
+                    "lands, under the same single approval."
                 ),
             },
             "topic": {"type": "string"},

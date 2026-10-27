@@ -30,6 +30,7 @@ def load_module():
 class FakeApiHandler(BaseHTTPRequestHandler):
     requests = []
     fail_ledger_insert = False
+    fail_reply_webhook = False
     empty_ledger_write = False
     redirect_webhook = False
     incomplete_webhook_response = False
@@ -114,6 +115,11 @@ class FakeApiHandler(BaseHTTPRequestHandler):
                 })
             elif type(self).incomplete_webhook_response:
                 self._send(200, {"success": True})
+            elif body.get("reply_to_id"):
+                if type(self).fail_reply_webhook:
+                    self._send(200, {"success": False, "url": None, "post_id": None, "error": "reply_rejected"})
+                else:
+                    self._send(200, {"success": True, "url": "https://threads.test/post/1-reply", "post_id": "thread-1-reply"})
             else:
                 self._send(200, {"success": True, "url": "https://threads.test/post/1", "post_id": "thread-1"})
             return
@@ -600,6 +606,84 @@ class PublishingRuntimeTests(unittest.TestCase):
         self.assertTrue(self.module._require_operation_approval("답글 올려줘", "reply"))
         with self.assertRaises(self.module.ApprovalError):
             self.module._require_operation_approval("답글 올려줘", "publish")
+
+    def test_threads_publish_with_reply_posts_both_under_one_approval(self):
+        # 본문 payload에 reply를 실으면 승인 한 번으로 본문 → 장부 → 답글 순서로 돈다.
+        # 답글의 부모는 방금 발행된 본문의 post_id이고, 장부 행은 본문 1건뿐이다.
+        plan = self.runtime.preview(
+            channel="threads", operation="publish",
+            payload={"content": "본문입니다. 링크는 답글에.", "topic_tag": "AI Threads",
+                     "reply": {"content": "https://fdethon.beyonddeploy.kr"}},
+            topic="demo-pair", note_path="40_Channel_Packs/Threads/Threads - demo-pair.md",
+            session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
+        )
+        self.assertEqual("planned", plan["status"])
+        self.assertEqual("https://fdethon.beyonddeploy.kr", plan["preview"]["reply"]["content"])
+        self.assertEqual(31, plan["preview"]["reply"]["content_chars"])
+        result = self.approve_and_dispatch(plan, text="스레드 발행해")
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("thread-1", result["post_id"])
+        self.assertEqual("https://threads.test/post/1-reply", result["reply"]["url"])
+        self.assertEqual("thread-1-reply", result["reply"]["post_id"])
+        calls = [r for r in FakeApiHandler.requests if r[1] == "/webhook/sns-pub-threads"]
+        self.assertEqual(2, len(calls))
+        first = calls[0][3] if isinstance(calls[0][3], dict) else json.loads(calls[0][3])
+        second = calls[1][3] if isinstance(calls[1][3], dict) else json.loads(calls[1][3])
+        self.assertNotIn("reply", first)
+        self.assertNotIn("reply_to_id", first)
+        self.assertEqual("thread-1", second["reply_to_id"])
+        self.assertEqual("https://fdethon.beyonddeploy.kr", second["content"])
+        self.assertNotIn("topic_tag", second)
+        inserts = [r for r in FakeApiHandler.requests if r[0] == "POST" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(1, len(inserts))
+        order = [r[1] for r in FakeApiHandler.requests if r[0] == "POST"]
+        # 장부 INSERT가 답글 웹훅보다 먼저여야 본문 발행 사실이 답글 실패와 무관하게 남는다.
+        self.assertLess(order.index("/rest/v1/published_posts"), len(order) - 1 - order[::-1].index("/webhook/sns-pub-threads"))
+
+    def test_threads_publish_with_reply_keeps_body_completed_when_reply_fails(self):
+        FakeApiHandler.fail_reply_webhook = True
+        try:
+            plan = self.runtime.preview(
+                channel="threads", operation="publish",
+                payload={"content": "본문", "reply": {"content": "https://fdethon.beyonddeploy.kr"}},
+                topic="demo-pair-fail", note_path="note.md",
+                session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
+            )
+            result = self.approve_and_dispatch(plan, text="스레드 발행해")
+        finally:
+            FakeApiHandler.fail_reply_webhook = False
+        # 본문은 올라갔고 장부도 됐다 — 영수증은 completed로 닫고, 답글 실패만 결과에 남긴다.
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("thread-1", result["post_id"])
+        self.assertEqual("failed", result["reply"]["status"])
+        self.assertIn("reply_rejected", result["reply"]["error"])
+        inserts = [r for r in FakeApiHandler.requests if r[0] == "POST" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(1, len(inserts))
+        self.assertEqual("completed", self.runtime.receipt_status(plan["receipt_id"])["state"])
+
+    def test_threads_publish_reply_payload_validation(self):
+        def preview(payload):
+            return self.runtime.preview(
+                channel="threads", operation="publish", payload=payload,
+                topic="bad", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
+            )
+        for bad in [
+            {"content": "x", "reply": "https://a.test"},                      # 객체여야
+            {"content": "x", "reply": {}},                                     # content 필수
+            {"content": "x", "reply": {"content": "#태그"}},                   # 해시태그 금지
+            {"content": "x", "reply": {"content": "y" * 501}},                # 500자
+            {"content": "x", "reply": {"content": "y", "reply_to_id": "1"}},  # 부모 지정 금지
+            {"content": "x", "reply": {"content": "y", "topic_tag": "AI"}},   # 답글엔 태그 없음
+        ]:
+            with self.subTest(payload=bad), self.assertRaises(self.module.ValidationError):
+                preview(bad)
+        # linkedin 등 다른 채널은 reply를 받지 않는다
+        with self.assertRaises(self.module.ValidationError):
+            self.runtime.preview(
+                channel="linkedin", operation="publish",
+                payload={"content": "x", "reply": {"content": "y"}},
+                topic="bad", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
+            )
 
     def test_threads_reply_allows_urls_but_keeps_length_and_hashtag_rules(self):
         FakeApiHandler.active_posts_enabled = True
