@@ -14,7 +14,7 @@ upsert 업로드 → 어댑터 프리뷰에 그대로 넣을 JSON을 stdout으�
 사용:
   python3 prepare_instagram.py "<Instagram - 제목.md>" [--account donggu|beyonddeploy] \
       [--slug SLUG] [--bucket sns-media] [--out <file>] [--dry-run] [--force-consent] [--force-republish]
-계정: 노트 frontmatter `account: donggu|beyonddeploy`가 정본. 폴더·vault 위치로 추정하지 않는다.
+계정: 노트 frontmatter `account: donggu|beyonddeploy`가 정본(볼트 관례 `beyond-deploy`도 받음). 폴더·vault 위치로 추정하지 않는다.
   --account는 교차 확인용 — frontmatter와 다르면 종료코드 2. frontmatter에 없으면 --account 값을
   쓰되 경고(account_from_cli_only)를 남긴다. 둘 다 없거나 허용값 밖이면 종료코드 2.
 키(.env 자동탐색, prepare_blog_images.load_env): SUPABASE_SERVICE_KEY, SUPABASE_URL
@@ -44,6 +44,8 @@ import prepare_blog_images as blog  # noqa: E402  vault·.env·매직바이트·
 CHANNEL = "instagram"
 # 발행 어댑터(hermes/donggu-sns runtime `_ACCOUNTS_BY_CHANNEL["instagram"]`)와 같은 집합이어야 한다.
 ACCOUNTS = ("donggu", "beyonddeploy")
+# 볼트 관례(Content/INDEX - Content.md): 채널 노트는 `account: beyond-deploy`. 발행 계정 키는 `beyonddeploy`.
+ACCOUNT_ALIASES = {"beyond-deploy": "beyonddeploy"}
 NOTE_PREFIX = "Instagram - "
 MAX_IMAGES = 10
 MAX_CAPTION_CHARS = 2200
@@ -203,7 +205,8 @@ def resolve_account(frontmatter, cli_account=None, warnings=None):
     """발행 계정. frontmatter `account:`가 정본이고 --account는 교차 확인용. 위반이면 PrepareError(2).
     폴더·vault 위치로 추정하지 않는다 — 기본값으로 엉뚱한 계정에 올라가는 것이 가장 위험하다."""
     allowed = "|".join(ACCOUNTS)
-    note_account = frontmatter.get("account", "")
+    note_account = ACCOUNT_ALIASES.get(frontmatter.get("account", ""), frontmatter.get("account", ""))
+    cli_account = ACCOUNT_ALIASES.get(cli_account, cli_account)
     if note_account and note_account not in ACCOUNTS:
         raise PrepareError(2, f"frontmatter account가 허용값 밖: {note_account!r} — {allowed}")
     if cli_account is not None and cli_account not in ACCOUNTS:

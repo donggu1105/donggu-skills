@@ -258,6 +258,12 @@ class GateTests(VaultCase):
         self.write_note(note_text(account="donggu"))
         self.assertEqual("donggu", self.dry_run_ok()["payload"]["account"])
 
+    def test_vault_convention_alias_beyond_dash_deploy_maps_to_publish_key(self):
+        # Content/INDEX - Content.md 관례: `account: beyond-deploy` → 발행 키 beyonddeploy
+        self.assertEqual("beyonddeploy", MOD.resolve_account({"account": "beyond-deploy"}))
+        self.assertEqual("beyonddeploy", MOD.resolve_account({"account": "beyond-deploy"}, cli_account="beyonddeploy"))
+        self.assertEqual("beyonddeploy", MOD.resolve_account({"account": "beyonddeploy"}, cli_account="beyond-deploy"))
+
     def test_missing_or_unknown_account_exits_2(self):
         # 폴더(Content/Instagram)나 vault 위치로 계정을 추정하지 않는다.
         self.write_kakao("published")
