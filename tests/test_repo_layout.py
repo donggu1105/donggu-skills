@@ -27,7 +27,7 @@ def frontmatter(path: Path) -> dict:
 class FlatLayoutTest(unittest.TestCase):
     def test_every_skill_is_a_folder_with_spec_frontmatter(self):
         dirs = sorted(p for p in SKILLS.iterdir() if p.is_dir() and not p.name.startswith((".", "_")))
-        self.assertEqual(12, len(dirs), [d.name for d in dirs])
+        self.assertEqual(13, len(dirs), [d.name for d in dirs])
         for d in dirs:
             with self.subTest(skill=d.name):
                 fm = frontmatter(d / "SKILL.md")

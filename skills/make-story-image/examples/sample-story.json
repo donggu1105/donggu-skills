@@ -1,0 +1,21 @@
+{
+  "theme": "beyond-deploy",
+  "handle": "beyonddeploy.kr",
+  "frames": [
+    {
+      "type": "hook",
+      "kicker": "케이스 토크 · 다음 회차",
+      "title": "현장의 사례를\n**같이 해석하는** 저녁",
+      "body": "각자 가져온 문제 하나, 두 시간.",
+      "image": { "src": "assets/room-presenter.jpg", "mode": "full", "focus": "50% 20%", "overlay": 0.82 }
+    },
+    {
+      "type": "cta",
+      "kicker": "신청 마감 전까지",
+      "title": "자리 **12석**",
+      "body": "현장 FDE · AX 실무자",
+      "sticker": "신청하기",
+      "image": { "src": "assets/room-presenter.jpg", "mode": "full", "focus": "50% 70%", "overlay": 0.86 }
+    }
+  ]
+}

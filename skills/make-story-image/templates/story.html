@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width={{W}}, height={{H}}">
+<style>
+  :root {
+    --bg: {{BG}}; --ink: {{INK}}; --muted: {{MUTED}}; --accent: {{ACCENT}}; --accent-soft: {{ACCENT_SOFT}};
+    --accent-on-dark: {{ACCENT_ON_DARK}};
+    --pad: 84px;
+    --safe-top: {{SAFE_TOP}}px;       /* Instagram story UI: profile row + progress bar */
+    --safe-bottom: {{SAFE_BOTTOM}}px; /* reply bar / "send message" */
+    --focus: {{FOCUS}}; --overlay: {{OVERLAY}}; --zoom: {{ZOOM}};
+    --band-h: {{BAND_H}}px;  /* mode top: height of the graphic band */
+    --kicker-size: 40px;
+    --title-size: 112px;  /* a story is read in ~2 s at arm's length — headline class only */
+    --body-size: 54px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: {{W}}px; height: {{H}}px; overflow: hidden; }
+  body { background: var(--bg); color: #fff; font-family: {{FONT_STACK}}; -webkit-font-smoothing: antialiased;
+         text-rendering: optimizeLegibility; word-break: keep-all; overflow-wrap: anywhere; line-break: strict; }
+  .frame { position: relative; width: {{W}}px; height: {{H}}px; overflow: hidden; }
+
+  .bg { position: absolute; inset: 0; z-index: 1; overflow: hidden; }
+  /* mode top: the graphic owns the upper band; the copy sits on the theme background below it */
+  .mode-top .bg { height: var(--band-h); }
+  .mode-top .bg::after { background: linear-gradient(to top, var(--bg) 0%, var(--bg) 10%, color-mix(in srgb, var(--bg) 85%, transparent) 24%,
+                           color-mix(in srgb, var(--bg) 45%, transparent) 40%, rgba(8,8,8,0.0) 58%); }
+  .mode-top .bg::before { opacity: 0.55; }
+  .bg img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: var(--focus);
+            transform: scale(var(--zoom)); transform-origin: var(--focus); }
+  /* dark scrim: lighter in the upper half so the graphic stays visible, solid under the copy */
+  .bg::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 520px; z-index: 1;
+    background: linear-gradient(to bottom, rgba(8,8,8,0.62) 0%, rgba(8,8,8,0.30) 55%, rgba(8,8,8,0) 100%); }
+  .bg::after { content: ""; position: absolute; inset: 0;
+    background: linear-gradient(to top, rgba(8,8,8,var(--overlay)) 0%, rgba(8,8,8,var(--overlay)) 26%,
+                rgba(8,8,8,calc(var(--overlay) * 0.96)) 40%, rgba(8,8,8,calc(var(--overlay) * 0.55)) 56%,
+                rgba(8,8,8,calc(var(--overlay) * 0.18)) 74%, rgba(8,8,8,0.08) 100%); }
+
+  /* copy sits in the lower-middle band, above the sticker slot and the reply bar */
+  .main { position: absolute; z-index: 2; left: var(--pad); right: var(--pad); bottom: calc(var(--safe-bottom) + 300px);
+          display: flex; flex-direction: column; justify-content: flex-end; }
+  .type-cta .main { bottom: calc(var(--safe-bottom) + 360px); }
+  .mode-top .main { top: calc(var(--band-h) - 60px); bottom: auto; justify-content: flex-start; }
+  .mode-top.type-cta .main { top: auto; bottom: calc(var(--safe-bottom) + 270px); justify-content: flex-end; }
+  .kicker { margin: 0 0 28px; font-size: var(--kicker-size); font-weight: 700; letter-spacing: 0.04em; color: var(--accent-on-dark); }
+  .title { margin: 0; font-size: var(--title-size); line-height: 1.12; font-weight: 800; letter-spacing: -0.02em; color: #fff; }
+  .title .em { color: var(--accent-on-dark); }
+  .body { margin: 36px 0 0; font-size: var(--body-size); line-height: 1.42; font-weight: 500; color: rgba(255,255,255,0.92); }
+
+  /* the sticker slot: an empty, outlined area — the host drops the native link sticker here in the app */
+  .sticker { position: absolute; z-index: 2; left: var(--pad); right: var(--pad); bottom: calc(var(--safe-bottom) + 60px);
+             height: 150px; border: 3px dashed rgba(255,255,255,0.38); border-radius: 36px;
+             display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  .sticker-label { font-size: 30px; font-weight: 500; color: rgba(255,255,255,0.5); letter-spacing: 0.04em; }
+  .sticker-hint { font-size: 26px; font-weight: 500; color: rgba(255,255,255,0.45); letter-spacing: 0.04em; }
+
+  .handle, .page { position: absolute; z-index: 2; top: calc(var(--safe-top) + 90px); font-size: 28px; font-weight: 700; letter-spacing: 0.06em;
+            color: rgba(255,255,255,0.86); background: rgba(8,8,8,0.55); padding: 10px 20px; border-radius: 999px; backdrop-filter: blur(6px); }
+  .handle { left: var(--pad); }
+  .page { right: var(--pad); font-weight: 500; color: rgba(255,255,255,0.7); }
+</style>
+</head>
+<body>
+<div class="frame type-{{TYPE}} mode-{{MODE}}">
+  <div class="bg"><img src="{{IMG_SRC}}" alt="{{IMG_ALT}}" data-qa-img="full"></div>
+  <div class="handle" data-qa="handle">{{HANDLE}}</div>
+  <div class="page" data-qa="page">{{PAGE}}</div>
+  <div class="main" data-qa="main">
+    <p class="kicker" data-qa="kicker">{{KICKER}}</p>
+    <h1 class="title" data-qa="title">{{TITLE}}</h1>
+    {{BODY_BLOCK}}
+  </div>
+  {{STICKER_BLOCK}}
+</div>
+<script>
+  // Layout QA probe (same contract as make-card-news): overflow, bounds, overlaps, image load.
+  function probe() {
+    const r = { font: document.fonts.check('700 40px "{{FONT_CHECK}}"'), items: [], overlaps: [], images: [] };
+    const boxes = [];
+    for (const el of document.querySelectorAll('[data-qa]')) {
+      const b = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      const clips = cs.overflow !== 'visible' || cs.overflowY !== 'visible';
+      const overflow = clips && (el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 2);
+      if (!el.textContent.trim() && el.dataset.qa !== 'main') continue;   // empty kicker/page: not a box
+      r.items.push({ id: el.dataset.qa, overflow, top: Math.round(b.top), bottom: Math.round(b.bottom),
+                     left: Math.round(b.left), right: Math.round(b.right) });
+      if (!el.closest('[data-qa] [data-qa]')) boxes.push({ id: el.dataset.qa, b });
+    }
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i].b, c = boxes[j].b;
+      const x = Math.min(a.right, c.right) - Math.max(a.left, c.left);
+      const y = Math.min(a.bottom, c.bottom) - Math.max(a.top, c.top);
+      if (x > 4 && y > 4) r.overlaps.push([boxes[i].id, boxes[j].id]);
+    }
+    for (const img of document.querySelectorAll('img[data-qa-img]')) {
+      r.images.push({ id: img.dataset.qaImg, loaded: img.complete && img.naturalWidth > 0, w: img.naturalWidth, h: img.naturalHeight });
+    }
+    document.body.setAttribute('data-qa-result', JSON.stringify(r));
+  }
+  const pending = Array.from(document.images).map(i => i.complete ? Promise.resolve() : new Promise(res => { i.onload = i.onerror = res; }));
+  Promise.all([document.fonts.ready, ...pending]).then(probe);
+</script>
+</body>
+</html>
