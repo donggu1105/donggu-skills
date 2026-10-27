@@ -78,4 +78,4 @@ ComfyUI는 **호스트 네이티브로 GPU**를 쓴다(맥 Docker는 GPU 패스�
 | 같은 이미지 재사용/장식용 남발 | 1장=1주제 |
 
 ## Related
-- 업로드·치환·발행: `donggu-sns:publish-sns`(prepare_blog_images, cover_image)
+- 업로드·치환·발행: `publish-sns`(prepare_blog_images, cover_image)

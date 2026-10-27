@@ -1,31 +1,17 @@
 #!/usr/bin/env python3
-import json
 from pathlib import Path
 import re
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "donggu-research"
+PLUGIN = ROOT
 SKILL = PLUGIN / "skills" / "industry-profit-growth-strategy-radar" / "SKILL.md"
 OLD_SKILL = PLUGIN / "skills" / "ai-consulting-practice-radar"
-PLUGIN_MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
-MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
 ROOT_README = ROOT / "README.md"
-PLUGIN_README = PLUGIN / "README.md"
 
 
 class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
-    def test_plugin_manifest_matches_marketplace_release(self):
-        plugin = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
-        marketplace = json.loads(MARKETPLACE.read_text(encoding="utf-8"))
-        entry = next(item for item in marketplace["plugins"] if item["name"] == "donggu-research")
-
-        self.assertEqual("donggu-research", plugin["name"])
-        self.assertEqual("1.3.0", plugin["version"])
-        self.assertEqual(plugin["version"], entry["version"])
-        self.assertEqual("./donggu-research", entry["source"])
-
     def test_skill_replaces_ai_consulting_practice_radar(self):
         self.assertFalse(OLD_SKILL.exists())
         text = SKILL.read_text(encoding="utf-8")
@@ -181,13 +167,8 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
 
     def test_docs_expose_only_the_new_research_skill(self):
         root = ROOT_README.read_text(encoding="utf-8")
-        plugin = PLUGIN_README.read_text(encoding="utf-8")
-        for text in (root, plugin):
-            self.assertIn("industry-profit-growth-strategy-radar", text)
-            self.assertIn("last30days", text)
-            self.assertNotIn("ai-consulting-practice-radar", text)
-        self.assertIn("plugins-6", root)
-        self.assertIn("skills-12", root)
+        self.assertIn("industry-profit-growth-strategy-radar", root)
+        self.assertNotIn("ai-consulting-practice-radar", root)
 
 
 if __name__ == "__main__":

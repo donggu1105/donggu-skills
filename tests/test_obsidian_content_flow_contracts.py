@@ -9,21 +9,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 SKILL_PATHS = {
-    "writing": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "SKILL.md",
-    "publishing": REPO_ROOT / "donggu-sns" / "skills" / "publish-sns" / "SKILL.md",
+    "writing": REPO_ROOT / "skills" / "writing-social-content" / "SKILL.md",
+    "publishing": REPO_ROOT / "skills" / "publish-sns" / "SKILL.md",
 }
 
 WRITING_REFERENCE_PATHS = {
-    "personas": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "personas.md",
-    "common": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "common-voice.md",
-    "blog": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "blog.md",
-    "linkedin": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "linkedin.md",
-    "threads": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "threads.md",
-    "maily": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "maily.md",
-    "examples_blog": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "examples-blog.md",
-    "examples_linkedin": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "examples-linkedin.md",
-    "examples_threads": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "examples-threads.md",
-    "examples_maily": REPO_ROOT / "donggu-sns" / "skills" / "writing-social-content" / "references" / "examples-maily.md",
+    "personas": REPO_ROOT / "skills" / "writing-social-content" / "references" / "personas.md",
+    "common": REPO_ROOT / "skills" / "writing-social-content" / "references" / "common-voice.md",
+    "blog": REPO_ROOT / "skills" / "writing-social-content" / "references" / "blog.md",
+    "linkedin": REPO_ROOT / "skills" / "writing-social-content" / "references" / "linkedin.md",
+    "threads": REPO_ROOT / "skills" / "writing-social-content" / "references" / "threads.md",
+    "maily": REPO_ROOT / "skills" / "writing-social-content" / "references" / "maily.md",
+    "examples_blog": REPO_ROOT / "skills" / "writing-social-content" / "references" / "examples-blog.md",
+    "examples_linkedin": REPO_ROOT / "skills" / "writing-social-content" / "references" / "examples-linkedin.md",
+    "examples_threads": REPO_ROOT / "skills" / "writing-social-content" / "references" / "examples-threads.md",
+    "examples_maily": REPO_ROOT / "skills" / "writing-social-content" / "references" / "examples-maily.md",
 }
 
 
@@ -180,7 +180,7 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
     def test_writing_persona_release_boundaries_are_explicit(self):
         writing = self.skills["writing"]
         personas = self.writing_references["personas"]
-        readme = (REPO_ROOT / "donggu-sns" / "README.md").read_text(encoding="utf-8")
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
         plan = (
             REPO_ROOT
             / "docs/superpowers/plans/2026-08-11-writing-social-content-persona-selection.md"
@@ -312,7 +312,7 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             "publishing": self.skills["publishing"],
             "linkedin": self.writing_references["linkedin"],
             "threads": self.writing_references["threads"],
-            "readme": (REPO_ROOT / "donggu-sns" / "README.md").read_text(encoding="utf-8"),
+            "readme": (REPO_ROOT / "README.md").read_text(encoding="utf-8"),
             "runtime_tests": (REPO_ROOT / "tests" / "test_publishing_runtime.py").read_text(
                 encoding="utf-8"
             ),
@@ -355,7 +355,7 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         self.assertIn("500자를 넘거나 해시태그·본문 URL", publishing)
 
     def test_writing_is_one_umbrella_skill_not_per_channel_copies(self):
-        skills_root = REPO_ROOT / "donggu-sns" / "skills"
+        skills_root = REPO_ROOT / "skills"
 
         self.assertTrue((skills_root / "writing-social-content" / "SKILL.md").is_file())
         for name in (
@@ -369,11 +369,10 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
 
     def test_writing_no_longer_owns_blog_image_paths_or_embedding(self):
         image_skill = (
-            REPO_ROOT / "donggu-sns" / "skills" / "get-ai-image" / "SKILL.md"
+            REPO_ROOT / "skills" / "get-ai-image" / "SKILL.md"
         ).read_text(encoding="utf-8")
         image_adapter = (
             REPO_ROOT
-            / "donggu-sns"
             / "skills"
             / "publish-sns"
             / "prepare_blog_images.py"
@@ -395,22 +394,6 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             publishing,
         )
 
-
-    def test_changed_plugin_versions_match_marketplace(self):
-        marketplace = json.loads(
-            (REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
-        )
-        marketplace_versions = {
-            plugin["name"]: plugin["version"] for plugin in marketplace["plugins"]
-        }
-        for plugin_name in ("donggu-sns",):
-            manifest = json.loads(
-                (REPO_ROOT / plugin_name / ".claude-plugin" / "plugin.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            with self.subTest(plugin=plugin_name):
-                self.assertEqual(manifest["version"], marketplace_versions[plugin_name])
 
 
 if __name__ == "__main__":

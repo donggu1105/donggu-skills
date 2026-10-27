@@ -51,7 +51,7 @@ OUT_DIR/
 
 ## Where things live (so the skill and the vault don't fight)
 
-- **How** (renderer, template, themes, this procedure, tests) → this skill in `donggu-skills`, mirrored to the live clone the profiles symlink. The vault's rule: process belongs to skills, the vault keeps sources, direction, editorial judgement and the manuscripts.
+- **How** (renderer, template, themes, this procedure, tests) → this skill in `donggu-skills`, installed once into `~/.agents/skills` and symlinked into every agent (`npx skills add donggu1105/donggu-skills -g`). The vault's rule: process belongs to skills, the vault keeps sources, direction, editorial judgement and the manuscripts.
 - **What / why** (the set itself) → the vault area that owns the channel: Beyond Deploy official content under `FDE 커뮤니티 (Beyond Deploy)/Content/<Channel>/` + `Attachments/`; the user's personal channels under `Personal Branding/40_Channel_Packs/<Channel>/` (pass `--area "Personal Branding"` only after checking `_GUIDES/RULES.md` — the handoff currently knows the BD layout). One manuscript per channel folder; another channel reusing the set links the first note instead of copying the copy.
 - `examples/sample-bd.json` is a renderer fixture, not the content's source of truth; the vault note + its `cards.json` copy are.
 

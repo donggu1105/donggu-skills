@@ -23,7 +23,7 @@ import zlib
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL_DIR = ROOT / "donggu-sns" / "skills" / "publish-sns"
+SKILL_DIR = ROOT / "skills" / "publish-sns"
 
 
 def _load(name):

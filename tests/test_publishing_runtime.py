@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "donggu-sns" / "runtime" / "publishing.py"
+MODULE_PATH = ROOT / "hermes" / "donggu-sns" / "runtime" / "publishing.py"
 
 
 def load_module():

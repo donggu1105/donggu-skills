@@ -1,4 +1,4 @@
-"""Contracts for donggu-sns:make-card-news.
+"""Contracts for skills/make-card-news.
 
 Pure checks always run. The render check needs a headless Chrome/Chromium and is
 skipped when none is installed (the renderer itself reports that case clearly).
@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / "donggu-sns"
+PACKAGE = ROOT
 SKILL = PACKAGE / "skills" / "make-card-news"
 RENDERER = SKILL / "scripts" / "render_cards.py"
 sys.path.insert(0, str(SKILL / "scripts"))
@@ -51,17 +51,14 @@ class PackagingTest(unittest.TestCase):
             with self.subTest(path=required.relative_to(ROOT)):
                 self.assertTrue(required.is_file())
 
-    def test_card_news_is_published_through_the_sns_plugin(self):
-        # donggu-docs was retired (2026-10-26); make-card-news now ships inside donggu-sns.
-        self.assertFalse((ROOT / "donggu-docs").exists())
-        marketplace = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
-        self.assertNotIn("donggu-docs", [item["name"] for item in marketplace["plugins"]])
-        readme = (PACKAGE / "README.md").read_text(encoding="utf-8")
-        self.assertIn("make-card-news", readme)
+    def test_card_news_lives_in_the_flat_skills_tree(self):
+        # 2026-10-27: plugin layer removed; every skill is skills/<name> (Agent Skills layout).
+        self.assertTrue((ROOT / "skills" / "make-card-news" / "SKILL.md").is_file())
+        for legacy in ("donggu-docs", "donggu-sns", ".claude-plugin"):
+            self.assertFalse((ROOT / legacy).exists(), legacy)
         root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("donggu-sns:make-card-news", root_readme)
+        self.assertIn("make-card-news", root_readme)
         self.assertNotIn("donggu-docs", root_readme)
-
 
 class SpecAndHtmlTest(unittest.TestCase):
     def setUp(self):
