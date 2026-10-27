@@ -191,6 +191,11 @@ class ParseNoteTests(unittest.TestCase):
         text = note_text().replace("## 캡션 초안 (인스타그램)", "## 캡션")
         self.assertEqual(CAPTION, MOD.parse_instagram_note(text).caption)
 
+    def test_vault_handoff_caption_heading_is_accepted(self):
+        # make-card-news/scripts/vault_handoff.py 가 쓰는 헤딩
+        text = note_text().replace("## 캡션 초안 (인스타그램)", "## 캡션 초안")
+        self.assertEqual(CAPTION, MOD.parse_instagram_note(text).caption)
+
     def test_no_consent_section_means_no_consent_gate(self):
         note = MOD.parse_instagram_note(note_text(consent=False))
         self.assertFalse(note.consent_required)

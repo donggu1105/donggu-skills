@@ -51,7 +51,8 @@ MAX_HASHTAGS = 30
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 CONSENT_PHRASE = "고지 후 게시 가능"
 CARDS_SECTION = "장별 카피"
-CAPTION_SECTIONS = ("캡션 초안 (인스타그램)", "캡션")
+# vault_handoff.py 는 "## 캡션 초안" 으로 쓴다. 세 표기 모두 받는다.
+CAPTION_SECTIONS = ("캡션 초안 (인스타그램)", "캡션 초안", "캡션")
 CONSENT_SECTION = "사진과 동의"
 
 SECTION_RE = re.compile(r"^## (.+?)\s*$", re.MULTILINE)
@@ -184,7 +185,7 @@ def validate_note(note, force_republish=False, warnings=None):
         _warn(warnings if warnings is not None else [], "forced_republish")
     caption = note.caption
     if not caption:
-        raise PrepareError(2, "캡션이 비어 있음 — `## 캡션` 또는 `## 캡션 초안 (인스타그램)` 섹션 확인")
+        raise PrepareError(2, "캡션이 비어 있음 — `## 캡션`, `## 캡션 초안`, `## 캡션 초안 (인스타그램)` 섹션 확인")
     if len(caption) > MAX_CAPTION_CHARS:
         raise PrepareError(2, f"캡션 {len(caption)}자 — 인스타그램 한도 {MAX_CAPTION_CHARS}자 초과")
     tags = count_hashtags(caption)
