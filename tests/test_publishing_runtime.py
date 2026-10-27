@@ -364,6 +364,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                     "## Two\nText\n![](https://img.test/two.png)"
                 ),
                 "tags": ["FDE", "고객인터뷰", "현장관찰", "업무분석"],
+                "category": "FDE/현장에서 배운것",
                 "cover_image": "https://img.test/hero.png",
             },
             topic="demo",
@@ -442,6 +443,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "title": "Title",
                 "content": content,
                 "tags": ["FDE", "고객인터뷰", "도메인지식"],
+                "category": "FDE/현장에서 배운것",
                 "cover_image": "https://img.test/hero.png",
             },
             topic="inline-images",
@@ -466,6 +468,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                     "title": "Title",
                     "content": "![](http://127.0.0.1/private.png)",
                     "tags": ["FDE", "고객인터뷰", "도메인지식"],
+                    "category": "FDE/현장에서 배운것",
                 },
                 topic="private-inline-image",
                 note_path="40_Channel_Packs/Blog/Blog - private-inline-image.md",
@@ -488,6 +491,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "title": "Title",
                 "content": content,
                 "tags": ["FDE", "고객인터뷰", "도메인지식"],
+                "category": "FDE/현장에서 배운것",
                 "cover_image": "https://img.test/hero.png",
             },
             topic="title-image",
@@ -528,6 +532,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                         "title": "Title",
                         "content": content,
                         "tags": ["FDE", "고객인터뷰", "도메인지식"],
+                        "category": "FDE/현장에서 배운것",
                         "cover_image": "https://img.test/hero.png",
                     },
                     topic="unsafe-image",
@@ -1553,6 +1558,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                         "## Two\n![](https://img.test/two.png)"
                     ),
                     "tags": ["FDE", "고객인터뷰", "업무분석"],
+                    "category": "FDE/현장에서 배운것",
                     "cover_image": "https://img.test/hero.png",
                 },
                 topic="demo",
@@ -1672,6 +1678,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                         "## Two\n![](https://img.test/two.png)"
                     ),
                     "tags": ["FDE", "고객인터뷰", "업무분석"],
+                    "category": "FDE/현장에서 배운것",
                     "cover_image": "https://img.test/hero.png",
                 },
                 topic="demo",
@@ -1712,6 +1719,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                         "## Two\n![](https://img.test/two.png)"
                     ),
                     "tags": ["FDE", "고객인터뷰", "업무분석"],
+                    "category": "FDE/현장에서 배운것",
                     "cover_image": "https://img.test/hero.png",
                 },
                 topic="demo",
@@ -1753,6 +1761,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                         "## Two\n![](https://img.test/two.png)"
                     ),
                     "tags": ["FDE", "고객인터뷰", "업무분석"],
+                    "category": "FDE/현장에서 배운것",
                     "cover_image": "https://img.test/hero.png",
                 },
                 topic="demo",
@@ -2015,11 +2024,32 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "title": "demo",
                 "content": "body",
                 "tags": [" #FDE ", "fde", "고객인터뷰", "도메인지식"],
+                "category": "FDE/현장에서 배운것",
             },
             allowed_image_hosts={"img.test"},
             resolve_image_hosts=False,
         )
         self.assertEqual(["FDE", "고객인터뷰", "도메인지식"], clean["tags"])
+
+    def test_tistory_publish_requires_explicit_category(self):
+        # 카테고리는 노트 frontmatter에서 와야 한다 — 비면 퍼블리셔 기본값("프로덕트 엔지니어")으로
+        # 조용히 떨어지므로 프리뷰 단계에서 거부한다. update도 같다(편집 발행 시 카테고리가 덮어써짐).
+        base = {"title": "demo", "content": "body", "tags": ["FDE", "고객인터뷰", "도메인지식"]}
+        for op in ("publish", "update"):
+            with self.subTest(op=op), self.assertRaises(self.module.ValidationError):
+                self.module._validate_payload(
+                    "tistory", op, dict(base), allowed_image_hosts={"img.test"}, resolve_image_hosts=False,
+                )
+            with self.subTest(op=op, blank=True), self.assertRaises(self.module.ValidationError):
+                self.module._validate_payload(
+                    "tistory", op, {**base, "category": "  "},
+                    allowed_image_hosts={"img.test"}, resolve_image_hosts=False,
+                )
+        clean = self.module._validate_payload(
+            "tistory", "publish", {**base, "category": " FDE 커뮤니티/운영 노트 "},
+            allowed_image_hosts={"img.test"}, resolve_image_hosts=False,
+        )
+        self.assertEqual("FDE 커뮤니티/운영 노트", clean["category"])
 
     def test_tistory_tag_limit_is_applied_after_deduplication(self):
         clean = self.module._validate_payload(
@@ -2033,6 +2063,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                     "고객인터뷰", "고객인터뷰", "#고객인터뷰", " 고객인터뷰 ",
                     "도메인지식", "도메인지식", "#도메인지식",
                 ],
+                "category": "FDE/현장에서 배운것",
             },
             allowed_image_hosts={"img.test"},
             resolve_image_hosts=False,
@@ -2095,6 +2126,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "title": "Demo",
                 "content": "Body",
                 "tags": ["FDE", "고객인터뷰", "업무분석"],
+                "category": "FDE/현장에서 배운것",
             },
             topic="direct-tistory",
             note_path="Blog/direct-tistory.md",
@@ -2141,6 +2173,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "title": "Updated",
                 "content": "Body",
                 "tags": ["FDE", "고객인터뷰", "업무분석"],
+                "category": "FDE/현장에서 배운것",
             },
             topic="demo",
             note_path="Blog/demo.md",
@@ -2251,6 +2284,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                     "title": "Updated",
                     "content": "Body",
                     "tags": ["FDE", "고객인터뷰", "업무분석"],
+                    "category": "FDE/현장에서 배운것",
                     "dry_run": True,
                 },
                 topic="demo",
@@ -2352,6 +2386,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "title": "Demo",
                 "content": "Body",
                 "tags": ["FDE", "고객인터뷰", "업무분석"],
+                "category": "FDE/현장에서 배운것",
             },
             topic="uncertain-local",
             note_path="Blog/uncertain-local.md",
@@ -2397,6 +2432,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "title": "Proxy-safe",
                 "content": "Body",
                 "tags": ["FDE", "고객인터뷰", "업무분석"],
+                "category": "FDE/현장에서 배운것",
             },
             topic="proxy-safe",
             note_path="Blog/proxy-safe.md",

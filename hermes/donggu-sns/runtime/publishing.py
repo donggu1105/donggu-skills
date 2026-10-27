@@ -119,8 +119,8 @@ _LOCAL_ENDPOINTS = {
 }
 
 _CONTRACTS = {
-    ("tistory", "publish"): ({"title", "content", "tags"}, {"category", "cover_image"}),
-    ("tistory", "update"): ({"title", "content", "tags"}, {"category", "cover_image"}),
+    ("tistory", "publish"): ({"title", "content", "tags", "category"}, {"cover_image"}),
+    ("tistory", "update"): ({"title", "content", "tags", "category"}, {"cover_image"}),
     ("maily", "publish"): ({"title", "content", "subtitle"}, {"tags", "dry_run"}),
     ("threads", "publish"): ({"content"}, {"image_urls", "topic_tag", "spoilers", "reply"}),
     # reply: 같은 topic의 장부 활성 글(root)에 다는 답글. 부모 id는 장부에서만 해석하므로
@@ -677,6 +677,12 @@ def _validate_payload(
     for field, value in payload.items():
         if field in {"title", "content", "subtitle", "caption", "category"}:
             text = _nonempty(value, field)
+            if field == "category":
+                # 티스토리 카테고리는 에디터 드롭다운 라벨과 글자 단위로 대조되므로
+                # 바깥 공백만 정리하고 경로 구분자·내부 공백은 그대로 둔다.
+                text = text.strip()
+                if not text or "/" in text and any(not seg.strip() for seg in text.split("/")):
+                    raise ValidationError("category must be a non-empty tistory category path")
             clean[field] = (
                 _validate_content_contract(channel, operation, text)
                 if field == "content"

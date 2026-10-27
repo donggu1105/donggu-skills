@@ -166,7 +166,7 @@ reconciliation이 아니다. 그런데도 reconciliation이 걸렸다면 발행�
 
 | Channel | Body source in note | Payload notes | Format canon |
 |---|---|---|---|
-| tistory | first line = title, markdown body as-is — **but run blog-image prep first** (see below) | `category`? (default 프로덕트 엔지니어), **required public `tags` 4–7** | vault `TEMPLATE - Blog 발행 틀` |
+| tistory | first line = title, markdown body as-is — **but run blog-image prep first** (see below) | **`category` required** = note frontmatter `category:` verbatim (e.g. `FDE/현장에서 배운것`, `FDE 커뮤니티/운영 노트`; allowed values live in vault `Personal Branding/_GUIDES/RULES.md`). If the note has no `category`, stop and ask which one — never fall back to the publisher default (`프로덕트 엔지니어`, retired 2026-10-28). The publisher matches the label character-for-character in the editor dropdown and fails with `category_injection_failed` / `published_category_mismatch` on any typo; the adapter trims outer whitespace only. **required public `tags` 4–7** | vault `TEMPLATE - Blog 발행 틀` |
 | maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is — **blog-image prep first if it has `![[embeds]]`** | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
 | threads | `## 발행` text until the next `##` = `content`; `![[image]]` embeds → `image_urls`; frontmatter `topic_tag` → `topic_tag`; frontmatter `spoilers` → `spoilers`; **노트에 `### 댓글·답글용 링크` 아래 답글 한 줄이 있으면 `reply: {content}`로 같이 싣는다(기본)** — 본문과 답글이 승인 한 번(`스레드 발행해`)으로 본문→장부→답글 순서로 나간다. 프리뷰 `preview.reply`(content·content_chars)를 본문과 함께 보여주고 승인받는다 | ≤500 chars, 0 hashtags, 0 body URLs; native preview rejects overlength, hashtags, and unambiguous URL strings. `topic_tag` 1개(1–50자, `.`·`&` 금지), `spoilers` = 본문에 그대로 있는 부분 문자열 1–10개. `reply`는 threads publish에서만 받고 reply 계약(≤500자·해시태그 0·URL 허용·`reply_to_id`/`topic_tag` 금지)으로 재검증된다. 결과 `result.reply.status`가 `failed`/`reconciliation_required`면 본문은 이미 올라간 것 — 영수증은 completed, 답글만 `operation: reply`로 다시 보낸다(아래 행) | **writing-social-content** |
 | threads **reply** (`operation: reply`) | 본문을 이미 따로 올렸거나 묶음 답글이 실패했을 때의 보정 경로. 노트 `### 댓글·답글용 링크` 아래 한 줄(또는 사용자가 준 답글 본문) = `content` | ≤500자, 해시태그 0 — **URL 허용**(링크 답글이 용도). 부모는 payload에 넣지 않는다: 어댑터가 같은 `topic`의 장부 활성 글(root)을 `reply_to_id`로 해석해 프리뷰에 `reply_to_id`·`parent_url`로 보여준다. root가 장부에 없으면 프리뷰가 거부된다. 승인 문구는 `답글 올려줘`처럼 **'답글/댓글' + 발행 동사** — `올려줘`만으로는 답글 영수증이 승인되지 않고, `답글 올려줘`는 본문 발행 영수증을 승인하지 못한다. 답글은 장부에 새 활성 행을 만들지 않는다(root가 유일한 활성 행으로 남아 update/delete가 root를 가리킨다) | 묶음(기본): 본문 preview(reply 포함)→승인 1회→execute. 분리: 본문 preview→승인→execute→장부 확인 → 답글 preview→승인→execute |
@@ -261,8 +261,8 @@ agents must never call mutation endpoints directly or print token values.
 
 | Local FastAPI (`http://127.0.0.1:8000`, `X-API-Token`) | Body | Response |
 |---|---|---|
-| `POST /publish-sync/tistory` | `{title, content, tags, category?, cover_image?, options?}` | `{success, url, post_id, error}` |
-| `POST /update-sync/tistory` | `{post_id, title, content, tags, category?, cover_image?}` | `{success, url, post_id, error}` |
+| `POST /publish-sync/tistory` | `{title, content, tags, category, cover_image?, options?}` | `{success, url, post_id, error}` |
+| `POST /update-sync/tistory` | `{post_id, title, content, tags, category, cover_image?}` | `{success, url, post_id, error}` |
 | `POST /unpublish-sync/tistory` | `{post_id}` | `{success, error}` |
 | `POST /publish-sync/maily` | `{title, content, subtitle?, tags?, options?}` | `{success, url, error}` |
 
@@ -274,6 +274,8 @@ agents must never call mutation endpoints directly or print token values.
 | `sns-del-threads` | `{post_id}` |
 
 Delete exists only for tistory·threads. Maily emails cannot be recalled; LinkedIn deletion is manual.
+
+**Tistory category moves (재분류) are not a publish/update.** Moving existing posts between categories goes through the 글관리 bulk-change layer, which keeps the post date and body untouched; `update` would re-submit the body and bump the edit timestamp. Script: `~/workspace/projects/n8n/api/scripts/tistory_bulk_category.py` run inside the publisher container (`docker cp` it to `/srv/scripts/`, then `docker exec n8n-local-publisher-simple-api-1 sh -c 'cd /srv && xvfb-run -a python scripts/tistory_bulk_category.py "<json>"'`) with `{"dry_run": true, "moves": [{"post_ids": [...], "parent": "FDE", "child": "현장에서 배운것"}]}` first, then `dry_run: false`. It only sees page 1 of 글관리 (latest 15 posts); older posts are reported as `missing`. Verify afterwards on the public post page (`.tit_category`/category link text), not the sidebar's first `/category/` link, which is the menu. If `_ensure_login` lands on a blank Kakao form, the persistent cookies expired — run `api/scripts/recapture_tistory.py` with `KAKAO_EMAIL`/`KAKAO_PASSWORD` from the n8n repo `.env` via `docker exec --env-file`, never paste the values into chat or code. Creating/renaming categories themselves is still manual in 티스토리 관리 → 카테고리 관리 (no automation).
 
 **tistory edit-in-place**: the adapter resolves `post_id` from the ledger and calls the local
 `/update-sync/tistory` endpoint — **same URL preserved**, no delete+repost. The known ledger post ID
