@@ -25,16 +25,16 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
             self.assertIn(cue, description)
         self.assertLessEqual(len(description), 1024)
 
-    def test_teaches_a_repeatable_four_week_strategy_curriculum(self):
+    def test_teaches_a_repeatable_four_day_strategy_curriculum(self):
         text = SKILL.read_text(encoding="utf-8")
-        for week in (
-            "1주차 — 산업 구조와 profit pool",
-            "2주차 — 기업 P&L과 driver tree",
-            "3주차 — 실제 성장전략과 결과",
-            "4주차 — 1페이지 전략 메모",
+        for day in (
+            "D1 — 산업 구조와 profit pool",
+            "D2 — 기업 P&L과 driver tree",
+            "D3 — 실제 성장전략과 결과",
+            "D4 — 1페이지 전략 메모",
         ):
-            with self.subTest(week=week):
-                self.assertIn(week, text)
+            with self.subTest(day=day):
+                self.assertIn(day, text)
 
         for concept in (
             "가치사슬",
@@ -90,6 +90,7 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
         text = SKILL.read_text(encoding="utf-8")
         self.assertIn("AX 공급업체 시장이 아니다", text)
         for industry in (
+            "에너지·자원",
             "제조",
             "금융",
             "유통·커머스",
@@ -102,13 +103,13 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
             with self.subTest(industry=industry):
                 self.assertIn(industry, text)
         self.assertIn("industry_index", text)
-        self.assertIn("제조 → 금융 → 유통·커머스 → 물류", text)
+        self.assertIn("에너지·자원 → 제조 → 금융 → 유통·커머스 → 물류", text)
 
     def test_output_is_beginner_friendly_and_business_model_first(self):
         text = SKILL.read_text(encoding="utf-8")
         for required in (
             "사업전략을 처음 체계적으로 배우는 AI/FDE 실무자",
-            "이번 주 산업 하나",
+            "오늘의 산업 하나",
             "기업 하나",
             "숫자는 최대 3개",
             "새 용어는 최대 3개",
@@ -122,12 +123,12 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
                 self.assertIn(required, text)
 
         for section in (
-            "이번 주 한 문장",
-            "이 산업은 원래 어떻게 돈을 버나",
-            "AI 때문에 무엇이 바뀌나",
-            "기업 하나로 보기",
-            "숫자 3개만 보기",
-            "용어 3개만 배우기",
+            "한 줄 요약",
+            "원래 어떻게 돈을 버나",
+            "AI로 무엇이 바뀌나",
+            "숫자 3개",
+            "확인된 것과 아직 모르는 것",
+            "용어 3개",
             "이익을 늘릴 선택지",
             "동구님이 답해볼 질문",
         ):
@@ -136,7 +137,7 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
 
     def test_default_industry_and_output_are_learning_oriented(self):
         text = SKILL.read_text(encoding="utf-8")
-        self.assertIn("제조업", text)
+        self.assertIn("최초 산업은 **에너지·자원**", text)
         self.assertIn("1페이지 전략 메모", text)
         self.assertIn("90일 검증", text)
 
@@ -151,19 +152,25 @@ class IndustryProfitGrowthStrategyRadarSkillTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, text)
 
-    def test_weekly_cron_rotates_learning_stage_and_dedupes(self):
+    def test_daily_cron_rotates_learning_stage_and_dedupes(self):
         text = SKILL.read_text(encoding="utf-8")
         for required in (
-            "0 8 * * 1",
+            "0 8 * * *",
             "📣-AX-산업변화",
             "fetch_messages(channel_id, limit=100)",
             "최근 120일",
-            "material learning delta",
             "[SILENT]",
-            "week_index",
+            "day_index",
+            "# AX로 바뀌는 산업 · <산업명> D<day_index>/4",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, text)
+
+    def test_ships_the_summary_card_renderer(self):
+        skill_dir = SKILL.parent
+        self.assertTrue((skill_dir / "scripts" / "render_card.py").is_file())
+        self.assertTrue((skill_dir / "templates" / "card-example.json").is_file())
+        self.assertIn("render_card.py", SKILL.read_text(encoding="utf-8"))
 
     def test_docs_expose_only_the_new_research_skill(self):
         root = ROOT_README.read_text(encoding="utf-8")
