@@ -126,6 +126,9 @@ class FakeApiHandler(BaseHTTPRequestHandler):
         if parsed.path == "/webhook/sns-pub-maily":
             self._send(200, {"success": True, "url": "https://maily.test/post/1", "post_id": None})
             return
+        if parsed.path == "/webhook/sns-pub-instagram":
+            self._send(200, {"success": True, "url": "https://www.instagram.com/p/ig-1/", "post_id": "ig-1"})
+            return
         if parsed.path == "/publish-sync/tistory":
             if type(self).publisher_uncertain_without_identifiers:
                 self._send(200, {
@@ -699,6 +702,122 @@ class PublishingRuntimeTests(unittest.TestCase):
                     channel="threads", operation="reply", payload={"content": bad},
                     topic="demo", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
                 )
+
+    def preview_instagram(self, payload, *, issue_receipt=True):
+        return self.runtime.preview(
+            channel="instagram", operation="publish", payload=payload,
+            topic="demo-ig", note_path="40_Channel_Packs/Instagram/Instagram - demo-ig.md",
+            session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN,
+            user_message_id=self.PREVIEW_MESSAGE_ID if issue_receipt else None,
+            issue_receipt=issue_receipt,
+        )
+
+    def test_instagram_preview_requires_account(self):
+        # 기본값이 없다: account가 빠지면 엉뚱한 계정에 올라가는 대신 프리뷰에서 거부한다.
+        with self.assertRaises(self.module.ValidationError):
+            self.preview_instagram(
+                {"image_urls": ["https://img.test/1.png"], "caption": "hello"},
+                issue_receipt=False,
+            )
+        self.assertEqual([], FakeApiHandler.requests)
+
+    def test_instagram_preview_rejects_unknown_account(self):
+        for bad in ["x", "", "Donggu", " donggu", ["donggu"], None, 1]:
+            with self.assertRaises(self.module.ValidationError, msg=repr(bad)) as ctx:
+                self.preview_instagram(
+                    {"image_urls": ["https://img.test/1.png"], "caption": "hello", "account": bad},
+                    issue_receipt=False,
+                )
+            self.assertIn("account must be one of", str(ctx.exception))
+            self.assertIn("donggu", str(ctx.exception))
+            self.assertIn("beyonddeploy", str(ctx.exception))
+
+    def test_instagram_preview_shows_account_and_binds_it_to_the_receipt(self):
+        plan = self.preview_instagram({
+            "image_urls": ["https://img.test/1.png", "https://img.test/2.png"],
+            "caption": "hello",
+            "account": "beyonddeploy",
+        })
+        self.assertEqual("planned", plan["status"])
+        self.assertEqual("beyonddeploy", plan["preview"]["account"])
+        self.assertEqual("beyonddeploy", plan["preview"]["payload"]["account"])
+        self.assertEqual(2, plan["preview"]["image_count"])
+        self.assertEqual("beyonddeploy", self.runtime.receipt_status(plan["receipt_id"])["account"])
+        self.assertEqual([], FakeApiHandler.requests)
+
+    def test_instagram_dispatch_sends_account_to_webhook_and_ledger(self):
+        plan = self.preview_instagram({
+            "image_urls": ["https://img.test/1.png"],
+            "caption": "hello",
+            "account": "beyonddeploy",
+        })
+        with mock.patch.object(
+            self.runtime.ledger, "record_publish", wraps=self.runtime.ledger.record_publish,
+        ) as record_publish:
+            result = self.approve_and_dispatch(plan, text="인스타그램 올려줘")
+        self.assertEqual("completed", result["status"])
+        webhook = [r for r in FakeApiHandler.requests if r[1] == "/webhook/sns-pub-instagram"]
+        self.assertEqual(1, len(webhook))
+        sent = webhook[0][3]
+        self.assertEqual("beyonddeploy", sent["account"])
+        self.assertEqual(["https://img.test/1.png"], sent["image_urls"])
+        # 재발행 preflight는 같은 계정의 활성 글만 본다.
+        lookups = [r for r in FakeApiHandler.requests if r[0] == "GET" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(1, len(lookups))
+        self.assertIn("account=eq.beyonddeploy", lookups[0][4])
+        record_publish.assert_called_once()
+        self.assertEqual("beyonddeploy", record_publish.call_args.kwargs["account"])
+        inserts = [r for r in FakeApiHandler.requests if r[0] == "POST" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(1, len(inserts))
+        self.assertEqual("beyonddeploy", inserts[0][3]["account"])
+        # payload가 지워진 뒤에도 영수증 상태에 계정이 남는다.
+        status = self.runtime.receipt_status(plan["receipt_id"])
+        self.assertEqual("completed", status["state"])
+        self.assertEqual("beyonddeploy", status["account"])
+
+    def test_ledger_lookup_and_delete_filter_by_account_when_given(self):
+        FakeApiHandler.active_posts_enabled = True
+        ledger = self.runtime.ledger
+        ledger.find_active("demo", "instagram", account="donggu")
+        ledger.mark_deleted(ledger_id=41, channel="instagram", post_id="existing-post", account="donggu")
+        get, patch = FakeApiHandler.requests
+        self.assertIn("account=eq.donggu", get[4])
+        self.assertEqual("PATCH", patch[0])
+        self.assertIn("account=eq.donggu", patch[4])
+        FakeApiHandler.requests = []
+        ledger.mark_deleted(ledger_id=41, channel="threads", post_id="existing-post")
+        self.assertNotIn("account", FakeApiHandler.requests[0][4])
+
+    def test_account_is_rejected_on_channels_without_accounts(self):
+        with self.assertRaises(self.module.ValidationError):
+            self.runtime.preview(
+                channel="threads", operation="publish",
+                payload={"content": "hello", "account": "donggu"},
+                topic="demo", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
+            )
+
+    def test_channels_without_accounts_send_unchanged_ledger_requests(self):
+        # account=None 경로는 예전 요청과 바이트 단위로 같아야 한다(다른 채널 회귀 0).
+        from urllib.parse import urlencode
+        plan = self.preview_threads()
+        result = self.approve_and_dispatch(plan)
+        self.assertEqual("completed", result["status"])
+        lookups = [r for r in FakeApiHandler.requests if r[0] == "GET" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(urlencode({
+            "select": "id,post_id,url,note_path",
+            "topic": "eq.demo",
+            "channel": "eq.threads",
+            "deleted_at": "is.null",
+            "order": "published_at.desc",
+            "limit": "2",
+        }), lookups[0][4])
+        inserts = [r for r in FakeApiHandler.requests if r[0] == "POST" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(
+            {"topic", "channel", "note_path", "post_id", "url"}, set(inserts[0][3]),
+        )
+        webhook = [r for r in FakeApiHandler.requests if r[1] == "/webhook/sns-pub-threads"]
+        self.assertNotIn("account", webhook[0][3])
+        self.assertNotIn("account", self.runtime.receipt_status(plan["receipt_id"]))
 
     def test_threads_topic_tag_and_spoiler_validation(self):
         def preview(payload):

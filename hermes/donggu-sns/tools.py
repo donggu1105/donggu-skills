@@ -164,7 +164,9 @@ PREVIEW_SCHEMA = {
                     "Threads also accepts `topic_tag` (one, 1-50 chars), `spoilers` "
                     "(verbatim body substrings to hide, max 10) and `reply` ({content}) "
                     "— a link reply posted under the body right after the ledger row "
-                    "lands, under the same single approval."
+                    "lands, under the same single approval. "
+                    "Instagram requires `account` (`donggu` or `beyonddeploy`) — "
+                    "the target account; there is no default."
                 ),
             },
             "topic": {"type": "string"},

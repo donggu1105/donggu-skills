@@ -128,9 +128,15 @@ _CONTRACTS = {
     # 직후 그 post_id를 부모로 한 번 더 웹훅을 호출한다(승인 한 번).
     ("threads", "reply"): ({"content"}, {"image_urls"}),
     ("linkedin", "publish"): ({"content"}, set()),
-    ("instagram", "publish"): ({"image_urls", "caption"}, set()),
+    # account: 어느 계정에 올릴지. 기본값 없음 — 빠지면 엉뚱한 계정에 올라가므로 거부한다.
+    ("instagram", "publish"): ({"image_urls", "caption", "account"}, set()),
     ("tistory", "delete"): (set(), set()),
     ("threads", "delete"): (set(), set()),
+}
+
+# 채널별 발행 계정 식별자. n8n이 이 값으로 토큰(app_tokens)을 고르고, 장부도 계정별로 나뉜다.
+_ACCOUNTS_BY_CHANNEL = {
+    "instagram": frozenset({"donggu", "beyonddeploy"}),
 }
 
 
@@ -638,6 +644,15 @@ def _resolve_payload_sources(payload: Any) -> Any:
     return resolved
 
 
+def _receipt_account(receipt: Dict[str, Any]) -> Optional[str]:
+    """장부 조회·기록에 쓸 계정. 서명된 payload의 값만 쓴다(계정이 없는 채널은 None)."""
+    payload = receipt.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    account = payload.get("account")
+    return account if isinstance(account, str) else None
+
+
 def _validate_payload(
     channel: str, operation: str, payload: Any, *,
     allowed_image_hosts: set[str], resolve_image_hosts: bool,
@@ -712,6 +727,11 @@ def _validate_payload(
                 "threads", "reply", value,
                 allowed_image_hosts=allowed_image_hosts, resolve_image_hosts=resolve_image_hosts,
             )
+        elif field == "account":
+            allowed = _ACCOUNTS_BY_CHANNEL.get(channel, frozenset())
+            if not isinstance(value, str) or value not in allowed:
+                raise ValidationError("account must be one of: " + ", ".join(sorted(allowed)))
+            clean[field] = value
         else:  # exact-key validation above makes this defensive only
             raise ValidationError("unsupported payload field")
     if "spoilers" in clean:
@@ -797,15 +817,21 @@ class SupabaseLedger:
             headers["Prefer"] = prefer
         return headers
 
-    def find_active_optional(self, topic: str, channel: str) -> Optional[Dict[str, Any]]:
-        query = urlencode({
+    def find_active_optional(
+        self, topic: str, channel: str, *, account: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        params = {
             "select": "id,post_id,url,note_path",
             "topic": "eq." + topic,
             "channel": "eq." + channel,
             "deleted_at": "is.null",
             "order": "published_at.desc",
             "limit": "2",
-        })
+        }
+        # account가 없는 채널은 예전과 바이트 단위로 같은 요청을 보낸다.
+        if account is not None:
+            params["account"] = "eq." + account
+        query = urlencode(params)
         rows = _request_json("GET", self.endpoint + "?" + query, headers=self._headers(), timeout=self.timeout)
         if not isinstance(rows, list):
             raise ValidationError("invalid active ledger response")
@@ -822,8 +848,10 @@ class SupabaseLedger:
             "url": rows[0].get("url"), "note_path": rows[0].get("note_path"),
         }
 
-    def find_active(self, topic: str, channel: str) -> Dict[str, Any]:
-        row = self.find_active_optional(topic, channel)
+    def find_active(
+        self, topic: str, channel: str, *, account: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        row = self.find_active_optional(topic, channel, account=account)
         if row is None:
             raise ValidationError("no active ledger post found")
         if not isinstance(row.get("post_id"), str) or not row["post_id"]:
@@ -831,7 +859,10 @@ class SupabaseLedger:
         row["url"] = _validate_url(row.get("url"), "active ledger row url")
         return row
 
-    def record_publish(self, *, topic: str, channel: str, note_path: str, post_id: Any, url: Any) -> None:
+    def record_publish(
+        self, *, topic: str, channel: str, note_path: str, post_id: Any, url: Any,
+        account: Optional[str] = None,
+    ) -> None:
         body = {
             "topic": topic,
             "channel": channel,
@@ -839,6 +870,8 @@ class SupabaseLedger:
             "post_id": post_id if isinstance(post_id, str) and post_id else None,
             "url": url if isinstance(url, str) and url else None,
         }
+        if account is not None:
+            body["account"] = account
         rows = _request_json(
             "POST",
             self.endpoint,
@@ -849,17 +882,23 @@ class SupabaseLedger:
         if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
             raise ValidationError("ledger insert did not return exactly one row")
         row = rows[0]
-        for field in ("topic", "channel", "note_path", "post_id", "url"):
+        for field in body:
             if row.get(field) != body[field]:
                 raise ValidationError("ledger insert representation mismatch")
 
-    def mark_deleted(self, *, ledger_id: Any, channel: str, post_id: str) -> None:
-        query = urlencode({
+    def mark_deleted(
+        self, *, ledger_id: Any, channel: str, post_id: str,
+        account: Optional[str] = None,
+    ) -> None:
+        params = {
             "id": "eq." + str(ledger_id),
             "channel": "eq." + channel,
             "post_id": "eq." + post_id,
             "deleted_at": "is.null",
-        })
+        }
+        if account is not None:
+            params["account"] = "eq." + account
+        query = urlencode(params)
         body = {"deleted_at": datetime.now(timezone.utc).isoformat()}
         rows = _request_json(
             "PATCH",
@@ -874,6 +913,7 @@ class SupabaseLedger:
         if (
             str(row.get("id")) != str(ledger_id)
             or row.get("channel") not in {None, channel}
+            or (account is not None and row.get("account") not in {None, account})
             or row.get("post_id") != post_id
             or row.get("deleted_at") != body["deleted_at"]
         ):
@@ -1225,6 +1265,7 @@ class ReceiptStore:
                 "operation": str(receipt.get("operation") or ""),
                 "topic": str(receipt.get("topic") or ""),
                 "note_path": str(receipt.get("note_path") or ""),
+                **({"account": receipt["account"]} if receipt.get("account") else {}),
                 "url": result.get("url"),
                 "post_id": result.get("post_id"),
                 "job_id": result.get("job_id"),
@@ -1313,6 +1354,9 @@ class ReceiptStore:
             "expires_at": receipt.get("expires_at"),
             "result": receipt.get("result"),
         }
+        # 계정이 있는 채널(instagram)은 payload가 지워진 뒤에도 어느 계정 건인지 보여준다.
+        if receipt.get("account"):
+            status["account"] = receipt.get("account")
         # 해소된 영수증은 무엇을 근거로 종결했는지 함께 보여준다. 이 기록이
         # 없으면 나중에 "왜 풀렸는지" 확인할 방법이 파일을 직접 여는 것뿐이다.
         if receipt.get("resolution"):
@@ -1409,10 +1453,11 @@ class PublishingRuntime:
             note_path = _nonempty(note_path, "note_path")
         elif not isinstance(note_path, str):
             raise ValidationError("note_path must be a string")
+        account = clean.get("account")
         resolved = None
         if operation in {"update", "delete", "reply"}:
             # reply: 같은 topic의 활성 root 글이 부모. 없으면 답글을 달 곳이 없다.
-            resolved = self.ledger.find_active(topic, channel)
+            resolved = self.ledger.find_active(topic, channel, account=account)
         binding = {
             "channel": channel,
             "operation": operation,
@@ -1435,8 +1480,14 @@ class PublishingRuntime:
                     "session_sha256": hashlib.sha256(session_id.encode("utf-8")).hexdigest(),
                     "preview_turn_sha256": hashlib.sha256(turn_id.encode("utf-8")).hexdigest(),
                     "preview_message_id": preview_message_id,
+                    # 서명 범위 안의 표시용 사본. dispatch 뒤 payload가 지워져도
+                    # status·재조정 목록에서 어느 계정 건인지 보인다.
+                    **({"account": account} if account is not None else {}),
                 })
         preview: Dict[str, Any] = {"payload": clean}
+        if account is not None:
+            # 승인 전에 사람이 계정을 눈으로 확인하는 자리.
+            preview["account"] = account
         if "content" in clean:
             preview["content_chars"] = len(clean["content"])
         if "topic_tag" in clean:
@@ -1595,6 +1646,7 @@ class PublishingRuntime:
         current = self.ledger.find_active(
             str(receipt.get("topic") or ""),
             str(receipt.get("channel") or ""),
+            account=_receipt_account(receipt),
         )
         if not secrets.compare_digest(_sha256(approved), _sha256(current)):
             raise ReceiptError("approved target changed before dispatch")
@@ -1785,6 +1837,7 @@ class PublishingRuntime:
             return result
         channel = receipt["channel"]
         operation = receipt["operation"]
+        account = _receipt_account(receipt)
         webhook_payload = dict(receipt["payload"])
         # 본문과 함께 승인된 답글. 본문 웹훅에는 싣지 않고 장부 완료 뒤 따로 보낸다.
         bundled_reply = webhook_payload.pop("reply", None)
@@ -1823,7 +1876,9 @@ class PublishingRuntime:
             return result
         if real_publish:
             try:
-                existing = self.ledger.find_active_optional(receipt["topic"], channel)
+                existing = self.ledger.find_active_optional(
+                    receipt["topic"], channel, account=account,
+                )
             except PublishingError:
                 result = {
                     "status": "failed",
@@ -2013,12 +2068,14 @@ class PublishingRuntime:
                     note_path=receipt["note_path"],
                     post_id=result.get("post_id"),
                     url=result.get("url"),
+                    account=account,
                 )
             elif operation == "delete":
                 self.ledger.mark_deleted(
                     ledger_id=receipt["resolved"]["id"],
                     channel=channel,
                     post_id=receipt["resolved"]["post_id"],
+                    account=account,
                 )
         except PublishingError:
             result["status"] = "reconciliation_required"
