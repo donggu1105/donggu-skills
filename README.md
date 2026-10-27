@@ -4,8 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin%20Marketplace-8B5CF6)](https://claude.com/claude-code)
-[![Plugins](https://img.shields.io/badge/plugins-5-blue)](#-plugins)
-[![Skills](https://img.shields.io/badge/skills-11-green)](#-plugins)
+[![Plugins](https://img.shields.io/badge/plugins-6-blue)](#-plugins)
+[![Skills](https://img.shields.io/badge/skills-12-green)](#-plugins)
 
 Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되어 `donggu-<domain>:<skill>` 형식으로 호출.
 
@@ -44,6 +44,20 @@ Domain-organized monorepo. 각 도메인이 별도 plugin namespace로 등록되
 - "이 글 링크드인용으로 바꿔줘"
 - "이 글 카드뉴스로 만들어줘" / "링크드인 캐러셀로 뽑아줘"
 - "쓰레드에 올려줘" (승인 뒤 발행)
+
+---
+
+### 🎤 `donggu-ppt` — Presentation decks
+
+발표 자료·덱·장표·PPT·슬라이드 요청을 단일 HTML 파일 하나로. 스타일 계약(큰 타이포·모션 문법·색 역할 토큰)과 부품 전시장 14종이 고정 출력이라 어떤 레퍼런스를 가져와도 '내 덱' 스타일로 나온다. 자세한 절차는 [`donggu-ppt/README.md`](donggu-ppt/README.md).
+
+| Skill | 호출 | 용도 | Time budget |
+|---|---|---|---|
+| `donggu-deck` | `donggu-ppt:donggu-deck` | 내러티브 합의 → 템플릿 복사 → 부품으로 장 조립 → 라운드마다 같은 파일 갱신 (`index.html` + `assets/`) | 30-90분 |
+
+**자연어 트리거 예시**:
+- "발표 덱 만들어줘" / "동구 스타일 덱으로"
+- "이 자료 장표로 정리해줘"
 
 ---
 
@@ -144,6 +158,9 @@ donggu-skills/                       ← marketplace repo
 │   │       ├── references/               ← card-spec, platform-specs, tool-landscape
 │   │       └── examples/sample-bd.json (cinematic) · sample-bd-classic.json
 │   └── README.md
+├── donggu-ppt/                      ← plugin (namespace: donggu-ppt:)
+│   ├── .claude-plugin/plugin.json
+│   └── skills/donggu-deck/          ← SKILL.md, template.html, components.html, references/tokens.md, assets/
 ├── donggu-research/                 ← plugin (namespace: donggu-research:)
 │   ├── .claude-plugin/plugin.json
 │   ├── skills/industry-profit-growth-strategy-radar/SKILL.md
@@ -181,6 +198,7 @@ donggu-skills/                       ← marketplace repo
 |---|---|---|---|
 | **donggu-sns** | ✅ `v2.14.0` | 7 | SNS & YouTube editorial ops (text, AI image, card-news / carousel sets, YouTube pack, gated publishing, CORE loop) |
 | **donggu-research** | ✅ `v1.3.0` | 1 | Beginner-friendly AX industry change and profit learning |
+| **donggu-ppt** | ✅ `v1.0.0` | 1 | Presentation decks — single-file HTML on donggu's style contract (donggu-deck) |
 | 🔲 donggu-marketing | planned | — | 콘텐츠 전략·카피·소셜 콘텐츠 |
 | 🔲 donggu-dev | planned | — | 코드 리뷰·아키텍처 패턴·디버깅 의례 |
 | 🔲 donggu-ax | planned | — | AI 도입·AX 컨설팅·임원 자료 |
