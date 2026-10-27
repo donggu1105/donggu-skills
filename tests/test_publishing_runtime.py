@@ -953,6 +953,96 @@ class PublishingRuntimeTests(unittest.TestCase):
         self.assertNotIn("account", webhook[0][3])
         self.assertNotIn("account", self.runtime.receipt_status(plan["receipt_id"]))
 
+    MAILY_PAYLOAD = {"title": "Title", "subtitle": "Subtitle", "content": "Body", "dry_run": True}
+
+    def preview_maily(self, payload, *, runtime=None, issue_receipt=True, topic="demo-mail"):
+        return (runtime or self.runtime).preview(
+            channel="maily", operation="publish", payload=payload,
+            topic=topic, note_path="40_Channel_Packs/Maily/Maily - demo-mail.md",
+            session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN,
+            user_message_id=self.PREVIEW_MESSAGE_ID if issue_receipt else None,
+            issue_receipt=issue_receipt,
+        )
+
+    def test_maily_preview_requires_account(self):
+        # 이메일은 회수가 안 된다: account 기본값 없음 — 빠지면 프리뷰에서 거부한다.
+        with self.assertRaises(self.module.ValidationError) as ctx:
+            self.preview_maily(dict(self.MAILY_PAYLOAD), issue_receipt=False)
+        self.assertIn("account", str(ctx.exception))
+        self.assertEqual([], FakeApiHandler.requests)
+
+    def test_maily_preview_rejects_unknown_account(self):
+        for bad in ["nope", "", "Donggu", "beyond-deploy", ["donggu"], None, 1]:
+            with self.assertRaises(self.module.ValidationError, msg=repr(bad)) as ctx:
+                self.preview_maily({**self.MAILY_PAYLOAD, "account": bad}, issue_receipt=False)
+            self.assertIn("account must be one of: beyonddeploy, donggu", str(ctx.exception))
+        self.assertEqual([], FakeApiHandler.requests)
+
+    def test_maily_preview_shows_account_and_binds_it_to_the_receipt(self):
+        plan = self.preview_maily({**self.MAILY_PAYLOAD, "account": "beyonddeploy"})
+        self.assertEqual("planned", plan["status"])
+        self.assertEqual("beyonddeploy", plan["preview"]["account"])
+        self.assertEqual("beyonddeploy", plan["preview"]["payload"]["account"])
+        self.assertEqual("beyonddeploy", self.runtime.receipt_status(plan["receipt_id"])["account"])
+        self.assertEqual([], FakeApiHandler.requests)
+
+    def test_maily_dispatch_sends_account_to_local_publisher_with_options(self):
+        runtime = self.direct_runtime()
+        plan = self.preview_maily(
+            {**self.MAILY_PAYLOAD, "account": "beyonddeploy"}, runtime=runtime, topic="direct-mail-bd",
+        )
+        runtime.approve(
+            plan["receipt_id"], approval_text="발행해줘",
+            session_id=self.SESSION_ID, turn_id=self.APPROVAL_TURN, user_message_id=self.APPROVAL_MESSAGE_ID,
+        )
+        result = runtime.dispatch(plan["receipt_id"], session_id=self.SESSION_ID)
+        self.assertEqual("completed_draft", result["status"])
+        requests = [item for item in FakeApiHandler.requests if item[1] == "/publish-sync/maily"]
+        self.assertEqual(1, len(requests))
+        sent = requests[0][3]
+        self.assertEqual("beyonddeploy", sent["account"])
+        self.assertEqual({"dry_run": True}, sent["options"])
+        self.assertNotIn("dry_run", sent)
+        self.assertEqual(
+            {"title": "Title", "subtitle": "Subtitle", "content": "Body", "account": "beyonddeploy", "options": {"dry_run": True}},
+            sent,
+        )
+        status = runtime.receipt_status(plan["receipt_id"])
+        self.assertEqual("completed_draft", status["state"])
+        self.assertEqual("beyonddeploy", status["account"])
+
+    def test_maily_real_send_ledger_is_scoped_by_account(self):
+        # 같은 topic이라도 계정이 다르면 활성 행 충돌로 보지 않는다: preflight 조회·장부 INSERT 모두 계정별.
+        FakeApiHandler.active_posts_enabled = True
+        ledger = self.runtime.ledger
+        for account in ("donggu", "beyonddeploy"):
+            FakeApiHandler.requests = []
+            ledger.find_active("demo-mail", "maily", account=account)
+            get = FakeApiHandler.requests[0]
+            self.assertEqual("GET", get[0])
+            self.assertIn("channel=eq.maily", get[4])
+            self.assertIn("account=eq." + account, get[4])
+        FakeApiHandler.active_posts_enabled = False
+        FakeApiHandler.requests = []
+        plan = self.preview_maily({**self.MAILY_PAYLOAD, "dry_run": False, "account": "beyonddeploy"})
+        self.runtime.approve(
+            plan["receipt_id"], approval_text="발행해줘",
+            session_id=self.SESSION_ID, turn_id=self.APPROVAL_TURN, user_message_id=self.APPROVAL_MESSAGE_ID,
+        )
+        self.runtime.confirm_irreversible(
+            plan["receipt_id"], confirmation_text="메일 최종 발송 확인",
+            session_id=self.SESSION_ID, turn_id=self.CONFIRM_TURN, user_message_id=self.CONFIRM_MESSAGE_ID,
+        )
+        result = self.runtime.dispatch(plan["receipt_id"], session_id=self.SESSION_ID)
+        self.assertEqual("completed", result["status"])
+        lookups = [r for r in FakeApiHandler.requests if r[0] == "GET" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(1, len(lookups))
+        self.assertIn("account=eq.beyonddeploy", lookups[0][4])
+        inserts = [r for r in FakeApiHandler.requests if r[0] == "POST" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(1, len(inserts))
+        self.assertEqual("beyonddeploy", inserts[0][3]["account"])
+        self.assertEqual("maily", inserts[0][3]["channel"])
+
     def test_threads_topic_tag_and_spoiler_validation(self):
         def preview(payload):
             return self.runtime.preview(
@@ -1312,7 +1402,7 @@ class PublishingRuntimeTests(unittest.TestCase):
         for index in (1, 2):
             plan = self.runtime.preview(
                 channel="maily", operation="publish",
-                payload={"title": f"Title {index}", "subtitle": "Subtitle", "content": "Body", "dry_run": False},
+                payload={"title": f"Title {index}", "subtitle": "Subtitle", "content": "Body", "dry_run": False, "account": "donggu"},
                 topic=f"mail-{index}", note_path=f"40_Channel_Packs/Maily/Maily - mail-{index}.md",
                 session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN,
                 user_message_id=self.PREVIEW_MESSAGE_ID,
@@ -1337,7 +1427,7 @@ class PublishingRuntimeTests(unittest.TestCase):
     def test_maily_real_send_requires_separate_irreversible_confirmation(self):
         plan = self.runtime.preview(
             channel="maily", operation="publish",
-            payload={"title": "Title", "subtitle": "Subtitle", "content": "Body", "dry_run": False},
+            payload={"title": "Title", "subtitle": "Subtitle", "content": "Body", "dry_run": False, "account": "donggu"},
             topic="mail", note_path="40_Channel_Packs/Maily/Maily - mail.md",
             session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
         )
@@ -1378,7 +1468,7 @@ class PublishingRuntimeTests(unittest.TestCase):
     def test_maily_dry_run_does_not_write_published_ledger(self):
         plan = self.runtime.preview(
             channel="maily", operation="publish",
-            payload={"title": "Title", "subtitle": "Subtitle", "content": "Body", "dry_run": True},
+            payload={"title": "Title", "subtitle": "Subtitle", "content": "Body", "dry_run": True, "account": "donggu"},
             topic="mail-draft", note_path="40_Channel_Packs/Maily/Maily - mail.md",
             session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN, user_message_id=self.PREVIEW_MESSAGE_ID,
         )
@@ -2081,6 +2171,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "content": "body",
                 "tags": tags,
                 "dry_run": True,
+                "account": "donggu",
             },
             allowed_image_hosts={"img.test"},
             resolve_image_hosts=False,
@@ -2207,6 +2298,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "subtitle": "Subtitle",
                 "content": "Body",
                 "dry_run": False,
+                "account": "donggu",
             },
             topic="direct-mail",
             note_path="Maily/direct-mail.md",
@@ -2286,6 +2378,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                     "tags": ["FDE", "고객인터뷰", "업무분석"],
                     "category": "FDE/현장에서 배운것",
                     "dry_run": True,
+                    "account": "donggu",
                 },
                 topic="demo",
                 note_path="Blog/demo.md",
@@ -2350,6 +2443,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "subtitle": "Subtitle",
                 "content": "Body",
                 "dry_run": True,
+                "account": "donggu",
             },
             topic="direct-draft",
             note_path="Maily/direct-draft.md",
@@ -2471,6 +2565,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "subtitle": "Subtitle",
                 "content": "Body",
                 "dry_run": True,
+                "account": "donggu",
             },
             topic="uncertain-draft",
             note_path="Maily/uncertain-draft.md",
@@ -2510,6 +2605,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "subtitle": "Subtitle",
                 "content": "Body",
                 "dry_run": True,
+                "account": "donggu",
             },
             topic="truncated-draft",
             note_path="Maily/truncated-draft.md",
@@ -2549,6 +2645,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "subtitle": "Subtitle",
                 "content": "Body",
                 "dry_run": True,
+                "account": "donggu",
             },
             topic="invalid-json-draft",
             note_path="Maily/invalid-json-draft.md",
@@ -2588,6 +2685,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                 "subtitle": "Subtitle",
                 "content": "Body",
                 "dry_run": True,
+                "account": "donggu",
             },
             topic=topic,
             note_path=f"Maily/{topic}.md",

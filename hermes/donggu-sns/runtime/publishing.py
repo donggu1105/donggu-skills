@@ -121,7 +121,8 @@ _LOCAL_ENDPOINTS = {
 _CONTRACTS = {
     ("tistory", "publish"): ({"title", "content", "tags", "category"}, {"cover_image"}),
     ("tistory", "update"): ({"title", "content", "tags", "category"}, {"cover_image"}),
-    ("maily", "publish"): ({"title", "content", "subtitle"}, {"tags", "dry_run"}),
+    # account: 발행기가 이 값으로 로그인 자격증명·뉴스레터 슬러그를 고른다. 이메일은 회수 불가라 기본값 없음.
+    ("maily", "publish"): ({"title", "content", "subtitle", "account"}, {"tags", "dry_run"}),
     ("threads", "publish"): ({"content"}, {"image_urls", "topic_tag", "spoilers", "reply"}),
     # reply: 같은 topic의 장부 활성 글(root)에 다는 답글. 부모 id는 장부에서만 해석하므로
     # payload에 reply_to_id를 받지 않는다. 본문 URL 허용(링크 답글이 용도).
@@ -139,8 +140,10 @@ _CONTRACTS = {
 }
 
 # 채널별 발행 계정 식별자. n8n이 이 값으로 토큰(app_tokens)을 고르고, 장부도 계정별로 나뉜다.
+# 메일리: 발행기가 이 값으로 로그인 자격증명·뉴스레터 슬러그를 고른다. 이메일은 회수 불가라 기본값 없음.
 _ACCOUNTS_BY_CHANNEL = {
     "instagram": frozenset({"donggu", "beyonddeploy"}),
+    "maily": frozenset({"donggu", "beyonddeploy"}),
 }
 
 
@@ -672,7 +675,12 @@ def _validate_payload(
     required, optional = _CONTRACTS[key]
     keys = set(payload)
     if not required.issubset(keys) or not keys.issubset(required | optional):
-        raise ValidationError("payload does not match the closed channel contract")
+        # 빠진 필수 필드만 이름을 댄다(계약이 정한 이름이라 안전). 클라이언트 키는 되비추지 않는다.
+        missing = sorted(required - keys)
+        raise ValidationError(
+            "payload does not match the closed channel contract"
+            + (" (missing: " + ", ".join(missing) + ")" if missing else "")
+        )
     clean: Dict[str, Any] = {}
     for field, value in payload.items():
         if field in {"title", "content", "subtitle", "caption", "category"}:

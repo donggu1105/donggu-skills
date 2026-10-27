@@ -95,7 +95,7 @@ class ExecuteToolTest(PublishingRuntimeTests):
             operation="publish",
             payload={
                 "title": "Title", "subtitle": "Subtitle",
-                "content": "Body", "dry_run": False,
+                "content": "Body", "dry_run": False, "account": "donggu",
             },
             topic="maily-exec",
             note_path="note.md",
