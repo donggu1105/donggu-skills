@@ -26,6 +26,7 @@ Content *formats* are NOT defined here. Text drafts are owned by `writing-social
 "<topic> <channel>에 올려줘"
   1. Find note(s):  Personal Branding/40_Channel_Packs/<folder>/<채널> - <topic>.md
      folder→channel: Blog→tistory · Maily→maily · Threads→threads · LinkedIn→linkedin · Instagram→instagram
+     maily BD 계정 노트: FDE 커뮤니티 (Beyond Deploy)/Content/Maily/Maily - <제목>.md (frontmatter account: beyond-deploy) · 개인은 위 Personal Branding/40_Channel_Packs/Maily/
      │
      ├─ note MISSING ──► DO NOT stop and ask for a filename.
      │     Offer to CREATE a missing text-channel draft with writing-social-content,
@@ -167,7 +168,7 @@ reconciliation이 아니다. 그런데도 reconciliation이 걸렸다면 발행�
 | Channel | Body source in note | Payload notes | Format canon |
 |---|---|---|---|
 | tistory | first line = title, markdown body as-is — **but run blog-image prep first** (see below) | **`category` required** = note frontmatter `category:` verbatim (e.g. `FDE/현장에서 배운것`, `FDE 커뮤니티/운영 노트`). Which category a post belongs in is decided by the vault note `Personal Branding/40_Channel_Packs/Blog/_anchors/CATEGORY - Blog 카테고리 규칙.md` (ordered decision questions: BD-operator post → `FDE 커뮤니티/…`; numbered weekly diary → `FDE/주간일기`; field/customer/work essay → `FDE/현장에서 배운것`; FDE non-essay → `FDE`; otherwise ask) and the allowed vocabulary lives in `Personal Branding/_GUIDES/RULES.md`. Read that note before every tistory preview; if the frontmatter is empty, run the questions, propose one line (`category: …` + one-sentence reason), and get his OK — never fall back to the publisher default (`프로덕트 엔지니어`, retired 2026-10-28) and never pick a legacy category (개발자의 일상·책·백엔드 …) for a new post. The publisher matches the label character-for-character in the editor dropdown and fails with `category_injection_failed` / `published_category_mismatch` on any typo; the adapter trims outer whitespace only. **required public `tags` 4–7** | vault `TEMPLATE - Blog 발행 틀` |
-| maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is — **blog-image prep first if it has `![[embeds]]`** | `tags` array; `"dry_run": true` = draft only (no email) | **writing-social-content** |
+| maily | `## 발행`: line1=title, **line2=subtitle (required)**, blank, body md as-is — **blog-image prep first if it has `![[embeds]]`**; frontmatter `account` → `account` | `tags` array; `"dry_run": true` = draft only (no email). **`account` 필수**(`donggu`=개인 `maily.so/ai.donggu` · `beyonddeploy`=Beyond Deploy) — 노트 frontmatter `account:`가 정본이고, 볼트 관례 `beyond-deploy`는 `beyonddeploy`로 바꿔 보낸다(`prepare_instagram.py`의 `ACCOUNT_ALIASES`와 같은 규칙). 기본값 없음 — 빠지거나 허용값 밖이면 프리뷰 거부. 프리뷰 `preview.account`를 사용자에게 확인받은 뒤 승인 | **writing-social-content** |
 | threads | `## 발행` text until the next `##` = `content`; `![[image]]` embeds → `image_urls`; frontmatter `topic_tag` → `topic_tag`; frontmatter `spoilers` → `spoilers`; **노트에 `### 댓글·답글용 링크` 아래 답글 한 줄이 있으면 `reply: {content}`로 같이 싣는다(기본)** — 본문과 답글이 승인 한 번(`스레드 발행해`)으로 본문→장부→답글 순서로 나간다. 프리뷰 `preview.reply`(content·content_chars)를 본문과 함께 보여주고 승인받는다 | ≤500 chars, 0 hashtags, 0 body URLs; native preview rejects overlength, hashtags, and unambiguous URL strings. `topic_tag` 1개(1–50자, `.`·`&` 금지), `spoilers` = 본문에 그대로 있는 부분 문자열 1–10개. `reply`는 threads publish에서만 받고 reply 계약(≤500자·해시태그 0·URL 허용·`reply_to_id`/`topic_tag` 금지)으로 재검증된다. 결과 `result.reply.status`가 `failed`/`reconciliation_required`면 본문은 이미 올라간 것 — 영수증은 completed, 답글만 `operation: reply`로 다시 보낸다(아래 행) | **writing-social-content** |
 | threads **reply** (`operation: reply`) | 본문을 이미 따로 올렸거나 묶음 답글이 실패했을 때의 보정 경로. 노트 `### 댓글·답글용 링크` 아래 한 줄(또는 사용자가 준 답글 본문) = `content` | ≤500자, 해시태그 0 — **URL 허용**(링크 답글이 용도). 부모는 payload에 넣지 않는다: 어댑터가 같은 `topic`의 장부 활성 글(root)을 `reply_to_id`로 해석해 프리뷰에 `reply_to_id`·`parent_url`로 보여준다. root가 장부에 없으면 프리뷰가 거부된다. 승인 문구는 `답글 올려줘`처럼 **'답글/댓글' + 발행 동사** — `올려줘`만으로는 답글 영수증이 승인되지 않고, `답글 올려줘`는 본문 발행 영수증을 승인하지 못한다. 답글은 장부에 새 활성 행을 만들지 않는다(root가 유일한 활성 행으로 남아 update/delete가 root를 가리킨다) | 묶음(기본): 본문 preview(reply 포함)→승인 1회→execute. 분리: 본문 preview→승인→execute→장부 확인 → 답글 preview→승인→execute |
 | linkedin | `## Draft` final version until the next `##` | `content` only, 0 body URLs; native preview rejects unambiguous URL strings | writing-social-content |
@@ -264,7 +265,7 @@ agents must never call mutation endpoints directly or print token values.
 | `POST /publish-sync/tistory` | `{title, content, tags, category, cover_image?, options?}` | `{success, url, post_id, error}` |
 | `POST /update-sync/tistory` | `{post_id, title, content, tags, category, cover_image?}` | `{success, url, post_id, error}` |
 | `POST /unpublish-sync/tistory` | `{post_id}` | `{success, error}` |
-| `POST /publish-sync/maily` | `{title, content, subtitle?, tags?, options?}` | `{success, url, error}` |
+| `POST /publish-sync/maily` | `{title, content, subtitle, account, tags?, options?}` (`account` = `donggu`·`beyonddeploy` — 발행기가 이 값으로 로그인 자격증명·뉴스레터 슬러그를 고른다) | `{success, url, error}` |
 
 | Other SNS webhook (`https://n8n.donggu.site/webhook/…`, `X-SNS-Token`) | Body |
 |---|---|
@@ -304,6 +305,7 @@ Delete flow: adapter preview resolves the latest active ledger row → show topi
 - No text-channel note found and you're about to ask the user for a filename → STOP, offer to create the draft via `writing-social-content` instead. For missing images, use supplied assets first or `get-ai-image` when appropriate.
 - post_id from conversation memory → STOP, SELECT from the ledger.
 - maily without a subtitle line, or real-send without the second confirmation → STOP.
+- maily 프리뷰에 `account`가 없거나 노트 frontmatter `account`와 다름 → STOP, 승인받지 않는다. 노트의 `account:`를 확인하고 payload를 다시 만든다.
 - maily 본문에 `!파일명.jpg`처럼 대괄호 없는 이미지 표기가 남아 있음 → STOP, 마크다운이 아니라
   변환기가 무시하고 이미지가 통째로 사라진다. `![캡션](공개URL)`로 고친 뒤 재프리뷰.
 - maily `![alt]`에 "도입 이미지" 같은 기계적 문자열을 씀 → STOP, alt가 아니라 화면에 보이는
