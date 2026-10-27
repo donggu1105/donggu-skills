@@ -68,7 +68,7 @@ def jpeg_bytes(seed):
 
 
 def note_text(*, channel="instagram", status="draft", files=None, caption_block=None,
-              consent=True, cards=None):
+              consent=True, cards=None, account="beyonddeploy"):
     files = [f"{i:02d}.png" for i in range(1, 9)] if files is None else files
     cards_section = "".join(
         f"### {i:02d} · {CARD_TYPES[(i - 1) % len(CARD_TYPES)]}\n"
@@ -88,7 +88,8 @@ def note_text(*, channel="instagram", status="draft", files=None, caption_block=
         "---\n"
         "type: channel_pack\n"
         f"channel: {channel}\n"
-        f"status: {status}\n"
+        + (f"account: {account}\n" if account is not None else "")
+        + f"status: {status}\n"
         f"cards: {len(files) if cards is None else cards}\n"
         "topics: [beyond-deploy, case-talk]\n"
         "sources:\n"
@@ -240,6 +241,44 @@ class GateTests(VaultCase):
         self.assertEqual("4번의 모임, 100여 명을 만나며 알게 된 것들", result["topic"])
         self.assertEqual("publish", result["operation"])
         self.assertIn("png_will_be_reencoded_by_instagram", [w["code"] for w in result["warnings"]])
+
+    def test_frontmatter_account_reaches_payload_and_top_level(self):
+        self.write_kakao("published")
+        result = self.dry_run_ok()
+        self.assertEqual("beyonddeploy", result["account"])
+        self.assertEqual("beyonddeploy", result["payload"]["account"])
+        self.assertEqual({"image_urls", "caption", "account"}, set(result["payload"]))
+        keys = list(result)
+        self.assertEqual(keys.index("caption_first_line") - 1, keys.index("account"))
+        self.write_note(note_text(account="donggu"))
+        self.assertEqual("donggu", self.dry_run_ok()["payload"]["account"])
+
+    def test_missing_or_unknown_account_exits_2(self):
+        # 폴더(Content/Instagram)나 vault 위치로 계정을 추정하지 않는다.
+        self.write_kakao("published")
+        for account in (None, "", "x", "Donggu"):
+            with self.subTest(account=account):
+                self.write_note(note_text(account=account))
+                code, out, err = self.run_main("--dry-run")
+                self.assertEqual(2, code)
+                self.assertEqual("", out)
+                self.assertIn("account", err)
+
+    def test_cli_account_must_match_frontmatter(self):
+        self.write_kakao("published")
+        code, out, err = self.run_main("--dry-run", "--account", "donggu")
+        self.assertEqual(2, code)
+        self.assertEqual("", out)
+        self.assertIn("beyonddeploy", err)
+        self.assertEqual(2, self.run_main("--dry-run", "--account", "x")[0])
+        self.assertEqual("beyonddeploy", self.dry_run_ok("--account", "beyonddeploy")["account"])
+
+    def test_cli_account_alone_is_explicit_but_warns(self):
+        self.write_kakao("published")
+        self.write_note(note_text(account=None))
+        result = self.dry_run_ok("--account", "donggu")
+        self.assertEqual("donggu", result["payload"]["account"])
+        self.assertIn("account_from_cli_only", [w["code"] for w in result["warnings"]])
 
     def test_non_instagram_channel_exits_2(self):
         self.write_note(note_text(channel="threads"))

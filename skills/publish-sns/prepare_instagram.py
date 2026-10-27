@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-prepare_instagram.py — 인스타그램 채널 노트에서 발행 payload(`image_urls` + `caption`)를 준비한다.
+prepare_instagram.py — 인스타그램 채널 노트에서 발행 payload(`image_urls` + `caption` + `account`)를 준비한다.
 
-흐름: frontmatter 확인 → `## 장별 카피`의 `![[...]]` 임베드 추출(노트 등장 순서 = 이미지 순서) →
+흐름: frontmatter 확인(`account:` 필수) → `## 장별 카피`의 `![[...]]` 임베드 추출(노트 등장 순서 = 이미지 순서) →
 `## 캡션` 섹션에서 첫 단락~마지막 해시태그 줄을 캡션으로 → 재발행·동의 고지 게이트 →
 이미지 검증(존재·매직바이트·포맷·크기·MANIFEST 해시) → Supabase storage(public 버킷)에
 upsert 업로드 → 어댑터 프리뷰에 그대로 넣을 JSON을 stdout으로.
@@ -12,12 +12,16 @@ upsert 업로드 → 어댑터 프리뷰에 그대로 넣을 JSON을 stdout으�
 그 사이에 순서가 바뀌거나 수정 전 파일이 올라가는 일을 이 단계가 막는다.
 
 사용:
-  python3 prepare_instagram.py "<Instagram - 제목.md>" [--slug SLUG] [--bucket sns-media] \
-      [--out <file>] [--dry-run] [--force-consent] [--force-republish]
+  python3 prepare_instagram.py "<Instagram - 제목.md>" [--account donggu|beyonddeploy] \
+      [--slug SLUG] [--bucket sns-media] [--out <file>] [--dry-run] [--force-consent] [--force-republish]
+계정: 노트 frontmatter `account: donggu|beyonddeploy`가 정본. 폴더·vault 위치로 추정하지 않는다.
+  --account는 교차 확인용 — frontmatter와 다르면 종료코드 2. frontmatter에 없으면 --account 값을
+  쓰되 경고(account_from_cli_only)를 남긴다. 둘 다 없거나 허용값 밖이면 종료코드 2.
 키(.env 자동탐색, prepare_blog_images.load_env): SUPABASE_SERVICE_KEY, SUPABASE_URL
   탐색: $SNS_ENV → ~/workspace/projects/n8n/.env → ~/.env   (--dry-run이면 읽지 않음)
 storage 경로(upload_images.py와 동일): instagram/<YYYY>/<MM-DD>/<slug>-<HHMMSS>/<NN><ext>
-종료코드: 0=성공, 1=업로드 실패, 2=노트·캡션·이미지 규격 위반, 3=확장자와 실제 바이트 불일치,
+종료코드: 0=성공, 1=업로드 실패, 2=노트·캡션·이미지 규격 위반 또는 account 없음·허용값 밖·
+         --account와 frontmatter 불일치, 3=확장자와 실제 바이트 불일치,
          4=동의 고지 미완료, 5=이미 게시됨(재발행 방지)
 출력(stdout): payload JSON 하나. (stderr): 로그 JSON 한 줄씩. 비밀값은 어디에도 넣지 않는다.
 """
@@ -38,6 +42,8 @@ if _HERE not in sys.path:
 import prepare_blog_images as blog  # noqa: E402  vault·.env·매직바이트·업로드 규칙을 공유한다
 
 CHANNEL = "instagram"
+# 발행 어댑터(hermes/donggu-sns runtime `_ACCOUNTS_BY_CHANNEL["instagram"]`)와 같은 집합이어야 한다.
+ACCOUNTS = ("donggu", "beyonddeploy")
 NOTE_PREFIX = "Instagram - "
 MAX_IMAGES = 10
 MAX_CAPTION_CHARS = 2200
@@ -192,6 +198,27 @@ def validate_note(note, force_republish=False, warnings=None):
         )
 
 
+def resolve_account(frontmatter, cli_account=None, warnings=None):
+    """발행 계정. frontmatter `account:`가 정본이고 --account는 교차 확인용. 위반이면 PrepareError(2).
+    폴더·vault 위치로 추정하지 않는다 — 기본값으로 엉뚱한 계정에 올라가는 것이 가장 위험하다."""
+    allowed = "|".join(ACCOUNTS)
+    note_account = frontmatter.get("account", "")
+    if note_account and note_account not in ACCOUNTS:
+        raise PrepareError(2, f"frontmatter account가 허용값 밖: {note_account!r} — {allowed}")
+    if cli_account is not None and cli_account not in ACCOUNTS:
+        raise PrepareError(2, f"--account가 허용값 밖: {cli_account!r} — {allowed}")
+    if note_account and cli_account is not None and cli_account != note_account:
+        raise PrepareError(
+            2, f"--account {cli_account}와 frontmatter account: {note_account}가 다름 — 노트를 확인"
+        )
+    if note_account:
+        return note_account
+    if cli_account is not None:
+        _warn(warnings if warnings is not None else [], "account_from_cli_only", account=cli_account)
+        return cli_account
+    raise PrepareError(2, f"account 없음 — 노트 frontmatter에 `account: {allowed}` 기재")
+
+
 def _within(root, path):
     return path == root or root in path.parents
 
@@ -340,6 +367,7 @@ def prepare(a, warnings):
     for entry in note.warnings:
         _warn(warnings, **entry)
     validate_note(note, a.force_republish, warnings)
+    account = resolve_account(note.frontmatter, a.account, warnings)
 
     found_root = blog.find_vault_root(str(note_path.parent))
     if found_root is None:
@@ -392,9 +420,10 @@ def prepare(a, warnings):
         "operation": "publish",
         "topic": note_topic(note_path, note.frontmatter),
         "note_path": str(note_path),
-        "payload": {"image_urls": image_urls, "caption": caption},
+        "payload": {"image_urls": image_urls, "caption": caption, "account": account},
         "image_count": len(image_urls),
         "caption_chars": len(caption),
+        "account": account,
         "caption_first_line": caption.split("\n", 1)[0],
         "hashtags": count_hashtags(caption),
         "folder": folder,
@@ -406,6 +435,8 @@ def prepare(a, warnings):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("note")
+    ap.add_argument("--account", default=None,
+                    help=f"발행 계정({'|'.join(ACCOUNTS)}) — frontmatter account와 다르면 종료코드 2")
     ap.add_argument("--slug", default=None, help="storage 경로 슬러그(생략 시 노트 파일명에서)")
     ap.add_argument("--bucket", default="sns-media")
     ap.add_argument("--out", default=None, help="stdout과 같은 JSON을 이 파일에도 저장")
