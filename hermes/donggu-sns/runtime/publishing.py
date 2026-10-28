@@ -129,7 +129,9 @@ _CONTRACTS = {
     # publish 안의 `reply` 객체는 같은 계약의 부분집합(content, image_urls)이며, 본문 발행
     # 직후 그 post_id를 부모로 한 번 더 웹훅을 호출한다(승인 한 번).
     ("threads", "reply"): ({"content"}, {"image_urls"}),
-    ("linkedin", "publish"): ({"content"}, set()),
+    # account: 개인 프로필(donggu)과 회사 페이지(beyonddeploy)가 같은 멤버 토큰으로 갈린다 —
+    # n8n이 이 값으로 author URN을 고르므로 기본값 없음, 빠지면 거부한다.
+    ("linkedin", "publish"): ({"content", "account"}, set()),
     # account: 어느 계정에 올릴지. 기본값 없음 — 빠지면 엉뚱한 계정에 올라가므로 거부한다.
     ("instagram", "publish"): ({"image_urls", "caption", "account"}, set()),
     # story: 이미지 1장(JPEG)·캡션 없음. 스티커(링크 포함)는 API로 못 붙이고 앱에서만 된다.
@@ -144,6 +146,8 @@ _CONTRACTS = {
 _ACCOUNTS_BY_CHANNEL = {
     "instagram": frozenset({"donggu", "beyonddeploy"}),
     "maily": frozenset({"donggu", "beyonddeploy"}),
+    # 링크드인: donggu = 개인 프로필(urn:li:person), beyonddeploy = 회사 페이지(urn:li:organization).
+    "linkedin": frozenset({"donggu", "beyonddeploy"}),
 }
 
 

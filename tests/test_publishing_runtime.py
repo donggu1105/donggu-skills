@@ -132,6 +132,12 @@ class FakeApiHandler(BaseHTTPRequestHandler):
                 "success": True, "url": "https://www.instagram.com/p/ig-1/", "post_id": "ig-1",
             })
             return
+        if parsed.path == "/webhook/sns-pub-linkedin":
+            self._send(200, {
+                "success": True, "url": "https://www.linkedin.com/feed/update/urn:li:share:li-1",
+                "post_id": "urn:li:share:li-1", "account": body.get("account"),
+            })
+            return
         if parsed.path == "/publish-sync/tistory":
             if type(self).publisher_uncertain_without_identifiers:
                 self._send(200, {
@@ -693,7 +699,7 @@ class PublishingRuntimeTests(unittest.TestCase):
         with self.assertRaises(self.module.ValidationError):
             self.runtime.preview(
                 channel="linkedin", operation="publish",
-                payload={"content": "x", "reply": {"content": "y"}},
+                payload={"content": "x", "account": "donggu", "reply": {"content": "y"}},
                 topic="bad", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
             )
 
@@ -1042,6 +1048,68 @@ class PublishingRuntimeTests(unittest.TestCase):
         self.assertEqual(1, len(inserts))
         self.assertEqual("beyonddeploy", inserts[0][3]["account"])
         self.assertEqual("maily", inserts[0][3]["channel"])
+
+    LINKEDIN_PAYLOAD = {"content": "FDE가 현장에서 배운 것 #FDE"}
+
+    def preview_linkedin(self, payload, *, issue_receipt=True, topic="demo-li"):
+        return self.runtime.preview(
+            channel="linkedin", operation="publish", payload=payload,
+            topic=topic, note_path="40_Channel_Packs/LinkedIn/LinkedIn - demo-li.md",
+            session_id=self.SESSION_ID, turn_id=self.PREVIEW_TURN,
+            user_message_id=self.PREVIEW_MESSAGE_ID if issue_receipt else None,
+            issue_receipt=issue_receipt,
+        )
+
+    def test_linkedin_preview_requires_account(self):
+        # 개인 프로필과 회사 페이지가 같은 토큰으로 갈리므로 기본값이 없다: 빠지면 프리뷰에서 거부한다.
+        with self.assertRaises(self.module.ValidationError) as ctx:
+            self.preview_linkedin(dict(self.LINKEDIN_PAYLOAD), issue_receipt=False)
+        self.assertIn("account", str(ctx.exception))
+        self.assertEqual([], FakeApiHandler.requests)
+
+    def test_linkedin_preview_rejects_unknown_account(self):
+        for bad in ["nope", "", "Donggu", "beyond-deploy", ["donggu"], None, 1]:
+            with self.assertRaises(self.module.ValidationError, msg=repr(bad)) as ctx:
+                self.preview_linkedin({**self.LINKEDIN_PAYLOAD, "account": bad}, issue_receipt=False)
+            self.assertIn("account must be one of: beyonddeploy, donggu", str(ctx.exception))
+        self.assertEqual([], FakeApiHandler.requests)
+
+    def test_linkedin_preview_shows_account_and_binds_it_to_the_receipt(self):
+        plan = self.preview_linkedin({**self.LINKEDIN_PAYLOAD, "account": "beyonddeploy"})
+        self.assertEqual("planned", plan["status"])
+        self.assertEqual("beyonddeploy", plan["preview"]["account"])
+        self.assertEqual("beyonddeploy", plan["preview"]["payload"]["account"])
+        self.assertEqual("beyonddeploy", self.runtime.receipt_status(plan["receipt_id"])["account"])
+        self.assertEqual([], FakeApiHandler.requests)
+
+    def test_linkedin_dispatch_sends_account_to_webhook_and_ledger(self):
+        plan = self.preview_linkedin({**self.LINKEDIN_PAYLOAD, "account": "beyonddeploy"})
+        result = self.approve_and_dispatch(plan, text="링크드인 올려줘")
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("https://www.linkedin.com/feed/update/urn:li:share:li-1", result["url"])
+        webhook = [r for r in FakeApiHandler.requests if r[1] == "/webhook/sns-pub-linkedin"]
+        self.assertEqual(1, len(webhook))
+        self.assertEqual({"content": self.LINKEDIN_PAYLOAD["content"], "account": "beyonddeploy"}, webhook[0][3])
+        # 재발행 preflight와 장부 INSERT는 같은 계정 범위에서만 본다.
+        lookups = [r for r in FakeApiHandler.requests if r[0] == "GET" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(1, len(lookups))
+        self.assertIn("channel=eq.linkedin", lookups[0][4])
+        self.assertIn("account=eq.beyonddeploy", lookups[0][4])
+        inserts = [r for r in FakeApiHandler.requests if r[0] == "POST" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual(1, len(inserts))
+        self.assertEqual("beyonddeploy", inserts[0][3]["account"])
+        self.assertEqual("linkedin", inserts[0][3]["channel"])
+        self.assertEqual("urn:li:share:li-1", inserts[0][3]["post_id"])
+        status = self.runtime.receipt_status(plan["receipt_id"])
+        self.assertEqual("completed", status["state"])
+        self.assertEqual("beyonddeploy", status["account"])
+
+    def test_linkedin_url_rule_still_applies_with_account(self):
+        with self.assertRaisesRegex(self.module.ValidationError, "URLs"):
+            self.preview_linkedin(
+                {"content": "본문 https://example.com", "account": "donggu"}, issue_receipt=False,
+            )
+        self.assertEqual([], FakeApiHandler.requests)
 
     def test_threads_topic_tag_and_spoiler_validation(self):
         def preview(payload):
@@ -2061,7 +2129,7 @@ class PublishingRuntimeTests(unittest.TestCase):
                     self.runtime.preview(
                         channel=channel,
                         operation="publish",
-                        payload={"content": content},
+                        payload={"content": content, **({"account": "donggu"} if channel == "linkedin" else {})},
                         topic="contract",
                         note_path="note.md",
                         session_id="stateless-contract",
