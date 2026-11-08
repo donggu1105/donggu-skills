@@ -18,7 +18,7 @@ Blog·LinkedIn·Threads·Maily용 텍스트를 작성한다. 이 스킬은 하�
 작성 전에 **로드된 이 `SKILL.md`의 디렉터리**를 기준으로 reference를 읽는다.
 
 1. 시작할 때 `references/personas.md`를 읽고 발신 페르소나를 해결한다.
-2. 시작할 때 `references/vault-voice.md`를 읽고, 그 절차대로 볼트의 `VOICE - 공통`과 요청 채널 `VOICE - <채널>` 앵커를 읽는다.
+2. 시작할 때 `references/vault-voice.md`를 읽고, 그 절차대로 볼트의 `VOICE - 공통`과 요청 채널 `VOICE - <채널>` 앵커를 읽는다. Beyond Deploy 계정 글이면 같은 문서의 BD 절차대로 `VOICE - Beyond Deploy`와 `VOICE - BD <채널>`을 읽는다.
 3. 시작할 때 요청받은 채널 규칙 reference만 읽는다.
 4. 근거 장부와 채널별 논지를 잠근 뒤, 요청 채널 앵커의 `canon:` 정전 글만 읽는다.
 5. 여러 채널이면 각 채널의 앵커·규칙·정전을 각각 읽는다.

@@ -23,6 +23,19 @@
 - 앵커의 `## 실측` 절은 참고 기록이다. 규칙이 아니다.
 - 앵커의 `## 채널 운영 메모`(발행 시간·알고리즘·미디어)는 작성에 쓰지 않는다.
 
+## Beyond Deploy 계정 글
+
+요청이 Beyond Deploy 계정 글이면(원고 frontmatter `account: beyond-deploy`, 경로가 `FDE 커뮤니티 (Beyond Deploy)/Content/`, 또는 사용자가 BD 계정·회사 페이지라고 지정) 위 두 파일 대신 아래 두 파일을 읽는다. 개인 보이스(`VOICE - 공통`)는 섞지 않는다.
+
+| 순서 | 파일 | 소유하는 것 |
+|---|---|---|
+| 1 | `FDE 커뮤니티 (Beyond Deploy)/Doctrine/VOICE - Beyond Deploy.md` | 화자(주최 측)·태도·연사와 편집자 구분·금지·해시태그 |
+| 2 | `FDE 커뮤니티 (Beyond Deploy)/Content/<채널>/_anchors/VOICE - BD <채널>.md` | 채널 톤·`canon:` 정전 |
+
+- 채널 폴더: Blog → `Blog`, LinkedIn 회사 페이지 → `LinkedIn`, Instagram → `Instagram`, 오픈카톡 공지 → `KakaoTalk`, Maily → `Maily`.
+- 대외 소개 문구가 필요하면 `Doctrine/MESSAGING - 대외 소개문.md`의 확정 문장을 그대로 쓴다.
+- 계정이 불분명하면 개인 계정으로 가정하지 말고 묻는다.
+
 ## 논지를 잠근 뒤 읽는 파일 (톤 캘리브레이션)
 
 - 채널 앵커 frontmatter `canon:`에 있는 위키링크를 같은 채널 폴더에서 찾아 연다. `[[LinkedIn - 그 뒤를 메우는 사람]]` → `Personal Branding/40_Channel_Packs/LinkedIn/LinkedIn - 그 뒤를 메우는 사람.md`.

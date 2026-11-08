@@ -392,5 +392,14 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
 
 
 
+
+class BeyondDeployVoiceContractTest(unittest.TestCase):
+    def test_vault_voice_routes_beyond_deploy_account(self):
+        text = (REPO_ROOT / "skills" / "writing-social-content" / "references" / "vault-voice.md").read_text(encoding="utf-8")
+        self.assertIn("account: beyond-deploy", text)
+        self.assertIn("Doctrine/VOICE - Beyond Deploy.md", text)
+        self.assertIn("_anchors/VOICE - BD <채널>.md", text)
+        self.assertIn("개인 보이스(`VOICE - 공통`)는 섞지 않는다", text)
+
 if __name__ == "__main__":
     unittest.main()
