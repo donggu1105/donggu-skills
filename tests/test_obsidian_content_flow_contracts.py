@@ -15,15 +15,11 @@ SKILL_PATHS = {
 
 WRITING_REFERENCE_PATHS = {
     "personas": REPO_ROOT / "skills" / "writing-social-content" / "references" / "personas.md",
-    "common": REPO_ROOT / "skills" / "writing-social-content" / "references" / "common-voice.md",
+    "vault_voice": REPO_ROOT / "skills" / "writing-social-content" / "references" / "vault-voice.md",
     "blog": REPO_ROOT / "skills" / "writing-social-content" / "references" / "blog.md",
     "linkedin": REPO_ROOT / "skills" / "writing-social-content" / "references" / "linkedin.md",
     "threads": REPO_ROOT / "skills" / "writing-social-content" / "references" / "threads.md",
     "maily": REPO_ROOT / "skills" / "writing-social-content" / "references" / "maily.md",
-    "examples_blog": REPO_ROOT / "skills" / "writing-social-content" / "references" / "examples-blog.md",
-    "examples_linkedin": REPO_ROOT / "skills" / "writing-social-content" / "references" / "examples-linkedin.md",
-    "examples_threads": REPO_ROOT / "skills" / "writing-social-content" / "references" / "examples-threads.md",
-    "examples_maily": REPO_ROOT / "skills" / "writing-social-content" / "references" / "examples-maily.md",
 }
 
 
@@ -45,24 +41,25 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
         self.assertIn("origin", writing)
         self.assertIn("adapt", writing)
         for reference in (
-            "references/common-voice.md",
+            "references/vault-voice.md",
             "references/blog.md",
             "references/linkedin.md",
             "references/threads.md",
             "references/maily.md",
-            "references/examples-blog.md",
-            "references/examples-linkedin.md",
-            "references/examples-threads.md",
-            "references/examples-maily.md",
         ):
             with self.subTest(reference=reference):
                 self.assertIn(reference, writing)
+        for retired in ("references/common-voice.md", "references/examples-"):
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired, writing)
         self.assertNotIn("type: channel_pack", writing)
         self.assertNotIn("derived_from", writing)
         self.assertNotIn("type: content", writing)
+        # Vault paths live in vault-voice.md, not in the router.
         self.assertNotIn("Personal Branding/", writing)
-        self.assertNotIn("VOICE -", writing)
-        self.assertNotIn("canon:", writing)
+        for anchor in ("VOICE - 공통", "VOICE - LinkedIn", "canon:"):
+            with self.subTest(anchor=anchor):
+                self.assertIn(anchor, writing)
 
     def test_writing_resolves_one_persona_before_source_lock(self):
         writing = self.skills["writing"]
@@ -199,7 +196,7 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
             writing,
         )
         self.assertIn(
-            "로드 순서: `personas.md` → `common-voice.md` → 요청 채널 규칙",
+            "로드 순서: `personas.md` → `vault-voice.md`(볼트 `VOICE - 공통` → 채널 앵커) → 요청 채널 규칙",
             readme,
         )
         self.assertIn(
@@ -221,7 +218,6 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
 
     def test_writing_references_own_channel_contracts(self):
         expected = {
-            "common": ("## 사실 경계", "## 금지 표현과 장치"),
             "blog": ("2,000~2,500자", "`##` 소제목 3~6개"),
             "linkedin": ("800~1,400자", "1,200~1,400자", "약 210자", "3~5개"),
             "threads": ("500자 이하", "5~7개", "본문 해시태그: 0개"),
@@ -233,69 +229,69 @@ class ObsidianContentFlowContractsTest(unittest.TestCase):
                 with self.subTest(channel=channel, contract=contract):
                     self.assertIn(contract, text)
 
-    def test_writing_references_have_no_vault_runtime_dependency(self):
+    def test_writing_channel_references_have_no_vault_runtime_dependency(self):
         forbidden = (
             "/Users/",
             "Personal Branding",
             "40_Channel_Packs",
             "_anchors",
-            "VOICE -",
             "canon:",
             "CORE",
             "[[",
         )
         for name, text in self.writing_references.items():
+            if name == "vault_voice":
+                continue
             for token in forbidden:
                 with self.subTest(reference=name, token=token):
                     self.assertNotIn(token, text)
 
-    def test_writing_examples_are_style_only_and_loaded_after_thesis_lock(self):
+    def test_voice_lives_in_vault_and_is_read_by_one_reference(self):
+        vault_voice = self.writing_references["vault_voice"]
+        for contract in (
+            "OBSIDIAN_VAULT_PATH",
+            "obsidian.json",
+            "Personal Branding/05_Brand/VOICE - 공통.md",
+            "Personal Branding/40_Channel_Packs/<채널>/_anchors/VOICE - <채널>.md",
+            "canon:",
+            "작성을 멈추고",
+            "근거가 아니다",
+            "자동으로 열지 않는다",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, vault_voice)
+        self.assertNotIn("/Users/", vault_voice)
+        refs = REPO_ROOT / "skills" / "writing-social-content" / "references"
+        for retired in (
+            "common-voice.md",
+            "examples-blog.md",
+            "examples-linkedin.md",
+            "examples-threads.md",
+            "examples-maily.md",
+        ):
+            with self.subTest(retired=retired):
+                self.assertFalse((refs / retired).exists())
+        for channel in ("blog", "linkedin", "threads", "maily"):
+            with self.subTest(channel=channel):
+                self.assertIn("vault-voice.md", self.writing_references[channel])
+
+    def test_writing_canon_is_style_only_and_loaded_after_thesis_lock(self):
         writing = self.skills["writing"]
         self.assertLess(
             writing.index("### 4. 채널별 논지 잠금"),
             writing.index("### 5. 톤 캘리브레이션"),
         )
-        self.assertIn("논지를 잠근 뒤 요청 채널", writing)
+        self.assertIn("논지를 잠근 뒤 요청 채널 앵커의 `canon:`", writing)
         self.assertIn("사실·숫자·사례·비유·결론·고유 표현", writing)
-        step_2 = writing.split("### 2. 필수 reference 로드", 1)[1].split(
+        step_2 = writing.split("### 2. 보이스와 채널 규칙 로드", 1)[1].split(
             "### 3. 근거 장부", 1
         )[0]
         step_5 = writing.split("### 5. 톤 캘리브레이션", 1)[1].split(
             "### 6. 작성", 1
         )[0]
-        self.assertIn("`examples-*`는 여기서 읽지 않는다", step_2)
-        self.assertIn("references/examples-*.md", step_5)
-
-        expected_counts = {
-            "examples_blog": 3,
-            "examples_linkedin": 3,
-            "examples_threads": 2,
-            "examples_maily": 3,
-        }
-        expected_unique_sources = {
-            "examples_blog": 3,
-            "examples_linkedin": 3,
-            "examples_threads": 2,
-            "examples_maily": 2,
-        }
-        expected_sha256 = {
-            "examples_blog": "9118b2f530c96b63687a7ce04cd18e3e1d7821b3b8ad3753d1bed910a699e80e",
-            "examples_linkedin": "9a493a7ffc2b46bf7abd5f31ce25ddb7a0fc74a46fcebd6493e4e320785ea39f",
-            "examples_threads": "aaa3d76fa9bb372a1029bd3467eb65903f5d9a4a0555e668cec18c22add8ee17",
-            "examples_maily": "98508db7811f9c4641e19fb56f4905c4739653da804f7da89fc86b0c72e52a89",
-        }
-        for name, expected_count in expected_counts.items():
-            text = self.writing_references[name]
-            with self.subTest(name=name):
-                self.assertIn("## 사용 경계", text)
-                self.assertIn("문체 교정용", text)
-                self.assertEqual(text.count("**원문 제목:**"), expected_count)
-                titles = re.findall(r"\*\*원문 제목:\*\* (.+)", text)
-                self.assertEqual(expected_unique_sources[name], len(set(titles)))
-                self.assertIn("근거가 아니다", text)
-                self.assertEqual(
-                    expected_sha256[name], hashlib.sha256(text.encode("utf-8")).hexdigest()
-                )
+        self.assertIn("정전 글(`canon:`)은 여기서 읽지 않는다", step_2)
+        self.assertIn("vault-voice.md", step_2)
+        self.assertIn("`canon:` 정전 글", step_5)
 
     def test_writing_explicit_source_and_untrusted_data_boundaries_are_deterministic(self):
         writing = self.skills["writing"]
