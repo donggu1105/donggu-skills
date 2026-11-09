@@ -146,8 +146,9 @@ _CONTRACTS = {
 _ACCOUNTS_BY_CHANNEL = {
     "instagram": frozenset({"donggu", "beyonddeploy"}),
     "maily": frozenset({"donggu", "beyonddeploy"}),
-    # 링크드인: donggu = 개인 프로필(urn:li:person), beyonddeploy = 회사 페이지(urn:li:organization).
-    "linkedin": frozenset({"donggu", "beyonddeploy"}),
+    # 링크드인: donggu = 개인 프로필(urn:li:person), beyonddeploy = 회사 페이지(urn:li:organization),
+    # test = 검증용 별도 개인 프로필(연결 테스트·발행 확인 전용).
+    "linkedin": frozenset({"donggu", "beyonddeploy", "test"}),
 }
 
 

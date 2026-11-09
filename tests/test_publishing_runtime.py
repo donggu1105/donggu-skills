@@ -1068,11 +1068,32 @@ class PublishingRuntimeTests(unittest.TestCase):
         self.assertEqual([], FakeApiHandler.requests)
 
     def test_linkedin_preview_rejects_unknown_account(self):
-        for bad in ["nope", "", "Donggu", "beyond-deploy", ["donggu"], None, 1]:
+        for bad in ["nope", "", "Donggu", "beyond-deploy", "Test", ["donggu"], None, 1]:
             with self.assertRaises(self.module.ValidationError, msg=repr(bad)) as ctx:
                 self.preview_linkedin({**self.LINKEDIN_PAYLOAD, "account": bad}, issue_receipt=False)
-            self.assertIn("account must be one of: beyonddeploy, donggu", str(ctx.exception))
+            self.assertIn("account must be one of: beyonddeploy, donggu, test", str(ctx.exception))
         self.assertEqual([], FakeApiHandler.requests)
+
+    def test_linkedin_test_account_is_accepted_and_scoped_like_the_others(self):
+        # test = 별도 개인 프로필(검증용). linkedin 에만 있고 instagram·maily 에는 없다.
+        plan = self.preview_linkedin({**self.LINKEDIN_PAYLOAD, "account": "test"})
+        self.assertEqual("planned", plan["status"])
+        self.assertEqual("test", plan["preview"]["account"])
+        result = self.approve_and_dispatch(plan, text="링크드인 올려줘")
+        self.assertEqual("completed", result["status"])
+        webhook = [r for r in FakeApiHandler.requests if r[1] == "/webhook/sns-pub-linkedin"]
+        self.assertEqual("test", webhook[0][3]["account"])
+        inserts = [r for r in FakeApiHandler.requests if r[0] == "POST" and r[1] == "/rest/v1/published_posts"]
+        self.assertEqual("test", inserts[0][3]["account"])
+        for channel, payload in (
+            ("instagram", {"image_urls": ["https://img.test/1.png"], "caption": "x", "account": "test"}),
+            ("maily", {**self.MAILY_PAYLOAD, "account": "test"}),
+        ):
+            with self.assertRaises(self.module.ValidationError, msg=channel):
+                self.runtime.preview(
+                    channel=channel, operation="publish", payload=payload,
+                    topic="t", note_path="note.md", session_id="s", turn_id="t", issue_receipt=False,
+                )
 
     def test_linkedin_preview_shows_account_and_binds_it_to_the_receipt(self):
         plan = self.preview_linkedin({**self.LINKEDIN_PAYLOAD, "account": "beyonddeploy"})
